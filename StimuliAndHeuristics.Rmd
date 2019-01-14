@@ -1,0 +1,509 @@
+---
+title: "StimuliAndHeuristics"
+author: "Alex Kale"
+date: "1/8/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(gganimate)
+```
+
+
+#Task
+
+We will show people uncertainty visualizations about the probability of different possible margins of victory in an imaginary game or election and ask them:
+
+1. If this game/election happened 100 times, how many times would you expect team A to win?
+2. Given $1 to bet on the outcome of this game/election, how much would you bet that team A wins?
+
+Both of these questions assess the ability of the user to judge the common language effect size (CLES) or the proportion of probability mass which favors a victory for team A. However, the second question incorporates an incentive structure whereby the user must bet not too much and not too little, and the optimal bet depends on the odds of victory for team A. Note that in the current proposal team A always has a probability of victory which is less than or equal to 50%.
+
+##Incentive Structure
+
+The user bets some portion of their $1 budget in each trial that team A will win the game/election. The payoff of the bet is proportional to the odds of the bet such that a bet on 1:1 odds yields a 50% chance of winnings double the bet amount, a bet on 2:1 odds yields a 33% chance of winnings tripple the bet amount, a bet on 4:1 odds yields a 20% chance of winnings quintupple the bet amount, etc. 
+
+Additionally, the amount that users win is subject to a tiered capital gains tax (see below), which imposes diminishing returns for excessively risky bets, and the amount that users do not bet is subject to a flat tax of 17%, which imposes an incentive against risk aversion much like inflation encourages people to invest in the stock market.
+
+The block of code below summarizes the incentive structure for the betting task. The line chart shows the expected utility (in $) of each bet amount for each level of odds of victory (shown in different colors). The specific levels for oddes of victory shown are 1:1, 2:1, 4:1, 8:1, and 16:1 (proposed below in _Data for Stimuli_). A key feature of this task design is that the expected utility for the bet depends on the probability that team A wins the game (i.e., CLES). Thus, the proposed decision task relies on the same uncertainty information as the proposed perceptual judgment, allowing us to separately investigate perception and decision-making within one experiment.
+
+```{r}
+# set range of possible bets based on given budget and minimum bet
+budget <- 1
+min_bet <- 0.05
+possible_bets <- seq(from=min_bet, to=budget, by=0.05) 
+
+# create a tiered capital gains tax
+tax_winnings <- function(winnings) {
+  tiers <- c(0, 0.5, 1, 1.5, 2.5, 4, Inf)
+  rates <- c(0, 0.05, 0.1, 0.15, 0.2, 0.25, 0.3)
+  taxed_winnings <- sum(diff(c(0, pmin(winnings, tiers))) * (1-rates))
+  return(taxed_winnings)
+}
+
+# set cost of not betting
+loss_rate <- 0.17
+
+# calculate expected payout for different odds
+one_to_one <- seq(from=0, to=0, length.out = length(possible_bets))
+two_to_one <- seq(from=0, to=0, length.out = length(possible_bets))
+four_to_one <- seq(from=0, to=0, length.out = length(possible_bets))
+eight_to_one <- seq(from=0, to=0, length.out = length(possible_bets))
+sixteen_to_one <- seq(from=0, to=0, length.out = length(possible_bets))
+for (i in 1:length(possible_bets)) {
+  one_to_one[i] <- (1 - loss_rate)*(budget - possible_bets[i]) + 1/2*tax_winnings(2*possible_bets[i])   # 50% chance to win double the bet
+  two_to_one[i] <- (1 - loss_rate)*(budget - possible_bets[i]) + 1/3*tax_winnings(3*possible_bets[i])   # 33% chance to win triple the bet
+  four_to_one[i] <- (1 - loss_rate)*(budget - possible_bets[i]) + 1/5*tax_winnings(5*possible_bets[i])  # etc.
+  eight_to_one[i] <- (1 - loss_rate)*(budget - possible_bets[i]) + 1/9*tax_winnings(9*possible_bets[i]) 
+  sixteen_to_one[i] <- (1 - loss_rate)*(budget - possible_bets[i]) + 1/17*tax_winnings(17*possible_bets[i])
+}
+
+# plot expected payout for each possible bet
+plot(possible_bets,one_to_one,type="l",col="red",xlab="Bet Amount",ylab="Expected Value of Funds")
+lines(possible_bets,two_to_one,col="orange")
+lines(possible_bets,four_to_one,col="yellow")
+lines(possible_bets,eight_to_one,col="green")
+lines(possible_bets,sixteen_to_one,col="blue")
+```
+
+
+#Reading Difference Distributions
+
+##Data for Stimuli
+
+We will vary the mean and standard deviation of the distribution users are judging so that we measure different levels of uncertainty (e.g., low and high) and different odds of victory for team A (e.g., 1:1, 2:1, 4:1, 8:1, 16:1). The point of these conditions is that the mean margin of victory for team A depends on both the variance and the odds of victory for team A, such that the location of the mean alone should provide a poor cue for the task.
+
+Here's some data spanning the different combinations of conditions that I propose to test.
+
+```{r}
+# set up conditions dataframe
+condition <- c("low var, 1:1 odds", "low var, 2:1 odds", "low var, 4:1 odds", "low var, 8:1 odds", "low var, 16:1 odds",
+               "high var, 1:1 odds", "high var, 2:1 odds", "high var, 4:1 odds", "high var, 8:1 odds", "high var, 16:1 odds")
+std <- sort(rep(c(2,5),5)) # different levels of uncertainty about the margin of victory
+odds <- rep(c(1/2,1/3,1/5,1/9,1/17),2) # probability of team A winning
+conds_df <- data.frame(
+    "condition"=condition, 
+    "sd"=std, 
+    "odds_of_victory"=odds
+)
+
+# add column for the mean
+conds_df$mean <- -(conds_df$sd * qnorm(1 - conds_df$odds_of_victory)) # see for derivation https://www.johndcook.com/quantiles_parameters.pdf
+
+# print
+conds_df
+```
+
+These data are visualized in the stimuli below.
+
+##Visualizations and Heuristics
+
+We will test users' ability to judge CLES and use that information to inform their decision about the bet amount based on the information encoded in one of a set of visualizations. Each visualization we test will be associated with a specific hypothesis about the heuristic that participants are likely to use in order to read CLES from the visualization. I am thinking of these heuristics as a form of _representativeness_, whereby the visual form of the visualization is treated as an explicit representation of the reliability of the effect. 
+
+###Means Only
+
+```{r echo=FALSE}
+# means only
+conds_df %>% ggplot(aes(x=mean, y="Model Prediction")) +
+  geom_point(size=2) +
+  theme_bw() +
+  labs(
+    title="Stimulus Conditions: Means Only",
+    x="Margin of Victory",
+    caption="Odds of Victory * Levels of Uncertainty"
+  ) +
+  theme(axis.title.y = element_blank()) +
+  facet_grid(round(odds_of_victory,2) ~ sd)
+```
+
+When relying on means alone to make judgments about CLES, users have no uncertainty information. As Jessica proposed in the analysis of her 2015 data she shared with me, we should model the perceived reliability of the effect from means alone as a function of the position of the mean. Specifically:
+$$Perceived Pr(A_{win}) \propto 50 + 50 * (\max{\mu(A - B)} - \mu(A - B))$$
+This predicts that a user will underestimate the probability that team A wins as the mean difference between scores for teams A and B is more negative. This should result in excessively conservative betting for extreme odds.
+
+###Intervals Only
+
+```{r echo=FALSE}
+# intervals only
+conds_df %>% ggplot(aes(y=mean, x="Model Prediction")) +
+  geom_errorbar(aes(ymin=mean-qnorm(0.95)*sd, ymax=mean+qnorm(0.95)*sd, width=0)) +
+  coord_flip() +
+  theme_bw() +
+  labs(
+    title="Stimulus Conditions: Intervals Only",
+    x="Margin of Victory",
+    caption="Odds of Victory * Levels of Uncertainty"
+  ) +
+  theme(axis.title.y = element_blank()) +
+  facet_grid(round(odds_of_victory,2) ~ sd)
+```
+
+When relying on intervals to make judgments about CLES, I predict that users will use the proportion of the interval which crosses zero as a cue to the probability that team A wins the game.
+$$Perceived Pr(A_{win}) \propto \frac{interval > 0}{interval}$$
+This predicts that users will overestimate propability of values near the edge of the interval and underestimate the probability of values near the center of the interval. I would need to run a simulation of this strategy to predict the exact pattern of influence on betting. However, it follows that users following this heuristic will bet too much on extreme odds.
+
+###HOPs
+
+```{r}
+# for HOPs we need to add draws to our dataframe
+n <- 100 # number of samples
+conds_df$sample_n <- n
+conds_df_draws <- conds_df %>% as_tibble() %>%
+  mutate(draw=pmap(list(sample_n, mean, sd), rnorm), # get a list of draws from the distribution for each condition
+         draw_n=list(seq(1, n))) %>% #number each sample in order to animate multiple views simultaneously
+  unnest() # get back to a tidy format
+```
+
+```{r  echo=FALSE}
+# hops
+hops = conds_df_draws %>%
+  ggplot(aes(y=draw, x="Model Prediction")) +
+  geom_point(shape=124, size=5) +
+  coord_flip() +
+  theme_bw() +
+  labs(
+    title="Stimulus Conditions: HOPs",
+    x="Margin of Victory",
+    caption="Odds of Victory * Levels of Uncertainty"
+  ) +
+  facet_grid(round(odds_of_victory,2) ~ sd) +
+  transition_manual(draw_n)
+
+animate(hops, fps=2.5)
+```
+
+With HOPs, I would expect users to judge CLES based on the proportion of draws crossing the zero line.
+$$Perceived Pr(A_{win}) \propto \frac{\Sigma(draws > 0)}{\Sigma (draws)}$$
+Given representative sampling this should be pretty close to the ground truth. Although maybe we can test order effects---and thus differentiate the subitizing heuristic from the ground truth---by manipulating the series of draws and modeling primacy and recency as different weighting functions over the timeseries of draws.
+
+###Quantile Dotplots
+
+```{r}
+# as with hops, we need to add to the dataframe to build quantile dotplots
+n_dots <- 20 # number of dots
+n <- 10000 # number of samples
+conds_df$sample_n <- n
+conds_df_quantiles <- conds_df %>% as_tibble() %>%
+  mutate(draws=pmap(list(sample_n, mean, sd), rnorm), # sample each distribution (as before)
+    quantiles=map(draws, ~ quantile(unlist(.x), ppoints(n_dots))), # use these draws to get quantiles
+    draws=NULL) %>% # drop draws from the dataframe since these were an intermediate step anyway
+  unnest()
+```
+
+```{r echo=FALSE}
+# quantile dotplots
+conds_df_quantiles %>%
+  ggplot(aes(x=quantiles, y="Model Prediction")) +
+  geom_dotplot(binwidth=1) +
+  theme_bw() +
+  labs(
+    title="Stimulus Conditions: Quantile Dotplots",
+    x="Margin of Victory",
+    caption="Odds of Victory * Levels of Uncertainty"
+  ) +
+  facet_grid(round(odds_of_victory,2) ~ sd)
+```
+
+Similar to HOPs, I would expect users of quantile dotplots to judge CLES based on the proportion of dots crossing the zero line.
+$$Perceived Pr(A_{win}) \propto \frac{\Sigma(dots > 0)}{\Sigma (dots)}$$
+Again, this should be pretty close to the ground truth. I'm not sure if we will have enough statistical power to test differences between this heuristic and the ground truth which might arise from binning. For instance, using dotplot-20, I would expect CLES judgments to tend toward multiples of 5%, but given other sources of imprecision in responses, it might be difficult to reliably differentiate this rounding from the ground truth.
+
+I do think it would be nice to run an experiment with both HOPs and quantile dotplots. Which gets closer to the ground truth? How reliably do users' judgments reflect the ground truth? I think these would be novel comparisons.
+
+###Means with Intervals
+
+```{r echo=FALSE}
+# means with intervals
+conds_df %>% ggplot(aes(y=mean, x="Model Prediction")) +
+  geom_pointrange(aes(ymin=mean-qnorm(0.95)*sd, ymax=mean+qnorm(0.95)*sd)) +
+  coord_flip() +
+  theme_bw() +
+  labs(
+    title="Stimulus Conditions: Means with Intervals",
+    x="Margin of Victory",
+    caption="Odds of Victory * Levels of Uncertainty"
+  ) +
+  theme(axis.title.y = element_blank()) +
+  facet_grid(round(odds_of_victory,2) ~ sd)
+```
+
+As we've discussed, visualizations which mix the representations above (e.g., means with intervals) might involve the use of different heuristics among different users. I predict that the CLES judgments of some portion of users in this condition will most closely align with the mean magnitude heuristic and others will most closely align with the interval proportion heuristic (see _Modeling Heuristics_ below). To the extent that users seem to rely on the mean magnitude heuristic in the presence of uncertainty information, we can make the case that people ignore uncertainty when given a mean to latch onto. We might see this same heuristic reflected to a lesser degree with quantile dotplots or means with HOPs.
+
+###Means with HOPs
+
+```{r echo=FALSE}
+# means with hops
+hops_means <- conds_df_draws %>% ggplot(aes(y=mean, x="Model Prediction")) +
+  geom_point(size=2) +
+  geom_point(aes(y=draw), shape=124, size=5) +
+  coord_flip() +
+  theme_bw() +
+  labs(
+    title="Stimulus Conditions: Means with HOPs",
+    x="Margin of Victory",
+    caption="Odds of Victory * Levels of Uncertainty"
+  ) +
+  theme(axis.title.y = element_blank()) +
+  facet_grid(round(odds_of_victory,2) ~ sd) +
+  transition_manual(draw_n)
+
+animate(hops_means, fps=2.5)
+```
+
+My notes above about means with intervals sum up my thoughts about this condition as well. I predict that we will see some mixture of heuristics in this condition across users.
+
+##Heuristics and Underlying Hypothesis
+
+In a sense, each of the heuristics I propose above are part of a broader hypothesis that judgments based on visualization more often rely on visual-spatial cues than reasoning about the underlying distribution implied by a visualization (e.g., confidence intervals). To the extent that this sort of _what-you-see-is-all-there-is_ bias is reflected in our data, I think it really strengthens the empirical case for expressive uncertainty visualizations that can be processed automatically (i.e., Type 1 processing).
+
+
+#Comparing Two Distributions
+
+Jessica suggested that comparing two distributions is an ideal task for two reasons: 1) it is harder than reading the difference distribution which should lead a greater number of users to adopt heuristics; and 2) comparing distributions is the most common way to judge uncertainty in scientific effects.
+
+##Data for Stimuli
+
+Again, we will vary the mean and standard deviation of the distribution users are judging so that we measure different levels of uncertainty (e.g., low and high) and different odds of victory for team A (e.g., 1:1, 2:1, 4:1, 8:1, 16:1).
+
+```{r}
+# set up conditions dataframe
+condition <- rep(c("low var, 1:1 odds", "low var, 2:1 odds", "low var, 4:1 odds", "low var, 8:1 odds", "low var, 16:1 odds",
+               "high var, 1:1 odds", "high var, 2:1 odds", "high var, 4:1 odds", "high var, 8:1 odds", "high var, 16:1 odds"), 2)
+std_diff <- rep(sort(rep(c(2, 5), 5)), 2) # different levels of uncertainty about the margin of victory
+odds <- rep(c(1/2, 1/3, 1/5, 1/9, 1/17), 4) # probability of team A winning
+teamAB <- sort(rep(c("A", "B"), 10))
+conds_df2 <- data.frame(
+    "condition"=condition, 
+    "sd_diff"=std, 
+    "odds_of_victory"=odds,
+    "team"=teamAB
+)
+
+# add column for the mean difference
+conds_df2$mean_diff <- conds_df2$sd_diff * qnorm(1 - conds_df2$odds_of_victory)
+# conds_df2$mean_diff <- conds_df2$sd_diff * qnorm(conds_df2$odds_of_victory)
+
+# compute the mean of distributions A and B
+center <- 50 # set the center point between the score of A and B
+conds_df2$mean[conds_df2$team == "A"] <- center - conds_df2$mean_diff[conds_df2$team == "A"] / 2
+conds_df2$mean[conds_df2$team == "B"] <- center + conds_df2$mean_diff[conds_df2$team == "B"] / 2
+
+# compute the sd of distributions A and B, assumping independent and equal variances
+conds_df2$sd <- sqrt(conds_df2$sd_diff ^ 2 / 2)
+
+# print
+conds_df2
+```
+
+These data are visualized in the stimuli below.
+
+##Visualizations and Heuristics
+
+We will test users' ability to judge CLES and use that information to inform their decision about the bet amount based on the information encoded in one of a set of visualizations. Each visualization we test will be associated with a specific hypothesis about the heuristic that participants are likely to use in order to read CLES from the visualization. I am thinking of these heuristics as a form of _representativeness_, whereby the visual form of the visualization is treated as an explicit representation of the reliability of the effect. 
+
+###Means Only
+
+```{r echo=FALSE}
+# means only
+conds_df2 %>% ggplot(aes(x=mean, y=team, color=team)) +
+  geom_point(size=2) +
+  theme_bw() +
+  labs(
+    title="Stimulus Conditions: Means Only",
+    x="Margin of Victory",
+    caption="Odds of Victory * Levels of Uncertainty"
+  ) +
+  theme(axis.title.y = element_blank()) +
+  facet_grid(round(odds_of_victory,2) ~ sd_diff)
+```
+
+When relying on means alone to make judgments about CLES, users have no uncertainty information. As Jessica proposed in the analysis of her 2015 data she shared with me, we should model the perceived reliability of the effect from means alone as a function of the position of the mean. Specifically:
+$$Perceived Pr(A > B) \propto 50 + 50 * (\max{(\mu_{A} - \mu_{B})} - (\mu_{A} - \mu_{B}))$$
+This predicts that a user will underestimate the probability that team A wins as the mean difference between scores for teams A and B becomes greater. This should result in excessively conservative betting for extreme odds.
+
+Alternatively, the heuristic might be relative to the length of the axis such that:
+$$Perceived Pr(A > B) \propto (\mu_{A} - \mu_{B}) / Axis Range$$
+This would yield even more dramatic underestimation of $Pr(A > B)$ at large mean differences.
+
+###Intervals Only
+
+```{r echo=FALSE}
+# intervals only
+conds_df2 %>% ggplot(aes(y=mean, x=team, color=team)) +
+  geom_errorbar(aes(ymin=mean-qnorm(0.95)*sd, ymax=mean+qnorm(0.95)*sd, width=0)) +
+  coord_flip() +
+  theme_bw() +
+  labs(
+    title="Stimulus Conditions: Intervals Only",
+    x="Margin of Victory",
+    caption="Odds of Victory * Levels of Uncertainty"
+  ) +
+  theme(axis.title.y = element_blank()) +
+  facet_grid(round(odds_of_victory,2) ~ sd_diff)
+```
+
+When relying on intervals to make judgments about CLES, Jessica proposed multiple possible heuristics based on interval overlap:
+$$Perceived Pr(A > B) \propto 100 - 50 * \frac{\Sigma(Interval Overlap)}{\Sigma(IntervalLength)}$$
+or
+$$Perceived Pr(A > B) \propto 100 - 50 * \frac{\Sigma(Interval Overlap)}{Axis Range}$$
+These heuristics predict that users will overestimate $Pr(A > B)$ when there is small overlap and underestimate $Pr(A > B)$ when overlap is large. I would need to run a simulation of this strategy to predict the exact pattern of influence on betting. However, it follows that users following this heuristic will bet too much on extreme odds.
+
+###HOPs
+
+```{r}
+# for HOPs we need to add draws to our dataframe
+n <- 100 # number of samples
+conds_df2$sample_n <- n
+conds_df2_draws <- conds_df2 %>% as_tibble() %>%
+  mutate(draw=pmap(list(sample_n, mean, sd), rnorm), # get a list of draws from the distribution for each condition
+         draw_n=list(seq(1, n))) %>% #number each sample in order to animate multiple views simultaneously
+  unnest() # get back to a tidy format
+```
+
+```{r  echo=FALSE}
+# hops
+hops = conds_df2_draws %>%
+  ggplot(aes(y=draw, x=team, color=team)) +
+  geom_point(shape=124, size=5) +
+  coord_flip() +
+  theme_bw() +
+  labs(
+    title="Stimulus Conditions: HOPs",
+    x="Margin of Victory",
+    caption="Odds of Victory * Levels of Uncertainty"
+  ) +
+  facet_grid(round(odds_of_victory,2) ~ sd_diff) +
+  transition_manual(draw_n)
+
+animate(hops, fps=2.5)
+```
+
+With HOPs, I would expect users to judge CLES based on the proportion of draws crossing each other.
+$$Perceived Pr(A > B) \propto \frac{\Sigma(draws_{A} > draws_{B})}{\Sigma (draws)}$$
+Given representative sampling this should be pretty close to the ground truth. Although maybe we can test order effects---and thus differentiate the subitizing heuristic from the ground truth---by manipulating the series of draws and modeling primacy and recency as different weighting functions over the timeseries of draws.
+
+###Quantile Dotplots
+
+```{r}
+# as with hops, we need to add to the dataframe to build quantile dotplots
+n_dots <- 20 # number of dots
+n <- 10000 # number of samples
+conds_df2$sample_n <- n
+conds_df2_quantiles <- conds_df2 %>% as_tibble() %>%
+  mutate(draws=pmap(list(sample_n, mean, sd), rnorm), # sample each distribution (as before)
+    quantiles=map(draws, ~ quantile(unlist(.x), ppoints(n_dots))), # use these draws to get quantiles
+    draws=NULL) %>% # drop draws from the dataframe since these were an intermediate step anyway
+  unnest()
+```
+
+```{r echo=FALSE}
+# quantile dotplots
+conds_df2_quantiles %>%
+  ggplot(aes(x=quantiles, y=team, fill=team)) +
+  geom_dotplot(binwidth=.9, binaxis = "x", stackgroups=TRUE, binpositions="all") +
+  theme_bw() +
+  labs(
+    title="Stimulus Conditions: Quantile Dotplots",
+    x="Margin of Victory",
+    caption="Odds of Victory * Levels of Uncertainty"
+  ) +
+  facet_grid(round(odds_of_victory,2) ~ sd_diff)
+```
+
+I'm trying to figure out how to plot these correctly. Usually, Matt uses facets to separate multiple distributions. 
+
+For example:
+```{r echo=FALSE}
+# quantile dotplots
+conds_df2_quantiles %>% filter(condition=="low var, 8:1 odds") %>%
+  ggplot(aes(x=quantiles, y="Model Prediction", fill=team)) +
+  geom_dotplot(binwidth=.5, binaxis = "x", binpositions="all") +
+  theme_bw() +
+  labs(
+    title="Stimulus Conditions: Quantile Dotplots",
+    x="Margin of Victory",
+    y=NULL,
+    caption="Odds of Victory * Levels of Uncertainty"
+  ) +
+  facet_grid(team ~ .)
+```
+
+I would expect the heuristic in this case to be based on the number of dots that overlap.
+$$Perceived Pr(A >B) \propto 100 - 50 * \frac{\Sigma(DotsOverlap)}{\Sigma(Dots)}$$
+I think the predictions in this case should be similar to the predictions for the interval overlap heuristic.
+
+###Densities
+
+```{r echo=FALSE}
+# densities
+conds_df2_quantiles %>%
+  ggplot(aes(x=quantiles, color=team)) +
+  geom_density() +
+  theme_bw() +
+  labs(
+    title="Stimulus Conditions: Quantile Dotplots",
+    x="Margin of Victory",
+    caption="Odds of Victory * Levels of Uncertainty"
+  ) +
+  facet_grid(round(odds_of_victory,2) ~ sd_diff)
+```
+
+For densities, I expect the heuristic will be based on the proportion of overlap in area, similar to the interval overlap heuristic.
+$$Perceived Pr(A >B) \propto 100 - 50 * \frac{\Sigma(AreaOverlap)}{\Sigma(Area)}$$
+
+###Means with Intervals
+
+```{r echo=FALSE}
+# means with intervals
+conds_df2 %>% ggplot(aes(y=mean, x=team, color=team)) +
+  geom_pointrange(aes(ymin=mean-qnorm(0.95)*sd, ymax=mean+qnorm(0.95)*sd)) +
+  coord_flip() +
+  theme_bw() +
+  labs(
+    title="Stimulus Conditions: Means with Intervals",
+    x="Margin of Victory",
+    caption="Odds of Victory * Levels of Uncertainty"
+  ) +
+  theme(axis.title.y = element_blank()) +
+  facet_grid(round(odds_of_victory,2) ~ sd_diff)
+```
+
+As we've discussed, visualizations which mix the representations above (e.g., means with intervals) might involve the use of different heuristics among different users. I predict that the CLES judgments of some portion of users in this condition will most closely align with the mean magnitude heuristic and others will most closely align with the interval overlap heuristic (see _Modeling Heuristics_ below).
+
+Alternatively, as Jessica pointed out, there may be a heuristic whereby users combine means and intervals such as:
+$$Perceived Pr(A > B) \propto 100 - 50 * \frac{\mu_{A} - \mu_{B}}{\Sigma(IntervalLength)}$$
+
+To the extent that users seem to rely on the mean magnitude heuristic in the presence of uncertainty information, we can make the case that people ignore uncertainty when given a mean to latch onto. We might see this same heuristic reflected to a lesser degree with quantile dotplots or means with HOPs.
+
+###Means with HOPs
+
+```{r echo=FALSE}
+# means with hops
+hops_means <- conds_df2_draws %>% ggplot(aes(y=mean, x=team, color=team)) +
+  geom_point(size=2) +
+  geom_point(aes(y=draw), shape=124, size=5) +
+  coord_flip() +
+  theme_bw() +
+  labs(
+    title="Stimulus Conditions: Means with HOPs",
+    x="Margin of Victory",
+    caption="Odds of Victory * Levels of Uncertainty"
+  ) +
+  theme(axis.title.y = element_blank()) +
+  facet_grid(round(odds_of_victory,2) ~ sd_diff) +
+  transition_manual(draw_n)
+
+animate(hops_means, fps=2.5)
+```
+
+My notes above about means with intervals sum up my thoughts about this condition as well. I predict that we will see some mixture of heuristics in this condition across users.
+
+
+#Modeling Heuristics
+
+Each heursitic will be associated with its own submodel which makes predictions about performance in the perception of CLES. In addition to heuristics, we will also model an optimal strategy which is the ground truth response that the user should give if they have full access to information and perfect judgment. In a hierarchical Bayesian model, we will estimate the probability that each user employs each of a set of candidate strategies (i.e., heuristics, ground truth) depending on predictors like numeracy, and we will estimate hyperparameters for probability of each strategy in the population of users as a function of visualization condition.
+
+The amount that a user bets in the decision task is a measure of utility. The decision task is designed so that each level of odds of victory has a distinct bet amount that will maximize the expected payout. Thus, the difference between a user's bet and the optimal bet represents the error in their judgment of utility, which is a measure of their ability to integrate uncertainty information from the visualization (i.e., perceived CLES) with the incentive structure of the task. 
+
+We will model the bias and noise in the difference between a user's bet and the optimal bet. The bias parameter will capture patterns in responses such as risk aversion which reflect the user's sense of the value of the payoff, rather than the incentive structure of the task. The noise parameter measures the distortion of decoded uncertainty information between the perceptual judgment of CLES and the decision about bet amount. We should expect to see some baseline noise due to difficulty balancing the incentive structure of the task, but I expect that some portion of this noise will be predicted by visualization condition. We can think of visualization-attributed noise as a proxy for the amount of working memory employed in reading the visualization such that if more effort is spent reading the vis, less attentional capacity remains to carefully consider the incentive structure of the task. This will allow us to draw conclusions about the degree of Type 2 processing involved in decoding each visualization, hopefully leading to an interesting discussion about when heuristics can be helpful (e.g., alleviating cognitive load for decisions) as well as when they can be harmful by leading to biased perceptions.
