@@ -289,7 +289,7 @@ center <- 50 # set the center point between the score of A and B
 conds_df2$mean[conds_df2$team == "A"] <- center - conds_df2$mean_diff[conds_df2$team == "A"] / 2
 conds_df2$mean[conds_df2$team == "B"] <- center + conds_df2$mean_diff[conds_df2$team == "B"] / 2
 
-# compute the sd of distributions A and B, assumping independent and equal variances
+# compute the sd of distributions A and B, assuming independent and equal variances
 conds_df2$sd <- sqrt(conds_df2$sd_diff ^ 2 / 2)
 
 # print
@@ -319,11 +319,11 @@ conds_df2 %>% ggplot(aes(x=mean, y=team, color=team)) +
 ```
 
 When relying on means alone to make judgments about CLES, users have no uncertainty information. As Jessica proposed in the analysis of her 2015 data she shared with me, we should model the perceived reliability of the effect from means alone as a function of the position of the mean. Specifically:
-$$Perceived Pr(A > B) \propto 50 + 50 * (\max{(\mu_{A} - \mu_{B})} - (\mu_{A} - \mu_{B}))$$
+$$Perceived Pr(A > B) \propto 50 + 50 * \frac{\mu_{B} - \mu_{A}}{\max(\mu_{B} - \mu_{A})}$$
 This predicts that a user will underestimate the probability that team A wins as the mean difference between scores for teams A and B becomes greater. This should result in excessively conservative betting for extreme odds.
 
 Alternatively, the heuristic might be relative to the length of the axis such that:
-$$Perceived Pr(A > B) \propto (\mu_{A} - \mu_{B}) / Axis Range$$
+$$Perceived Pr(A > B) \propto 50 + 50 * \frac{\mu_{B} - \mu_{A}}{Axis Range}$$
 This would yield even more dramatic underestimation of $Pr(A > B)$ at large mean differences.
 
 ###Intervals Only
@@ -380,7 +380,7 @@ animate(hops, fps=2.5)
 ```
 
 With HOPs, I would expect users to judge CLES based on the proportion of draws crossing each other.
-$$Perceived Pr(A > B) \propto \frac{\Sigma(draws_{A} > draws_{B})}{\Sigma (draws)}$$
+$$Perceived Pr(A > B) \propto 100 * \frac{\Sigma(draws_{A > B})}{\Sigma (draws)}$$
 Given representative sampling this should be pretty close to the ground truth. Although maybe we can test order effects---and thus differentiate the subitizing heuristic from the ground truth---by manipulating the series of draws and modeling primacy and recency as different weighting functions over the timeseries of draws.
 
 ###Quantile Dotplots
@@ -472,7 +472,7 @@ conds_df2 %>% ggplot(aes(y=mean, x=team, color=team)) +
 As we've discussed, visualizations which mix the representations above (e.g., means with intervals) might involve the use of different heuristics among different users. I predict that the CLES judgments of some portion of users in this condition will most closely align with the mean magnitude heuristic and others will most closely align with the interval overlap heuristic (see _Modeling Heuristics_ below).
 
 Alternatively, as Jessica pointed out, there may be a heuristic whereby users combine means and intervals such as:
-$$Perceived Pr(A > B) \propto 100 - 50 * \frac{\mu_{A} - \mu_{B}}{\Sigma(IntervalLength)}$$
+$$Perceived Pr(A > B) \propto 100 - 50 * \frac{\mu_{B} - \mu_{A}}{\Sigma(IntervalLength)}$$
 
 To the extent that users seem to rely on the mean magnitude heuristic in the presence of uncertainty information, we can make the case that people ignore uncertainty when given a mean to latch onto. We might see this same heuristic reflected to a lesser degree with quantile dotplots or means with HOPs.
 
