@@ -1,0 +1,259 @@
+---
+title: "Pilot"
+author: "Alex Kale"
+date: "1/15/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(gganimate)
+library(RColorBrewer)
+```
+
+#Pilot
+
+
+##Visualizations and Heuristics: "Sledgehammer Comparison""
+
+In the document _StimuliAndHeuristics.Rmd_, we list potential visualization formats to test and possible heuristics that users might use to read common language effect size (CLES) from these visualizations. For a pilot experiment, I propose to test a subset of these visualizations: means only, means with intervals, and hypothetical outcome plots (HOPs). Evaluating these visualizations should most directly help us answer the question of whether there is danger in presenting uncertainty in ways that emphasize the mean. 
+
+Each of these visualization conditions is associated with possible heuristics.
+
+###Means Only: A "Relative Mean Difference"" Heuristic
+
+When relying on means alone to make judgments about CLES, users have no uncertainty information. One possible heuristic to judge reliability from means alone is to consider the mean difference relative to the maximum mean difference shown.
+$$Perceived Pr(A > B) \propto 50 - 50 * \frac{\mu_{B} - \mu_{A}}{\max(\mid \mu_{B} - \mu_{A} \mid)}$$
+However, this heuristic could also be relative to the axis range.
+$$Perceived Pr(A > B) \propto 50 - 50 * \frac{\mu(B - A)}{Axis Range}$$
+
+###Means and Intervals: A "Means First, Then Uncertainty"" Heuristic or An "Interval Overlap" Heuristic
+
+When we add 95% intervals to the encoding of the group means, we expect that users will rely on this uncertainty information to varying degrees.
+
+If users ignore the intervals completely, we would expect their performance to follow the "relative mean difference" heuristic".
+
+However, based on prior work (Belia 2005, Padilla 2015), we think it is more likely that users will rely on the means as a primary cue and the intervals as a secondary cue, such that the means inform the sense of reliability and interval length informs the baseline for the reliability judgment.
+$$Perceived Pr(A > B) \propto 50 - 50 * \frac{\mu_{B} - \mu_{A}}{\mu(IntervalLength) / 2}$$
+
+Some small number of users may rely on the interval completely, employing a heuristic whereby the overlap between intervals is a cue for the degree to which they should doubt the reliability of the difference between groups. This should be thought of as a piecewise function since the interpretation of the interval overlap depends on which group mean is larger. Where the mean score for team A is larger than the mean score for team B, interval overlap is a cue to the degree to which $A > B$ is uncertain. However, where the mean score for team A is smaller than the mean score for team B, interval overlap is a cue to the degree to which $A > B$ is possible.
+$$ Perceived Pr(A > B) \propto
+\begin{cases} 
+  100 - 50 * \frac{Interval Overlap}{\mu(IntervalLength)} &&& A \geq B \\
+  \\
+  \\
+  50 * \frac{Interval Overlap}{\mu(IntervalLength)} &&& A \lt B \\
+\end{cases}$$
+Alternatively, if axis range is used as a baseline rather than interval length:
+$$ Perceived Pr(A > B) \propto
+\begin{cases} 
+  100 - 50 * \frac{Interval Overlap}{Axis Range} &&& A \geq B \\
+  \\
+  \\
+  50 * \frac{Interval Overlap}{Axis Range} &&& A \lt B \\
+\end{cases}$$
+
+###HOPs: A "Subitizing" Heuristic
+
+With HOPs, the most salient visual cue for reliability is how often the draw for one group is larger than the draw for another. Because HOPs are especially expressive of reliability, this should lead to accurate estimates assuming representative sampling and the sustained attention of the user.
+$$Perceived Pr(A > B) \propto 100 * \frac{\Sigma(draws_{A > B})}{\Sigma (draws)}$$
+
+
+##Choosing Data Conditions
+
+To detect reliance on different heuristics, we should evaluate these visualizations using data conditions for which our hypothesized heuristics produce the most disparate estimates. This way the experiment will give use the maximum amount of information about the heurstic a user might be employing. We find these data conditions by searching the space of possible ground truth CLES values (i.e., odds of victory, from which mean differences are derived) and levels of uncertainty (i.e., standard deviations of the group difference distribution) and plotting the heuristic estimates of CLES against the ground truth.
+
+###The Space of Possible Data Conditions
+
+We start by setting up the space of possible data conditions in a dataframe.
+
+```{r}
+# set up possible data conditions dataframe
+std_diff <- seq(0.5, 10, by=0.5) # different levels of uncertainty about the margin of victory
+odds <- ppoints(100) # probability of team A winning
+conds_df <- data.frame(
+    "sd_diff" = sort(rep(std_diff, length(odds))),
+    "odds_of_victory" = rep(odds, length(std_diff))
+)
+
+# add column for the mean difference
+conds_df$mean_diff <- - (conds_df$sd_diff * qnorm(conds_df$odds_of_victory)) # mean(B - A)
+
+# add additional columns which are necessary to compute heuristics
+conds_df$max_abs_mean_diff <- max(abs(conds_df$mean_diff)) # for the baseline of relative mean difference heuristic
+conds_df$sd_team <- sqrt(conds_df$sd_diff ^ 2 / 2) # assume equal and independent variances to get the standard deviation of possible scores for each team for the interval heuristics
+
+# print
+conds_df
+```
+
+###Encoding Heuristics as Functions
+
+Next, we encode the heuristics as functions. For now, we will ignore the possibility that axis range sets the baseline for the reliability judgment. 
+
+```{r}
+# relative mean difference heuristic
+relative_mean_difference <- function(mean_diff, max_abs_mean_diff) {
+  return(50 - 50 * mean_diff / max_abs_mean_diff)
+}
+# apply(conds_df, 1, function(df) relative_mean_difference(df['mean_diff'], df['max_abs_mean_diff']))
+conds_df %>% filter(sd_diff==1) %>% rowwise() %>% mutate(rel_mean_diff_est = relative_mean_difference(mean_diff, max_abs_mean_diff)) %>% ggplot(aes(x=odds_of_victory,y=rel_mean_diff_est)) + geom_line()
+```
+
+```{r}
+# means first, then uncertainty heuristic
+means_first_then_uncertainty <- function(mean_diff, sd_team) {
+  interval_length <- qnorm(0.975)*sd_team - qnorm(0.025)*sd_team
+  return(50 - 50 * mean_diff / interval_length / 2)
+}
+conds_df %>% filter(sd_diff==1) %>% rowwise() %>% mutate(means_first_then_uncertainty_est = means_first_then_uncertainty(mean_diff, sd_team)) %>% ggplot(aes(x=odds_of_victory,y=means_first_then_uncertainty_est)) + geom_line()
+```
+
+```{r}
+# interval overlap heuristic
+interval_overlap <- function(mean_diff, sd_team) {
+  interval_length <- qnorm(0.975)*sd_team - qnorm(0.025)*sd_team # baseline for relative judgment
+  mean_teamA <- - mean_diff / 2 # relative to center
+  mean_teamB <- mean_diff / 2 # relative to center
+  # calculation depends on which mean is larger
+  if(mean_teamA > mean_teamB) {
+    interval_overlap <- (mean_teamB + interval_length / 2) - (mean_teamA - interval_length / 2) # upper bound of lower dist minus lower bound of higher dist
+    return(100 - 50 * interval_overlap / interval_length)
+  } else { # mean_teamA < mean_teamB
+    interval_overlap <- (mean_teamA + interval_length / 2) - (mean_teamB - interval_length / 2) # upper bound of lower dist minus lower bound of higher dist
+    return( 50 * interval_overlap / interval_length)
+  }
+}
+conds_df %>% filter(sd_diff==1) %>% rowwise() %>% mutate(interval_overlap_est = interval_overlap(mean_diff, sd_team)) %>% ggplot(aes(x=odds_of_victory,y=interval_overlap_est)) + geom_line()
+```
+
+```{r}
+# subitizing heuristic
+subitizing <- function(mean_diff, sd_diff) {
+  # simulate outcomes
+  n <- 50
+  draws <- rnorm(n, mean_diff, sd_diff)
+  return(100 * sum(draws < 0) / n)
+}
+conds_df %>% filter(sd_diff==1) %>% rowwise() %>% mutate(subitizing_est = subitizing(mean_diff, sd_diff)) %>% ggplot(aes(x=odds_of_victory,y=subitizing_est)) + geom_line()
+```
+
+Interestingly, most of these heuristics produce CLES estimates which resemble the $\pi$ function of prospect theory. I'm not sure what to make of this other than the idea that these visual-spatial heuristics for reading uncertainty information may reinforce or even exacerbate cognitive biases by which people are most sensitive to changes in probability near the extremes of zero and one.
+
+###Heuristic Estimates of CLES vs the Ground Truth
+
+Next, we plot the CLES estimates for each of these heuristics against the ground truth $Pr(A > B)$ to see which values of odds of victory $Pr(A > B)$ and standard deviation of the difference $B - A$ correspond to the most disparate estimates.
+
+```{r echo=FALSE}
+# need a consistent color scale for these heuristics
+heuristics <- as.factor(c("ground_truth", "rel_mean_diff_est", "means_first_then_uncertainty_est", "interval_overlap_est", "subitizing_est"))
+hColors <- brewer.pal(length(heuristics), "Set1")
+names(hColors) <- levels(heuristics)
+colScale <- scale_colour_manual(values = hColors)
+```
+
+
+```{r}
+conds_df %>% rowwise() %>% 
+  mutate( # add heuristic estimates
+    rel_mean_diff_est = relative_mean_difference(mean_diff, max_abs_mean_diff),
+    means_first_then_uncertainty_est = means_first_then_uncertainty(mean_diff, sd_team),
+    interval_overlap_est = interval_overlap(mean_diff, sd_team),
+    subitizing_est = subitizing(mean_diff, sd_diff)
+  ) %>% 
+  gather(heuristic, est_CLES, rel_mean_diff_est, means_first_then_uncertainty_est, interval_overlap_est, subitizing_est) %>% # reshape
+ggplot(aes(x = odds_of_victory, y = est_CLES, color = heuristic)) +
+  geom_line() +
+  colScale +
+  theme_bw() +
+  labs(title = "Heuristic Estimates vs Ground Truth CLES",
+      x = "Ground Truth Pr(A > B)",
+      y = "Estimated Pr(A > B)"
+  ) +
+  facet_wrap(~ sd_diff)
+```
+
+One thing to note is that the "relative mean difference" heuristic depends on the maximum mean difference shown which makes it uniquely sensitive to the standard deviation of the difference distribution (B - A), the levels of which are encoded as facets. Notice how only the turquoise line (i.e., rel_mean_diff_est) is changing across the facets. This tells us that _we don't need to test many levels of uncertainty, but we should test a range of ground truth CLES_ values (x-axis), especially values near the extremes of the probability scale.
+
+###Propagating Heuristic Estimates to Predictions of Betting Behavior
+
+To create a normative model of betting behavior, we simulated an idealized user who, given some estimate for CLES, can perfectly judge the optimal betting amount. This models the impact of distortions in the perception of CLES on betting behavior. Deviations from this normative betting behavior can be captured in bias and noise parameters which account for biases in utility assessment (e.g., risk aversion) and sources of increased error (e.g., task difficulty, the working memory load of reading the vis).
+
+To start, we set up the payoff scheme (see _StimuliAndHeuristics.Rmd_ for a more detailed explanation of the task).
+
+```{r}
+# set range of possible bets based on given budget and minimum bet
+budget <- 1
+min_bet <- 0.01
+possible_bets <- seq(from=min_bet, to=budget, by=0.01) 
+
+# create a tiered capital gains tax
+tax_winnings <- function(winnings) {
+  tiers <- c(0, 0.5, 1, 1.5, 2.5, 4, Inf)
+  rates <- c(0, 0.05, 0.1, 0.15, 0.2, 0.25, 0.3)
+  taxed_winnings <- sum(diff(c(0, pmin(winnings, tiers))) * (1-rates))
+  return(taxed_winnings)
+}
+
+# set cost of not betting
+loss_rate <- 0.17
+```
+
+Next, we create a function which determines the optimal bet amount that team A will win for a given $Pr(A > B)$.
+
+```{r}
+optimal_bet <- function(p_superiority_A) {
+  # hack to catch p == 0
+  if (p_superiority_A == 0) {
+    p_superiority_A <- 0.001
+  }
+  # calculate utility over as set of possible bets at the given odds
+  utility_in_dollars <- seq(from=-1, to=0, length.out = length(possible_bets))
+  for (i in 1:length(possible_bets)) {
+    utility_in_dollars[i] <- (1 - loss_rate)*(budget - possible_bets[i]) + p_superiority_A * tax_winnings(possible_bets[i] / p_superiority_A) # payoff proportional to risk
+  }
+  # determine the bet with the maximum expected utility
+  return(max(utility_in_dollars))
+}
+```
+
+If we run this function on our heuristic estimates for CLES as well as the ground truth value of CLES, we can see for which data conditions we should expect the most erroneous betting behavior.
+
+```{r}
+conds_df %>% rowwise() %>% 
+  mutate( # add heuristic estimates (as before)
+    rel_mean_diff_est = relative_mean_difference(mean_diff, max_abs_mean_diff) / 100, # divide by 100 to align scale with ground truth
+    means_first_then_uncertainty_est = means_first_then_uncertainty(mean_diff, sd_team) / 100,
+    interval_overlap_est = interval_overlap(mean_diff, sd_team) / 100,
+    subitizing_est = subitizing(mean_diff, sd_diff) / 100,
+    ground_truth = odds_of_victory # add ground_truth for purpose of plotting estimated bets from ground truth as well as heuristics
+  ) %>% 
+  gather(heuristic, est_CLES, ground_truth, rel_mean_diff_est, means_first_then_uncertainty_est, interval_overlap_est, subitizing_est) %>% # reshape, this time including the ground truth as a factor
+  rowwise() %>%
+  mutate(bet_amount = optimal_bet(est_CLES)) %>% # apply optimal bet function
+ggplot(aes(x = odds_of_victory, y = bet_amount, color = heuristic)) +
+  geom_line() +
+  colScale +
+  theme_bw() +
+  labs(title = "Predicted Betting Behavior for Heuristic Estimates and Ground Truth CLES",
+      x = "Ground Truth Pr(A > B)",
+      y = "Predicted Bet Amount"
+  ) +
+  facet_wrap(~ sd_diff)
+```
+
+This implies that in our task betting behavior (as measured by the amount bet on the outcome $A > B$) should be approximately a linear function of CLES $Pr(A > B)$. Because of this, some of the distortions in betting behavior should follow directly from distortions in the ability to read CLES from the visualization in addition to bias and noise parameters,
+$$BetAmount \propto OptimalBet(ReportedCLES) + \beta_{bias}[subject] + \alpha_{noise}[vis, subject] $$
+and reported CLES depends on the heuristic used,
+$$ReportedCLES \propto EstCLES_{heuristic}[heuristic] * P_{heuristic}[subject, heuristic]$$
+which in turn depends on the visualization condition and the subject.
+$$P_{heuristic}[subject, heuristic] \propto \log(\beta_{vis}[vis] + \alpha_{subject}[subject])$$
+
+The noise parameter in the $Bet Amount$ submodel measures cognitive load associated with each subject reading CLES from each visualization. To the extent that bet amounts are noisy relative to predicted bets (calculated from $Reported CLES$) in a manner which is contingent on visualization condition, we can infer that users' working memory is more engaged when reading CLES from some visualizations. This noise should be reduced when users are relying on heuristics, and this helps us make the case the heuristics can be a good thing when they don't lead to biased perceptions.
+ 
+##Copy
+
+###Instructions Page
+
+###Task Page

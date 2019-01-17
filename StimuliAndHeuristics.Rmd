@@ -90,7 +90,7 @@ conds_df <- data.frame(
 )
 
 # add column for the mean
-conds_df$mean <- -(conds_df$sd * qnorm(1 - conds_df$odds_of_victory)) # see for derivation https://www.johndcook.com/quantiles_parameters.pdf
+conds_df$mean <- - (conds_df$sd * qnorm(conds_df$odds_of_victory)) # see https://www.johndcook.com/quantiles_parameters.pdf
 
 # print
 conds_df
@@ -111,37 +111,44 @@ conds_df %>% ggplot(aes(x=mean, y="Model Prediction")) +
   theme_bw() +
   labs(
     title="Stimulus Conditions: Means Only",
-    x="Margin of Victory",
-    caption="Odds of Victory * Levels of Uncertainty"
+    x="Difference in Scores (B - A)",
+    caption="Odds of Victory for Team A * Levels of Uncertainty"
   ) +
   theme(axis.title.y = element_blank()) +
   facet_grid(round(odds_of_victory,2) ~ sd)
 ```
 
 When relying on means alone to make judgments about CLES, users have no uncertainty information. As Jessica proposed in the analysis of her 2015 data she shared with me, we should model the perceived reliability of the effect from means alone as a function of the position of the mean. Specifically:
-$$Perceived Pr(A_{win}) \propto 50 + 50 * (\max{\mu(A - B)} - \mu(A - B))$$
-This predicts that a user will underestimate the probability that team A wins as the mean difference between scores for teams A and B is more negative. This should result in excessively conservative betting for extreme odds.
+$$Perceived Pr(A > B) \propto 50 - 50 * \frac{\mu_{B} - \mu_{A}}{\max(\mid \mu_{B} - \mu_{A} \mid)}$$
+This predicts that a user will underestimate the probability that team A wins as the mean difference between scores for teams A and B is more negative and overestimate Pr(A > B) as the difference $(B - A)$ becomes more positive. This should result poor betting at extreme odds.
 
 ###Intervals Only
 
 ```{r echo=FALSE}
 # intervals only
 conds_df %>% ggplot(aes(y=mean, x="Model Prediction")) +
-  geom_errorbar(aes(ymin=mean-qnorm(0.95)*sd, ymax=mean+qnorm(0.95)*sd, width=0)) +
+  geom_errorbar(aes(ymin=mean+qnorm(0.025)*sd, ymax=mean+qnorm(0.975)*sd, width=0)) +
   coord_flip() +
   theme_bw() +
   labs(
     title="Stimulus Conditions: Intervals Only",
-    x="Margin of Victory",
-    caption="Odds of Victory * Levels of Uncertainty"
+    y="Difference in Scores (B - A)",
+    caption="Odds of Victory for Team A * Levels of Uncertainty"
   ) +
   theme(axis.title.y = element_blank()) +
   facet_grid(round(odds_of_victory,2) ~ sd)
 ```
 
-When relying on intervals to make judgments about CLES, I predict that users will use the proportion of the interval which crosses zero as a cue to the probability that team A wins the game.
-$$Perceived Pr(A_{win}) \propto \frac{interval > 0}{interval}$$
-This predicts that users will overestimate propability of values near the edge of the interval and underestimate the probability of values near the center of the interval. I would need to run a simulation of this strategy to predict the exact pattern of influence on betting. However, it follows that users following this heuristic will bet too much on extreme odds.
+When relying on intervals to make judgments about CLES, I predict that users will use the proportion of the interval which crosses zero as a cue. This needs to be a piecewise function because the interpretation of the interval overlap depends on which group mean is larger (i.e., the sign of the difference). Where the mean score for team A is larger than the mean score for team B (i.e., negative difference), interval overlap is a cue to the degree to which $A > B$ is uncertain. However, where the mean score for team A is smaller than the mean score for team B (i.e., positive difference), interval overlap is a cue to the degree to which $A > B$ is possible.
+
+$$ Perceived Pr(A > B) \propto
+\begin{cases} 
+  100 - 50 * \frac{Interval > 0}{IntervalLength} &&& A \geq B \\
+  \\
+  \\
+  50 * \frac{Interval < 0}{IntervalLength} &&& A \lt B \\
+\end{cases}$$
+
 
 ###HOPs
 
@@ -164,8 +171,8 @@ hops = conds_df_draws %>%
   theme_bw() +
   labs(
     title="Stimulus Conditions: HOPs",
-    x="Margin of Victory",
-    caption="Odds of Victory * Levels of Uncertainty"
+    y="Difference in Scores (B - A)",
+    caption="Odds of Victory for Team A * Levels of Uncertainty"
   ) +
   facet_grid(round(odds_of_victory,2) ~ sd) +
   transition_manual(draw_n)
@@ -174,7 +181,7 @@ animate(hops, fps=2.5)
 ```
 
 With HOPs, I would expect users to judge CLES based on the proportion of draws crossing the zero line.
-$$Perceived Pr(A_{win}) \propto \frac{\Sigma(draws > 0)}{\Sigma (draws)}$$
+$$Perceived Pr(A > B) \propto 100 * \frac{\Sigma(draws > 0)}{\Sigma (draws)}$$
 Given representative sampling this should be pretty close to the ground truth. Although maybe we can test order effects---and thus differentiate the subitizing heuristic from the ground truth---by manipulating the series of draws and modeling primacy and recency as different weighting functions over the timeseries of draws.
 
 ###Quantile Dotplots
@@ -199,14 +206,20 @@ conds_df_quantiles %>%
   theme_bw() +
   labs(
     title="Stimulus Conditions: Quantile Dotplots",
-    x="Margin of Victory",
-    caption="Odds of Victory * Levels of Uncertainty"
+    x="Difference in Scores (B - A)",
+    caption="Odds of Victory for Team A * Levels of Uncertainty"
   ) +
   facet_grid(round(odds_of_victory,2) ~ sd)
 ```
 
-Similar to HOPs, I would expect users of quantile dotplots to judge CLES based on the proportion of dots crossing the zero line.
-$$Perceived Pr(A_{win}) \propto \frac{\Sigma(dots > 0)}{\Sigma (dots)}$$
+Similar to HOPs, I would expect users of quantile dotplots to judge CLES based on the proportion of dots crossing the zero line. However, just like the interval proportion heuristic, this needs to be a piecewise function to account for the sign of the difference.
+$$ Perceived Pr(A > B) \propto
+\begin{cases} 
+  100 - 50 * \frac{\Sigma(Dots > 0)}{\Sigma(Dots)} &&& A \geq B \\
+  \\
+  \\
+  50 * \frac{\Sigma(Dots < 0)}{\Sigma(Dots)} &&& A \lt B \\
+\end{cases}$$
 Again, this should be pretty close to the ground truth. I'm not sure if we will have enough statistical power to test differences between this heuristic and the ground truth which might arise from binning. For instance, using dotplot-20, I would expect CLES judgments to tend toward multiples of 5%, but given other sources of imprecision in responses, it might be difficult to reliably differentiate this rounding from the ground truth.
 
 I do think it would be nice to run an experiment with both HOPs and quantile dotplots. Which gets closer to the ground truth? How reliably do users' judgments reflect the ground truth? I think these would be novel comparisons.
@@ -216,13 +229,13 @@ I do think it would be nice to run an experiment with both HOPs and quantile dot
 ```{r echo=FALSE}
 # means with intervals
 conds_df %>% ggplot(aes(y=mean, x="Model Prediction")) +
-  geom_pointrange(aes(ymin=mean-qnorm(0.95)*sd, ymax=mean+qnorm(0.95)*sd)) +
+  geom_pointrange(aes(ymin=mean+qnorm(0.025)*sd, ymax=mean+qnorm(0.975)*sd)) +
   coord_flip() +
   theme_bw() +
   labs(
     title="Stimulus Conditions: Means with Intervals",
-    x="Margin of Victory",
-    caption="Odds of Victory * Levels of Uncertainty"
+    y="Difference in Scores (B - A)",
+    caption="Odds of Victory for Team A * Levels of Uncertainty"
   ) +
   theme(axis.title.y = element_blank()) +
   facet_grid(round(odds_of_victory,2) ~ sd)
@@ -241,8 +254,8 @@ hops_means <- conds_df_draws %>% ggplot(aes(y=mean, x="Model Prediction")) +
   theme_bw() +
   labs(
     title="Stimulus Conditions: Means with HOPs",
-    x="Margin of Victory",
-    caption="Odds of Victory * Levels of Uncertainty"
+    y="Difference in Scores (B - A)",
+    caption="Odds of Victory for Team A * Levels of Uncertainty"
   ) +
   theme(axis.title.y = element_blank()) +
   facet_grid(round(odds_of_victory,2) ~ sd) +
@@ -275,13 +288,13 @@ odds <- rep(c(1/2, 1/3, 1/5, 1/9, 1/17), 4) # probability of team A winning
 teamAB <- sort(rep(c("A", "B"), 10))
 conds_df2 <- data.frame(
     "condition"=condition, 
-    "sd_diff"=std, 
+    "sd_diff"=std_diff, 
     "odds_of_victory"=odds,
     "team"=teamAB
 )
 
 # add column for the mean difference
-conds_df2$mean_diff <- conds_df2$sd_diff * qnorm(1 - conds_df2$odds_of_victory)
+conds_df2$mean_diff <- - (conds_df2$sd_diff * qnorm(conds_df2$odds_of_victory))
 # conds_df2$mean_diff <- conds_df2$sd_diff * qnorm(conds_df2$odds_of_victory)
 
 # compute the mean of distributions A and B
@@ -311,19 +324,19 @@ conds_df2 %>% ggplot(aes(x=mean, y=team, color=team)) +
   theme_bw() +
   labs(
     title="Stimulus Conditions: Means Only",
-    x="Margin of Victory",
-    caption="Odds of Victory * Levels of Uncertainty"
+    x="Scores",
+    caption="Odds of Victory for Team A * Levels of Uncertainty"
   ) +
   theme(axis.title.y = element_blank()) +
   facet_grid(round(odds_of_victory,2) ~ sd_diff)
 ```
 
 When relying on means alone to make judgments about CLES, users have no uncertainty information. As Jessica proposed in the analysis of her 2015 data she shared with me, we should model the perceived reliability of the effect from means alone as a function of the position of the mean. Specifically:
-$$Perceived Pr(A > B) \propto 50 + 50 * \frac{\mu_{B} - \mu_{A}}{\max(\mu_{B} - \mu_{A})}$$
-This predicts that a user will underestimate the probability that team A wins as the mean difference between scores for teams A and B becomes greater. This should result in excessively conservative betting for extreme odds.
+$$Perceived Pr(A > B) \propto 50 - 50 * \frac{\mu_{B} - \mu_{A}}{\max(\mid \mu_{B} - \mu_{A} \mid)}$$
+This predicts that a user will underestimate the probability that team A wins as the mean difference between scores $(B - A)$ becomes more negative and overestimate as the difference becomes more positive. This should result in poor betting for extreme odds.
 
 Alternatively, the heuristic might be relative to the length of the axis such that:
-$$Perceived Pr(A > B) \propto 50 + 50 * \frac{\mu_{B} - \mu_{A}}{Axis Range}$$
+$$Perceived Pr(A > B) \propto 50 - 50 * \frac{\mu_{B} - \mu_{A}}{Axis Range}$$
 This would yield even more dramatic underestimation of $Pr(A > B)$ at large mean differences.
 
 ###Intervals Only
@@ -331,23 +344,35 @@ This would yield even more dramatic underestimation of $Pr(A > B)$ at large mean
 ```{r echo=FALSE}
 # intervals only
 conds_df2 %>% ggplot(aes(y=mean, x=team, color=team)) +
-  geom_errorbar(aes(ymin=mean-qnorm(0.95)*sd, ymax=mean+qnorm(0.95)*sd, width=0)) +
+  geom_errorbar(aes(ymin=mean+qnorm(0.025)*sd, ymax=mean+qnorm(0.975)*sd, width=0)) +
   coord_flip() +
   theme_bw() +
   labs(
     title="Stimulus Conditions: Intervals Only",
-    x="Margin of Victory",
-    caption="Odds of Victory * Levels of Uncertainty"
+    y="Scores",
+    caption="Odds of Victory for Team A * Levels of Uncertainty"
   ) +
   theme(axis.title.y = element_blank()) +
   facet_grid(round(odds_of_victory,2) ~ sd_diff)
 ```
 
 When relying on intervals to make judgments about CLES, Jessica proposed multiple possible heuristics based on interval overlap:
-$$Perceived Pr(A > B) \propto 100 - 50 * \frac{\Sigma(Interval Overlap)}{\Sigma(IntervalLength)}$$
+$$ Perceived Pr(A > B) \propto
+\begin{cases} 
+  100 - 50 * \frac{Interval Overlap}{\mu(IntervalLength)} &&& A \geq B \\
+  \\
+  \\
+  50 * \frac{Interval Overlap}{\mu(IntervalLength)} &&& A \lt B \\
+\end{cases}$$
 or
-$$Perceived Pr(A > B) \propto 100 - 50 * \frac{\Sigma(Interval Overlap)}{Axis Range}$$
-These heuristics predict that users will overestimate $Pr(A > B)$ when there is small overlap and underestimate $Pr(A > B)$ when overlap is large. I would need to run a simulation of this strategy to predict the exact pattern of influence on betting. However, it follows that users following this heuristic will bet too much on extreme odds.
+$$ Perceived Pr(A > B) \propto
+\begin{cases} 
+  100 - 50 * \frac{Interval Overlap}{Axis Range} &&& A \geq B \\
+  \\
+  \\
+  50 * \frac{Interval Overlap}{Axis Range} &&& A \lt B \\
+\end{cases}$$
+These heuristics predict that, when there is a small amount of overlap, users will overestimate $Pr(A > B)$ when the mean of B is larger than A and underestimate $Pr(A > B)$ when the mean of A is larger than B. These functions are piecewise because the interpretation of the interval overlap depends on which group mean is larger. Where the mean score for team A is larger than the mean score for team B, interval overlap is a cue to the degree to which $A > B$ is uncertain. However, where the mean score for team A is smaller than the mean score for team B, interval overlap is a cue to the degree to which $A > B$ is possible.
 
 ###HOPs
 
@@ -370,8 +395,8 @@ hops = conds_df2_draws %>%
   theme_bw() +
   labs(
     title="Stimulus Conditions: HOPs",
-    x="Margin of Victory",
-    caption="Odds of Victory * Levels of Uncertainty"
+    y="Scores",
+    caption="Odds of Victory for Team A * Levels of Uncertainty"
   ) +
   facet_grid(round(odds_of_victory,2) ~ sd_diff) +
   transition_manual(draw_n)
@@ -405,8 +430,8 @@ conds_df2_quantiles %>%
   theme_bw() +
   labs(
     title="Stimulus Conditions: Quantile Dotplots",
-    x="Margin of Victory",
-    caption="Odds of Victory * Levels of Uncertainty"
+    x="Scores",
+    caption="Odds of Victory for Team A * Levels of Uncertainty"
   ) +
   facet_grid(round(odds_of_victory,2) ~ sd_diff)
 ```
@@ -422,15 +447,21 @@ conds_df2_quantiles %>% filter(condition=="low var, 8:1 odds") %>%
   theme_bw() +
   labs(
     title="Stimulus Conditions: Quantile Dotplots",
-    x="Margin of Victory",
+    x="Scores",
     y=NULL,
-    caption="Odds of Victory * Levels of Uncertainty"
+    caption="Odds of Victory for Team A * Levels of Uncertainty"
   ) +
   facet_grid(team ~ .)
 ```
 
-I would expect the heuristic in this case to be based on the number of dots that overlap.
-$$Perceived Pr(A >B) \propto 100 - 50 * \frac{\Sigma(DotsOverlap)}{\Sigma(Dots)}$$
+I would expect the heuristic in this case to be based on the number of dots that overlap, very similar to the interval overlap heuristic described above.
+$$ Perceived Pr(A > B) \propto
+\begin{cases} 
+  100 - 50 * \frac{\Sigma(DotsOverlap)}{\Sigma(Dots)} &&& A \geq B \\
+  \\
+  \\
+  50 * \frac{\Sigma(DotsOverlap)}{\Sigma(Dots)} &&& A \lt B \\
+\end{cases}$$
 I think the predictions in this case should be similar to the predictions for the interval overlap heuristic.
 
 ###Densities
@@ -443,27 +474,33 @@ conds_df2_quantiles %>%
   theme_bw() +
   labs(
     title="Stimulus Conditions: Quantile Dotplots",
-    x="Margin of Victory",
-    caption="Odds of Victory * Levels of Uncertainty"
+    x="Scores",
+    caption="Odds of Victory for Team A * Levels of Uncertainty"
   ) +
   facet_grid(round(odds_of_victory,2) ~ sd_diff)
 ```
 
-For densities, I expect the heuristic will be based on the proportion of overlap in area, similar to the interval overlap heuristic.
-$$Perceived Pr(A >B) \propto 100 - 50 * \frac{\Sigma(AreaOverlap)}{\Sigma(Area)}$$
+For densities, I expect the heuristic will be based on the proportion of overlap in area (on a scale from 0 to 1), similar to the interval overlap heuristic.
+$$ Perceived Pr(A > B) \propto
+\begin{cases} 
+  100 - 50 * AreaOverlap &&& A \geq B \\
+  \\
+  \\
+  50 * AreaOverlap &&& A \lt B \\
+\end{cases}$$
 
 ###Means with Intervals
 
 ```{r echo=FALSE}
 # means with intervals
 conds_df2 %>% ggplot(aes(y=mean, x=team, color=team)) +
-  geom_pointrange(aes(ymin=mean-qnorm(0.95)*sd, ymax=mean+qnorm(0.95)*sd)) +
+  geom_pointrange(aes(ymin=mean+qnorm(0.025)*sd, ymax=mean+qnorm(0.975)*sd)) +
   coord_flip() +
   theme_bw() +
   labs(
     title="Stimulus Conditions: Means with Intervals",
-    x="Margin of Victory",
-    caption="Odds of Victory * Levels of Uncertainty"
+    y="Scores",
+    caption="Odds of Victory for Team A * Levels of Uncertainty"
   ) +
   theme(axis.title.y = element_blank()) +
   facet_grid(round(odds_of_victory,2) ~ sd_diff)
@@ -472,7 +509,7 @@ conds_df2 %>% ggplot(aes(y=mean, x=team, color=team)) +
 As we've discussed, visualizations which mix the representations above (e.g., means with intervals) might involve the use of different heuristics among different users. I predict that the CLES judgments of some portion of users in this condition will most closely align with the mean magnitude heuristic and others will most closely align with the interval overlap heuristic (see _Modeling Heuristics_ below).
 
 Alternatively, as Jessica pointed out, there may be a heuristic whereby users combine means and intervals such as:
-$$Perceived Pr(A > B) \propto 100 - 50 * \frac{\mu_{B} - \mu_{A}}{\Sigma(IntervalLength)}$$
+$$Perceived Pr(A > B) \propto 50 - 50 * \frac{\mu_{B} - \mu_{A}}{\mu(IntervalLength) / 2}$$
 
 To the extent that users seem to rely on the mean magnitude heuristic in the presence of uncertainty information, we can make the case that people ignore uncertainty when given a mean to latch onto. We might see this same heuristic reflected to a lesser degree with quantile dotplots or means with HOPs.
 
@@ -487,8 +524,8 @@ hops_means <- conds_df2_draws %>% ggplot(aes(y=mean, x=team, color=team)) +
   theme_bw() +
   labs(
     title="Stimulus Conditions: Means with HOPs",
-    x="Margin of Victory",
-    caption="Odds of Victory * Levels of Uncertainty"
+    y="Scores",
+    caption="Odds of Victory for Team A * Levels of Uncertainty"
   ) +
   theme(axis.title.y = element_blank()) +
   facet_grid(round(odds_of_victory,2) ~ sd_diff) +
