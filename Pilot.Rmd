@@ -12,27 +12,25 @@ library(gganimate)
 library(RColorBrewer)
 ```
 
-#Pilot
 
-
-##Visualizations and Heuristics: "Sledgehammer Comparison""
+##Visualizations and Heuristics: "Sledgehammer Comparison"
 
 In the document _StimuliAndHeuristics.Rmd_, we list potential visualization formats to test and possible heuristics that users might use to read common language effect size (CLES) from these visualizations. For a pilot experiment, I propose to test a subset of these visualizations: means only, means with intervals, and hypothetical outcome plots (HOPs). Evaluating these visualizations should most directly help us answer the question of whether there is danger in presenting uncertainty in ways that emphasize the mean. 
 
 Each of these visualization conditions is associated with possible heuristics.
 
-###Means Only: A "Relative Mean Difference"" Heuristic
+###Means Only: A "Relative Mean Difference" Heuristic
 
 When relying on means alone to make judgments about CLES, users have no uncertainty information. One possible heuristic to judge reliability from means alone is to consider the mean difference relative to the maximum mean difference shown.
 $$Perceived Pr(A > B) \propto 50 - 50 * \frac{\mu_{B} - \mu_{A}}{\max(\mid \mu_{B} - \mu_{A} \mid)}$$
 However, this heuristic could also be relative to the axis range.
-$$Perceived Pr(A > B) \propto 50 - 50 * \frac{\mu(B - A)}{Axis Range}$$
+$$Perceived Pr(A > B) \propto 50 - 50 * \frac{\mu_{B} - \mu_{A}}{Axis Range}$$
 
-###Means and Intervals: A "Means First, Then Uncertainty"" Heuristic or An "Interval Overlap" Heuristic
+###Means and Intervals: A "Means First, Then Uncertainty" Heuristic or An "Interval Overlap" Heuristic
 
 When we add 95% intervals to the encoding of the group means, we expect that users will rely on this uncertainty information to varying degrees.
 
-If users ignore the intervals completely, we would expect their performance to follow the "relative mean difference" heuristic".
+If users ignore the intervals completely, we would expect their performance to follow the "relative mean difference" heuristic.
 
 However, based on prior work (Belia 2005, Padilla 2015), we think it is more likely that users will rely on the means as a primary cue and the intervals as a secondary cue, such that the means inform the sense of reliability and interval length informs the baseline for the reliability judgment.
 $$Perceived Pr(A > B) \propto 50 - 50 * \frac{\mu_{B} - \mu_{A}}{\mu(IntervalLength) / 2}$$
@@ -42,14 +40,12 @@ $$ Perceived Pr(A > B) \propto
 \begin{cases} 
   100 - 50 * \frac{Interval Overlap}{\mu(IntervalLength)} &&& A \geq B \\
   \\
-  \\
   50 * \frac{Interval Overlap}{\mu(IntervalLength)} &&& A \lt B \\
 \end{cases}$$
 Alternatively, if axis range is used as a baseline rather than interval length:
 $$ Perceived Pr(A > B) \propto
 \begin{cases} 
   100 - 50 * \frac{Interval Overlap}{Axis Range} &&& A \geq B \\
-  \\
   \\
   50 * \frac{Interval Overlap}{Axis Range} &&& A \lt B \\
 \end{cases}$$
@@ -62,7 +58,7 @@ $$Perceived Pr(A > B) \propto 100 * \frac{\Sigma(draws_{A > B})}{\Sigma (draws)}
 
 ##Choosing Data Conditions
 
-To detect reliance on different heuristics, we should evaluate these visualizations using data conditions for which our hypothesized heuristics produce the most disparate estimates. This way the experiment will give use the maximum amount of information about the heurstic a user might be employing. We find these data conditions by searching the space of possible ground truth CLES values (i.e., odds of victory, from which mean differences are derived) and levels of uncertainty (i.e., standard deviations of the group difference distribution) and plotting the heuristic estimates of CLES against the ground truth.
+To detect reliance on different heuristics, we should evaluate these visualizations using data conditions for which our hypothesized heuristics produce the most disparate estimates. This way the experiment will give us the maximum amount of information about the heurstic a user might be employing. We find these data conditions by searching the space of possible ground truth CLES values (i.e., odds of victory, from which mean differences are derived) and levels of uncertainty (i.e., standard deviations of the group difference distribution) and plotting the heuristic estimates of CLES against the ground truth.
 
 ###The Space of Possible Data Conditions
 
@@ -85,7 +81,7 @@ conds_df$max_abs_mean_diff <- max(abs(conds_df$mean_diff)) # for the baseline of
 conds_df$sd_team <- sqrt(conds_df$sd_diff ^ 2 / 2) # assume equal and independent variances to get the standard deviation of possible scores for each team for the interval heuristics
 
 # print
-conds_df
+head(conds_df)
 ```
 
 ###Encoding Heuristics as Functions
@@ -104,8 +100,8 @@ conds_df %>% filter(sd_diff==1) %>% rowwise() %>% mutate(rel_mean_diff_est = rel
 ```{r}
 # means first, then uncertainty heuristic
 means_first_then_uncertainty <- function(mean_diff, sd_team) {
-  interval_length <- qnorm(0.975)*sd_team - qnorm(0.025)*sd_team
-  return(50 - 50 * mean_diff / interval_length / 2)
+  interval_length <- qnorm(0.975)*sd_team - qnorm(0.025)*sd_team 
+  return(50 - 50 * mean_diff / interval_length / 2) # assuming that the two intervals are the same length, so we don't need to take their average
 }
 conds_df %>% filter(sd_diff==1) %>% rowwise() %>% mutate(means_first_then_uncertainty_est = means_first_then_uncertainty(mean_diff, sd_team)) %>% ggplot(aes(x=odds_of_victory,y=means_first_then_uncertainty_est)) + geom_line()
 ```
@@ -113,13 +109,13 @@ conds_df %>% filter(sd_diff==1) %>% rowwise() %>% mutate(means_first_then_uncert
 ```{r}
 # interval overlap heuristic
 interval_overlap <- function(mean_diff, sd_team) {
-  interval_length <- qnorm(0.975)*sd_team - qnorm(0.025)*sd_team # baseline for relative judgment
+  interval_length <- qnorm(0.975)*sd_team - qnorm(0.025)*sd_team # baseline for relative judgment (assuming that the two intervals are the same length, so we don't need to take their average)
   mean_teamA <- - mean_diff / 2 # relative to center
   mean_teamB <- mean_diff / 2 # relative to center
   # calculation depends on which mean is larger
   if(mean_teamA > mean_teamB) {
     interval_overlap <- (mean_teamB + interval_length / 2) - (mean_teamA - interval_length / 2) # upper bound of lower dist minus lower bound of higher dist
-    return(100 - 50 * interval_overlap / interval_length)
+    return(100 - 50 * interval_overlap / interval_length) 
   } else { # mean_teamA < mean_teamB
     interval_overlap <- (mean_teamA + interval_length / 2) - (mean_teamB - interval_length / 2) # upper bound of lower dist minus lower bound of higher dist
     return( 50 * interval_overlap / interval_length)
@@ -131,7 +127,7 @@ conds_df %>% filter(sd_diff==1) %>% rowwise() %>% mutate(interval_overlap_est = 
 ```{r}
 # subitizing heuristic
 subitizing <- function(mean_diff, sd_diff) {
-  # simulate outcomes
+  # simulate outcomes (should use the draws participants were actually shown)
   n <- 50
   draws <- rnorm(n, mean_diff, sd_diff)
   return(100 * sum(draws < 0) / n)
@@ -139,11 +135,11 @@ subitizing <- function(mean_diff, sd_diff) {
 conds_df %>% filter(sd_diff==1) %>% rowwise() %>% mutate(subitizing_est = subitizing(mean_diff, sd_diff)) %>% ggplot(aes(x=odds_of_victory,y=subitizing_est)) + geom_line()
 ```
 
-Interestingly, most of these heuristics produce CLES estimates which resemble the $\pi$ function of prospect theory. I'm not sure what to make of this other than the idea that these visual-spatial heuristics for reading uncertainty information may reinforce or even exacerbate cognitive biases by which people are most sensitive to changes in probability near the extremes of zero and one.
+Interestingly, most of these heuristics produce CLES estimates which resemble the $\pi$ function of prospect theory. I'm not sure what to make of this other than the idea that these visual-spatial heuristics for reading uncertainty information from means and intervals may reinforce or even exacerbate cognitive biases by which people are most sensitive to changes in probability near the extremes of zero and one.
 
 ###Heuristic Estimates of CLES vs the Ground Truth
 
-Next, we plot the CLES estimates for each of these heuristics against the ground truth $Pr(A > B)$ to see which values of odds of victory $Pr(A > B)$ and standard deviation of the difference $B - A$ correspond to the most disparate estimates.
+Next, we plot the CLES estimates for each of these heuristics against the ground truth $Pr(A > B)$ to see which values of odds of victory $Pr(A > B)$ and standard deviation of the difference $\sigma_{B - A}$ correspond to the most disparate estimates.
 
 ```{r echo=FALSE}
 # need a consistent color scale for these heuristics
@@ -174,13 +170,19 @@ ggplot(aes(x = odds_of_victory, y = est_CLES, color = heuristic)) +
   facet_wrap(~ sd_diff)
 ```
 
-One thing to note is that the "relative mean difference" heuristic depends on the maximum mean difference shown which makes it uniquely sensitive to the standard deviation of the difference distribution (B - A), the levels of which are encoded as facets. Notice how only the turquoise line (i.e., rel_mean_diff_est) is changing across the facets. This tells us that _we don't need to test many levels of uncertainty, but we should test a range of ground truth CLES_ values (x-axis), especially values near the extremes of the probability scale.
+One thing to note is that the "relative mean difference" heuristic depends on the maximum mean difference shown which makes it uniquely sensitive to the standard deviation of the difference distribution (B - A), the levels of which are encoded as facets. Notice how only the purple line (i.e., rel_mean_diff_est) is changing across the facets. This tells us that _we don't need to test very many levels of uncertainty, but we should test a range of ground truth CLES_ values (x-axis), especially values near the extremes of the probability scale.
 
 ###Propagating Heuristic Estimates to Predictions of Betting Behavior
 
-To create a normative model of betting behavior, we simulated an idealized user who, given some estimate for CLES, can perfectly judge the optimal betting amount. This models the impact of distortions in the perception of CLES on betting behavior. Deviations from this normative betting behavior can be captured in bias and noise parameters which account for biases in utility assessment (e.g., risk aversion) and sources of increased error (e.g., task difficulty, the working memory load of reading the vis).
+To create a normative model of betting behavior, we simulate an idealized user who, given some estimate for CLES, can perfectly judge the optimal betting amount. This models the impact of distortions in the perception of CLES on betting behavior. Deviations from this normative betting behavior can be captured in bias and noise parameters which account for biases in utility assessment (e.g., risk aversion) and sources of increased error (e.g., task difficulty, the working memory load of reading the vis).
 
-To start, we set up the payoff scheme (see _StimuliAndHeuristics.Rmd_ for a more detailed explanation of the task).
+####Payoff Scheme and Optimal Betting Behavior
+
+The user bets some portion of their $1 budget in each trial that team A will win the game. The payoff of the bet is proportional to the odds of the bet such that a bet on 1:1 odds yields a 50% chance of winnings double the bet amount, a bet on 2:1 odds yields a 33% chance of winnings tripple the bet amount, a bet on 4:1 odds yields a 20% chance of winnings quintupple the bet amount, etc.
+
+Additionally, the amount that users win is subject to a tiered capital gains tax whereby each increment of 50 cents in winnings is taxed 10% more than the previous 50 cents, and all winnings over $2 are taxed 50%. This tiered tax imposes diminishing returns for excessively risky bets. The amount that users do not bet is subject to a flat tax of 25%, which imposes an incentive against risk aversion much like inflation encourages people to invest in the stock market.
+
+We set this up in the block of code below.
 
 ```{r}
 # set range of possible bets based on given budget and minimum bet
@@ -190,14 +192,14 @@ possible_bets <- seq(from=min_bet, to=budget, by=0.01)
 
 # create a tiered capital gains tax
 tax_winnings <- function(winnings) {
-  tiers <- c(0, 0.5, 1, 1.5, 2.5, 4, Inf)
-  rates <- c(0, 0.05, 0.1, 0.15, 0.2, 0.25, 0.3)
+  tiers <- append(seq(0, 2, by = 0.5), Inf)
+  rates <- seq(0, .5, by = .1)
   taxed_winnings <- sum(diff(c(0, pmin(winnings, tiers))) * (1-rates))
   return(taxed_winnings)
 }
 
 # set cost of not betting
-loss_rate <- 0.17
+loss_rate <- 0.25
 ```
 
 Next, we create a function which determines the optimal bet amount that team A will win for a given $Pr(A > B)$.
@@ -218,7 +220,9 @@ optimal_bet <- function(p_superiority_A) {
 }
 ```
 
-If we run this function on our heuristic estimates for CLES as well as the ground truth value of CLES, we can see for which data conditions we should expect the most erroneous betting behavior.
+####Predicting Betting Behavior: Toward Building a Model
+
+If we run this function on our heuristic estimates for CLES as well as the ground truth value of CLES, we can see in which data conditions we should expect the most erroneous betting behavior.
 
 ```{r}
 conds_df %>% rowwise() %>% 
@@ -243,17 +247,116 @@ ggplot(aes(x = odds_of_victory, y = bet_amount, color = heuristic)) +
   facet_wrap(~ sd_diff)
 ```
 
-This implies that in our task betting behavior (as measured by the amount bet on the outcome $A > B$) should be approximately a linear function of CLES $Pr(A > B)$. Because of this, some of the distortions in betting behavior should follow directly from distortions in the ability to read CLES from the visualization in addition to bias and noise parameters,
-$$BetAmount \propto OptimalBet(ReportedCLES) + \beta_{bias}[subject] + \alpha_{noise}[vis, subject] $$
-and reported CLES depends on the heuristic used,
-$$ReportedCLES \propto EstCLES_{heuristic}[heuristic] * P_{heuristic}[subject, heuristic]$$
+Note that this is a qualitatively similar pattern to what we see in the CLES estimates. This means that in our task betting behavior (as measured by the amount bet on the outcome $A > B$) should be approximately a linear function of CLES $Pr(A > B)$. Because of the linear relationship between CLES and optimal bet, some of the distortions in betting behavior will follow directly from distortions in the ability to read CLES from the visualization in addition to bias and noise,
+$$BetAmount \propto OptimalBet(ReportedCLES) + \beta_{bias}[vis, subject] + \alpha_{noise}[vis, subject] $$
+and reported CLES will depend on the heuristic used,
+$$ReportedCLES \propto EstCLES_{heuristic}[heuristic] * P_{heuristic}[heuristic, subject]$$
 which in turn depends on the visualization condition and the subject.
-$$P_{heuristic}[subject, heuristic] \propto \log(\beta_{vis}[vis] + \alpha_{subject}[subject])$$
+$$P_{heuristic}[heuristic, subject] \propto \operatorname{logit}(\beta_{vis}[vis] + \alpha_{subject}[subject])$$
 
-The noise parameter in the $Bet Amount$ submodel measures cognitive load associated with each subject reading CLES from each visualization. To the extent that bet amounts are noisy relative to predicted bets (calculated from $Reported CLES$) in a manner which is contingent on visualization condition, we can infer that users' working memory is more engaged when reading CLES from some visualizations. This noise should be reduced when users are relying on heuristics, and this helps us make the case the heuristics can be a good thing when they don't lead to biased perceptions.
+The bias parameter in the $Bet Amount$ submodel helps us account for individual differences in bias for bet amount (e.g., risk aversion). Additionally, to the extent that we can attribute some of this bias to visualization condition, we might be able to draw interesting conclusions about how different visualization formats influence valuations of utility.
+
+The noise parameter in the $Bet Amount$ submodel measures task difficulty, part of which depends on the cognitive load associated with reading CLES from the visualization. To the extent that bet amounts are noisy relative to predicted bets (calculated from $Reported CLES$) in a manner which is contingent on visualization condition, we can infer that users' working memory is more engaged when reading CLES from some visualizations. This noise should be reduced when users are relying on heuristics (Type 1 processing), and this helps us make the case the heuristics can be a good thing when they don't lead to biased perceptions.
+
+To the extent that visualization condition influences $P_{heuristic}$, we can make the case that users are more likely to use certain heuristics when viewing certain visualizations. This will be essential to our argument about the dangers of emphasizing the mean in uncertainty visualizations.
  
+
 ##Copy
+
+Here's how we will frame the task for participants within the experimental interface.
 
 ###Instructions Page
 
+In this HIT, you will use charts to inform bets on a fictional online game called TeamCrossword.
+
+####What is TeamCrossword?
+
+In the popular new online game TeamCrossword, teams of friends work together and attempt to solve crossword puzzles within a time limit. A team scores points for each word they get correct within the time limit. Words are assigned point values depending on their difficulty. In each round of the game, two teams compete against each other, trying to win by earning more points within the time limit.
+
+####Betting on TeamCrossword
+
+The game makers also created a meta-game around TeamCrossword where people can bet on any round of team crossword. Each player of the betting game is assigned to bet on a specific team at random to keep things interesting. The game makers anonymize the team names in each round to "team A" and "team B" to respect the privacy of TeamCrossword players.
+
+Players of the betting game can bet up to $1 per round of TeamCrossword and are payed based on the outcome of the game:
+
+- If the team you bet on wins, you win an amount proportional to the odds that team A will win. For example, 1:1 odds give you a 50% chance of winning 2 times bet amount, 4:1 odds give you a 20% chance of winning 5 times bet amount, 1:3 odds give you a 75% chance to win 1.33 times the bet amount, etc. 
+- If your team looses the round, you loose the amount that you bet.
+
+Additionally, the game makers introduced some incentives to encourage betting and generate additional revenue:
+
+- The amount that you _do not_ bet is subject to a flat tax of 25%.
+- Winnings in each round are subject to a tiered tax whereby each increment of 50 cents in winnings is taxed 10% more than the previous 50 cents, and all winnings over $2 are taxed 50%.
+
+```{r echo=FALSE}
+tiers <- append(seq(0, 2, by = 0.5), Inf)
+rates <- seq(0, .5, by = .1)
+tax_table <- data.frame(
+  tier = c("0 to 50 cents", "50 cents to $1", "$1 to$1.5", "$1.5 to $2", "more than $2"),
+  tax_rate = c("10%", "20%", "30%", "40%", "50%")
+)
+print(tax_table)
+```
+
+####Gaming the System
+
+Because you are resourceful, you were able to hack into the TeamCrossword database and get information on how many points each team has scored in previous rounds of TeamCrossword. For each round that you bet on, you create a chart of the previous scores of both competing teams. _Looking at this information allows you to judge the probability of your team winning and improve your bets._
+
+####Practice
+
+Here's an example of one of your charts showing the how many points each competing team has scored in previous rounds of TeamCrossword.
+
+_<insert png or gif depending on visualization condition>_
+
+Which team is more likely to win this game?
+
+_<radiobuttons with feedback>_
+
+If this game were to happen 100 times, how many times would team A win?
+
+_<dropdown menu or slider with feedback>_
+
+You have a budget of $1 to bet on the outcome of this game. How much do you bet that team A will win?
+
+_<dropdown menu or slider with feedback>_
+
 ###Task Page
+
+####Task
+
+_Trial n out of N_
+
+The chart below shows how many points team A and team B have scored in previous rounds of TeamCrossword. Recall that the team with the higher score wins. Use this chart to answer the questions below.
+
+_<insert png or gif>_
+
+Q1. If this game were to happen 100 times, how many times would you expect team A win?
+
+_<dropdown menu or slider>_
+
+Q2. You have a budget of $1 to bet on the outcome of this game. How much do you bet that team A will win?
+
+_<dropdown menu or slider>_
+
+####Betting Rules
+
+_(This should be displayed somewhere on the task screen as a reminder.)_
+
+On each trial, you must choose how much of your $1 budget to bet that your team will win the game. After your bet, you will be payed based on the outcome of the round. 
+
+If your team wins the game, you win an amount proportional to the odds that your team will win. For example, 1:1 odds give you a 50% chance of winning 2 times the bet amount, 4:1 odds give you a 20% chance of winning 5 times the bet amount, 1:3 odds give you a 75% chance to win 1.33 times the bet amount, etc. If your team looses the round, you loose the amount you bet. 
+
+The amount that you _do not_ bet is subject to a flat tax of 25%.
+
+Additionally, your winnings _in each round_ are subject to a tiered tax whereby each increment of 50 cents in winnings is taxed 10% more than the previous 50 cents, and all winnings over $2 are taxed 50%.
+
+```{r echo=FALSE}
+# set up readable version of table
+tiers <- append(seq(0, 2, by = 0.5), Inf)
+rates <- seq(0, .5, by = .1)
+tax_table <- data.frame(
+  tier = c("0 to 50 cents", "50 cents to $1", "$1 to$1.5", "$1.5 to $2", "more than $2"),
+  tax_rate = c("10%", "20%", "30%", "40%", "50%")
+)
+# print the table for the user's reference
+print(tax_table)
+```

@@ -25,55 +25,100 @@ Both of these questions assess the ability of the user to judge the common langu
 
 The user bets some portion of their $1 budget in each trial that team A will win the game/election. The payoff of the bet is proportional to the odds of the bet such that a bet on 1:1 odds yields a 50% chance of winnings double the bet amount, a bet on 2:1 odds yields a 33% chance of winnings tripple the bet amount, a bet on 4:1 odds yields a 20% chance of winnings quintupple the bet amount, etc. 
 
-Additionally, the amount that users win is subject to a tiered capital gains tax (see below), which imposes diminishing returns for excessively risky bets, and the amount that users do not bet is subject to a flat tax of 17%, which imposes an incentive against risk aversion much like inflation encourages people to invest in the stock market.
+<!-- Additionally, the amount that users win is subject to a tiered capital gains tax (see below), which imposes diminishing returns for excessively risky bets, and the amount that users do not bet is subject to a flat tax of 17%, which imposes an incentive against risk aversion much like inflation encourages people to invest in the stock market. -->
 
-The block of code below summarizes the incentive structure for the betting task. The line chart shows the expected utility (in $) of each bet amount for each level of odds of victory (shown in different colors). The specific levels for oddes of victory shown are 1:1, 2:1, 4:1, 8:1, and 16:1 (proposed below in _Data for Stimuli_). A key feature of this task design is that the expected utility for the bet depends on the probability that team A wins the game (i.e., CLES). Thus, the proposed decision task relies on the same uncertainty information as the proposed perceptual judgment, allowing us to separately investigate perception and decision-making within one experiment.
+<!-- The block of code below summarizes the incentive structure for the betting task. The line chart shows the expected utility (in $) of each bet amount for each level of odds of victory (shown in different colors). The specific levels for oddes of victory shown are 1:1, 2:1, 4:1, 8:1, and 16:1 (proposed below in _Data for Stimuli_). A key feature of this task design is that the expected utility for the bet depends on the probability that team A wins the game (i.e., CLES). Thus, the proposed decision task relies on the same uncertainty information as the proposed perceptual judgment, allowing us to separately investigate perception and decision-making within one experiment. -->
+
+<!-- ```{r} -->
+<!-- # set range of possible bets based on given budget and minimum bet -->
+<!-- budget <- 1 -->
+<!-- min_bet <- 0.01 -->
+<!-- possible_bets <- seq(from=min_bet, to=budget, by=0.01)  -->
+
+<!-- # create a tiered capital gains tax -->
+<!-- tax_winnings <- function(winnings) { -->
+<!--   tiers <- c(0, 0.5, 1, 1.5, 2.5, 4, Inf) -->
+<!--   rates <- c(0, 0.05, 0.1, 0.15, 0.2, 0.25, 0.3) -->
+<!--   taxed_winnings <- sum(diff(c(0, pmin(winnings, tiers))) * (1-rates)) -->
+<!--   return(taxed_winnings) -->
+<!-- } -->
+
+<!-- # set cost of not betting -->
+<!-- loss_rate <- 0.17 -->
+
+<!-- # calculate expected payout for different odds -->
+<!-- one_to_one <- seq(from=0, to=0, length.out = length(possible_bets)) -->
+<!-- two_to_one <- seq(from=0, to=0, length.out = length(possible_bets)) -->
+<!-- four_to_one <- seq(from=0, to=0, length.out = length(possible_bets)) -->
+<!-- eight_to_one <- seq(from=0, to=0, length.out = length(possible_bets)) -->
+<!-- sixteen_to_one <- seq(from=0, to=0, length.out = length(possible_bets)) -->
+<!-- for (i in 1:length(possible_bets)) { -->
+<!--   one_to_one[i] <- (1 - loss_rate)*(budget - possible_bets[i]) + 1/2*tax_winnings(2*possible_bets[i])   # 50% chance to win double the bet -->
+<!--   two_to_one[i] <- (1 - loss_rate)*(budget - possible_bets[i]) + 1/3*tax_winnings(3*possible_bets[i])   # 33% chance to win triple the bet -->
+<!--   four_to_one[i] <- (1 - loss_rate)*(budget - possible_bets[i]) + 1/5*tax_winnings(5*possible_bets[i])  # etc. -->
+<!--   eight_to_one[i] <- (1 - loss_rate)*(budget - possible_bets[i]) + 1/9*tax_winnings(9*possible_bets[i])  -->
+<!--   sixteen_to_one[i] <- (1 - loss_rate)*(budget - possible_bets[i]) + 1/17*tax_winnings(17*possible_bets[i]) -->
+<!-- } -->
+
+<!-- # plot expected payout for each possible bet -->
+<!-- plot(possible_bets,one_to_one,type="l",col="red",xlab="Bet Amount",ylab="Expected Value of Funds") -->
+<!-- lines(possible_bets,two_to_one,col="orange") -->
+<!-- lines(possible_bets,four_to_one,col="yellow") -->
+<!-- lines(possible_bets,eight_to_one,col="green") -->
+<!-- lines(possible_bets,sixteen_to_one,col="blue") -->
+<!-- ``` -->
+
+Additionally, the amount that users win is subject to a tiered capital gains tax whereby each increment of 50 cents in winnings is taxed 10% more than the previous 50 cents, and all winnings over $2 are taxed 50%. This tiered tax imposes diminishing returns for excessively risky bets. The amount that users do not bet is subject to a flat tax of 25%, which imposes an incentive against risk aversion much like inflation encourages people to invest in the stock market.
+
+The block of code below summarizes the incentive structure for the betting task. The line chart shows the expected utility (in $) of each bet amount for each level of odds of victory (shown in different lines). The peak of each line (representing the optimal bet for each level of odds) is highlighted with a red point. A key feature of this task design is that the expected utility for the bet is a linear function of the probability that team A wins the game (i.e., CLES). Thus, the proposed decision task relies on the same uncertainty information as the proposed perceptual judgment, allowing us to separately investigate perception and decision-making within one experiment.
 
 ```{r}
 # set range of possible bets based on given budget and minimum bet
 budget <- 1
-min_bet <- 0.05
-possible_bets <- seq(from=min_bet, to=budget, by=0.05) 
+min_bet <- 0.01
+possible_bets <- seq(from=min_bet, to=budget, by=0.01) 
 
 # create a tiered capital gains tax
 tax_winnings <- function(winnings) {
-  tiers <- c(0, 0.5, 1, 1.5, 2.5, 4, Inf)
-  rates <- c(0, 0.05, 0.1, 0.15, 0.2, 0.25, 0.3)
+  tiers <- append(seq(0, 2, by = 0.5), Inf)
+  rates <- seq(0, .5, by = .1)
   taxed_winnings <- sum(diff(c(0, pmin(winnings, tiers))) * (1-rates))
   return(taxed_winnings)
 }
 
 # set cost of not betting
-loss_rate <- 0.17
+loss_rate <- 0.25
 
 # calculate expected payout for different odds
-one_to_one <- seq(from=0, to=0, length.out = length(possible_bets))
-two_to_one <- seq(from=0, to=0, length.out = length(possible_bets))
-four_to_one <- seq(from=0, to=0, length.out = length(possible_bets))
-eight_to_one <- seq(from=0, to=0, length.out = length(possible_bets))
-sixteen_to_one <- seq(from=0, to=0, length.out = length(possible_bets))
+odds_to_check <- ppoints(50)
+payoff <- matrix(NaN, nrow = length(possible_bets), ncol = length(odds_to_check))
+net_pay <- matrix(NaN, nrow = length(possible_bets), ncol = length(odds_to_check))
 for (i in 1:length(possible_bets)) {
-  one_to_one[i] <- (1 - loss_rate)*(budget - possible_bets[i]) + 1/2*tax_winnings(2*possible_bets[i])   # 50% chance to win double the bet
-  two_to_one[i] <- (1 - loss_rate)*(budget - possible_bets[i]) + 1/3*tax_winnings(3*possible_bets[i])   # 33% chance to win triple the bet
-  four_to_one[i] <- (1 - loss_rate)*(budget - possible_bets[i]) + 1/5*tax_winnings(5*possible_bets[i])  # etc.
-  eight_to_one[i] <- (1 - loss_rate)*(budget - possible_bets[i]) + 1/9*tax_winnings(9*possible_bets[i]) 
-  sixteen_to_one[i] <- (1 - loss_rate)*(budget - possible_bets[i]) + 1/17*tax_winnings(17*possible_bets[i])
+  for (j in 1:length(odds_to_check)) {
+    payoff[i, j] <- odds_to_check[j] * tax_winnings(possible_bets[i] / odds_to_check[j])
+    net_pay[i, j] <- (1 - loss_rate)*(budget - possible_bets[i]) + payoff[i, j]
+  }
 }
 
 # plot expected payout for each possible bet
-plot(possible_bets,one_to_one,type="l",col="red",xlab="Bet Amount",ylab="Expected Value of Funds")
-lines(possible_bets,two_to_one,col="orange")
-lines(possible_bets,four_to_one,col="yellow")
-lines(possible_bets,eight_to_one,col="green")
-lines(possible_bets,sixteen_to_one,col="blue")
+plot(possible_bets,net_pay[,1],type="l",xlab="Bet Amount",ylab="Expected Value of Funds",ylim=range(net_pay))
+for (i in 2:length(odds_to_check)) {
+  lines(possible_bets,net_pay[,i])
+}
+# determine the best bet at each level of odds
+best_pay <- apply(net_pay, 2, max)
+best_bets <- seq(-1, 0, length.out = length(best_pay))
+for (i in 1:length(best_pay)) {
+  best_bets[i] <- possible_bets[which(net_pay[,i]==best_pay[i])]
+}
+points(best_bets, best_pay, col = "red")
 ```
-
 
 #Reading Difference Distributions
 
 ##Data for Stimuli
 
-We will vary the mean and standard deviation of the distribution users are judging so that we measure different levels of uncertainty (e.g., low and high) and different odds of victory for team A (e.g., 1:1, 2:1, 4:1, 8:1, 16:1). The point of these conditions is that the mean margin of victory for team A depends on both the variance and the odds of victory for team A, such that the location of the mean alone should provide a poor cue for the task.
+We will vary the mean and standard deviation of the distribution users are judging so that we measure different levels of uncertainty (e.g., low and high) and different odds of victory for team A. For instance, below we consider 1:1, 2:1, 4:1, 8:1, and 16:1 odds that team A will win. The point of these conditions is that the mean margin of victory for team A depends on both the variance and the odds of victory for team A, such that the location of the mean alone should provide a poor cue for the task.
 
 Here's some data spanning the different combinations of conditions that I propose to test.
 
@@ -145,7 +190,6 @@ $$ Perceived Pr(A > B) \propto
 \begin{cases} 
   100 - 50 * \frac{Interval > 0}{IntervalLength} &&& A \geq B \\
   \\
-  \\
   50 * \frac{Interval < 0}{IntervalLength} &&& A \lt B \\
 \end{cases}$$
 
@@ -216,7 +260,6 @@ Similar to HOPs, I would expect users of quantile dotplots to judge CLES based o
 $$ Perceived Pr(A > B) \propto
 \begin{cases} 
   100 - 50 * \frac{\Sigma(Dots > 0)}{\Sigma(Dots)} &&& A \geq B \\
-  \\
   \\
   50 * \frac{\Sigma(Dots < 0)}{\Sigma(Dots)} &&& A \lt B \\
 \end{cases}$$
@@ -361,14 +404,12 @@ $$ Perceived Pr(A > B) \propto
 \begin{cases} 
   100 - 50 * \frac{Interval Overlap}{\mu(IntervalLength)} &&& A \geq B \\
   \\
-  \\
   50 * \frac{Interval Overlap}{\mu(IntervalLength)} &&& A \lt B \\
 \end{cases}$$
 or
 $$ Perceived Pr(A > B) \propto
 \begin{cases} 
   100 - 50 * \frac{Interval Overlap}{Axis Range} &&& A \geq B \\
-  \\
   \\
   50 * \frac{Interval Overlap}{Axis Range} &&& A \lt B \\
 \end{cases}$$
@@ -459,7 +500,6 @@ $$ Perceived Pr(A > B) \propto
 \begin{cases} 
   100 - 50 * \frac{\Sigma(DotsOverlap)}{\Sigma(Dots)} &&& A \geq B \\
   \\
-  \\
   50 * \frac{\Sigma(DotsOverlap)}{\Sigma(Dots)} &&& A \lt B \\
 \end{cases}$$
 I think the predictions in this case should be similar to the predictions for the interval overlap heuristic.
@@ -484,7 +524,6 @@ For densities, I expect the heuristic will be based on the proportion of overlap
 $$ Perceived Pr(A > B) \propto
 \begin{cases} 
   100 - 50 * AreaOverlap &&& A \geq B \\
-  \\
   \\
   50 * AreaOverlap &&& A \lt B \\
 \end{cases}$$
