@@ -1,0 +1,50 @@
+# Aspirational Model
+
+# data 
+int n_trials                        # stimulus data
+real[n_trials] mean_A
+real[n_trials] mean_B
+real[n_trials] interval_length
+int n_draws
+vector[n_trials] draws[n_draws]
+real[n_trials] reported_CLES        # response data
+real[n_trials] bet
+int n_subjects                      # dummy coding for subjects, visualization conditions, and heuristics
+int n_vis_conds
+int n_heuristics
+int[n_subjects] subject
+int[n_vis_conds] vis
+int[n_heuristics] heuristic
+
+# heuristic submodels for estimated CLES
+heursitic_estimate[1] ~ 50 - 50 * (mean_B - mean_A) / max(abs(mean_B - mean_A))     # relative mean difference
+heursitic_estimate[2] ~ 50 - 50 * (mean_B - mean_A) / interval_length / 2           # mean first, then uncertainty
+heuristic_estimate[3] ~ ifelse(mean_A > mean_B,                                     # interval overlap
+    100 - 50 * ((mean_B + interval_length / 2) - (mean_A - interval_length / 2)) / interval_length, # case mean_A > mean_B
+    50 * ((mean_A + interval_length / 2) - (mean_B - interval_length / 2)) / interval_length) # case mean_A <= mean_B
+heuristic_estimate[4] ~ 100 * sum(draws < 0) / n_draws                              # subitizing
+
+# behavioral submodels
+reported_CLES ~ heuristic_estimate[heuristic] * p_heuristic[heuristic]                              # reported probability of superiority Pr(A > B)
+p_heuristic[heuristic] ~ logit(beta_p_vis[vis, heuristic] + alpha_p_subject[subject, heuristic])    # probability of each heuristic
+bet ~ optimal_bet(reported_CLES) + beta_bias_vis[vis] + beta_bias_subject[subject] +                # bet amount
+    alpha_noise_vis[vis] + alpha_noise_subject[subject]
+
+# parameter priors
+beta_p_vis[vis, heuristic] ~ Normal(mu_p_vis[vis, heuristic], sigma_p_vis[vis, heuristic])              # likelihood of heuristics
+alpha_p_subject[subject, heuristic] ~ Normal(0, sigma_p_subject)
+beta_bias_vis[vis] ~ Normal(mu_bias_vis[vis], sigma_bias_vis[vis])                # bias in betting behavior
+beta_bias_subject[subject] ~ Normal(mu_bias_subject, sigma_bias_subject)
+alpha_noise_vis[vis] ~ Normal(0, sigma_noise_vis[vis])                       # noise in betting behavior
+alpha_noise_subject[subject] ~ Normal(0, sigma_noise_subject)
+
+# hyperparameter (population-level estimates) priors
+mu_p_vis[vis, heuristic] ~ Normal(0, 2)                     # effect of each visualization on likelihood of each heuristic
+sigma_p_vis[vis, heuristic] ~ HalfCauchy(0, 1)
+sigma_p_subject ~ HalfCauchy(0, 1)                          # individual variation in tendancy to use each heuristics
+mu_bias_vis[vis] ~ Normal(0, 1)                             # effect of each visualization on bias in betting
+sigma_bias_vis[vis] ~ HalfCauchy(0, 1)
+sigma_noise_vis[vis] ~ HalfCauchy(0, 1)                     # noise in betting associate with visualization (proxy for cognitive load)
+mu_bias_subject ~ Normal(0, 1)                              # population level bias in betting (e.g., risk aversion)
+sigma_bias_subject ~ HalfCauchy(0, 1)
+sigma_noise_subject ~ HalfCauchy(0, 1)                      # individual variation in betting

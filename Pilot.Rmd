@@ -216,7 +216,7 @@ optimal_bet <- function(p_superiority_A) {
     utility_in_dollars[i] <- (1 - loss_rate)*(budget - possible_bets[i]) + p_superiority_A * tax_winnings(possible_bets[i] / p_superiority_A) # payoff proportional to risk
   }
   # determine the bet with the maximum expected utility
-  return(max(utility_in_dollars))
+  return(possible_bets[which(utility_in_dollars==max(utility_in_dollars))])
 }
 ```
 
@@ -235,7 +235,7 @@ conds_df %>% rowwise() %>%
   ) %>% 
   gather(heuristic, est_CLES, ground_truth, rel_mean_diff_est, means_first_then_uncertainty_est, interval_overlap_est, subitizing_est) %>% # reshape, this time including the ground truth as a factor
   rowwise() %>%
-  mutate(bet_amount = optimal_bet(est_CLES)) %>% # apply optimal bet function
+  mutate(bet_amount = unlist(map(list(optimal_bet(est_CLES)), 1))) %>% # apply optimal bet function (if multiple optimal bets, take the lower to avoid error)
 ggplot(aes(x = odds_of_victory, y = bet_amount, color = heuristic)) +
   geom_line() +
   colScale +
@@ -248,7 +248,7 @@ ggplot(aes(x = odds_of_victory, y = bet_amount, color = heuristic)) +
 ```
 
 Note that this is a qualitatively similar pattern to what we see in the CLES estimates. This means that in our task betting behavior (as measured by the amount bet on the outcome $A > B$) should be approximately a linear function of CLES $Pr(A > B)$. Because of the linear relationship between CLES and optimal bet, some of the distortions in betting behavior will follow directly from distortions in the ability to read CLES from the visualization in addition to bias and noise,
-$$BetAmount \propto OptimalBet(ReportedCLES) + \beta_{bias}[vis, subject] + \alpha_{noise}[vis, subject] $$
+$$BetAmount \propto OptimalBet(ReportedCLES) + \beta_{bias}[vis, subject] + \alpha_{noise}[vis, subject]$$
 and reported CLES will depend on the heuristic used,
 $$ReportedCLES \propto EstCLES_{heuristic}[heuristic] * P_{heuristic}[heuristic, subject]$$
 which in turn depends on the visualization condition and the subject.
