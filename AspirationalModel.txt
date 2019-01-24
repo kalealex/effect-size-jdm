@@ -19,32 +19,57 @@ int[n_heuristics] heuristic
 # heuristic submodels for estimated CLES
 heursitic_estimate[1] ~ 50 - 50 * (mean_B - mean_A) / max(abs(mean_B - mean_A))     # relative mean difference
 heursitic_estimate[2] ~ 50 - 50 * (mean_B - mean_A) / interval_length / 2           # mean first, then uncertainty
-heuristic_estimate[3] ~ ifelse(mean_A > mean_B,                                     # interval overlap
-    100 - 50 * ((mean_B + interval_length / 2) - (mean_A - interval_length / 2)) / interval_length, # case mean_A > mean_B
-    50 * ((mean_A + interval_length / 2) - (mean_B - interval_length / 2)) / interval_length) # case mean_A <= mean_B
-heuristic_estimate[4] ~ 100 * sum(draws < 0) / n_draws                              # subitizing
+heuristic_estimate[3] ~ if (mean_A > mean_B) {                                      # interval overlap
+                            100 - 50 * ((mean_B + interval_length / 2) - (mean_A - interval_length / 2)) / interval_length, # case mean_A > mean_B
+                        } else                                   
+                            50 * ((mean_A + interval_length / 2) - (mean_B - interval_length / 2)) / interval_length) # case mean_A <= mean_B
+                        }
+heuristic_estimate[4] ~ 100 * sum(draws < 0) / n_draws                              # outcome proportion
 
 # behavioral submodels
-reported_CLES ~ heuristic_estimate[heuristic] * p_heuristic[heuristic]                              # reported probability of superiority Pr(A > B)
-p_heuristic[heuristic] ~ logit(beta_p_vis[vis, heuristic] + alpha_p_subject[subject, heuristic])    # probability of each heuristic
-bet ~ optimal_bet(reported_CLES) + beta_bias_vis[vis] + beta_bias_subject[subject] +                # bet amount
+reported_CLES ~ heuristic_estimate[use_heuristic]                                       # reported probability of superiority Pr(A > B)
+use_heuristic ~ categorical_logit(beta_p_vis[vis, heuristic] +                          # probability of each heuristic (multinomial regression)
+    alpha_p_subject[subject, heuristic])    
+bet ~ optimal_bet(reported_CLES) + beta_bias_vis[vis] + beta_bias_subject[subject] +    # bet amount
     alpha_noise_vis[vis] + alpha_noise_subject[subject]
 
 # parameter priors
-beta_p_vis[vis, heuristic] ~ Normal(mu_p_vis[vis, heuristic], sigma_p_vis[vis, heuristic])              # likelihood of heuristics
-alpha_p_subject[subject, heuristic] ~ Normal(0, sigma_p_subject)
-beta_bias_vis[vis] ~ Normal(mu_bias_vis[vis], sigma_bias_vis[vis])                # bias in betting behavior
-beta_bias_subject[subject] ~ Normal(mu_bias_subject, sigma_bias_subject)
-alpha_noise_vis[vis] ~ Normal(0, sigma_noise_vis[vis])                       # noise in betting behavior
-alpha_noise_subject[subject] ~ Normal(0, sigma_noise_subject)
+beta_p_vis[vis, heuristic] ~ Normal(0, 2)                                    # effect of each visualization on likelihood of each heuristic
+alpha_p_subject[subject, heuristic] ~ Normal(0, sigma_p_subject)             # random effect of subject
+beta_bias_vis[vis] ~ Normal(0, 2)                                            # effect of visualization on bias in betting (e.g., the ambiguity effect)
+beta_bias_subject[subject] ~ Normal(mu_bias_subject, sigma_bias_subject)     # bias in betting for individual subjects
+alpha_noise_vis[vis] ~ Normal(0, sigma_noise_vis[vis])                       # noise in betting for visualization conditions
+alpha_noise_subject[subject] ~ Normal(0, sigma_noise_subject)                # noise in betting for individual subjects
 
 # hyperparameter (population-level estimates) priors
-mu_p_vis[vis, heuristic] ~ Normal(0, 2)                     # effect of each visualization on likelihood of each heuristic
-sigma_p_vis[vis, heuristic] ~ HalfCauchy(0, 1)
 sigma_p_subject ~ HalfCauchy(0, 1)                          # individual variation in tendancy to use each heuristics
-mu_bias_vis[vis] ~ Normal(0, 1)                             # effect of each visualization on bias in betting
-sigma_bias_vis[vis] ~ HalfCauchy(0, 1)
-sigma_noise_vis[vis] ~ HalfCauchy(0, 1)                     # noise in betting associate with visualization (proxy for cognitive load)
-mu_bias_subject ~ Normal(0, 1)                              # population level bias in betting (e.g., risk aversion)
-sigma_bias_subject ~ HalfCauchy(0, 1)
+sigma_noise_vis[vis] ~ HalfCauchy(0, 1)                     # noise in betting associated with visualization (proxy for cognitive load)
+mu_bias_subject ~ Normal(0, 1)                              # population mean bias in betting (e.g., risk aversion)
+sigma_bias_subject ~ HalfCauchy(0, 1)                       # individual variation in bias in betting
 sigma_noise_subject ~ HalfCauchy(0, 1)                      # individual variation in betting
+
+# functions
+optimal_bet <- function(p_superiority_A) {
+  # settings
+    budget <- 1
+    min_bet <- 0.01
+    possible_bets <- seq(from=min_bet, to=budget, by=0.01)
+  # hack to catch p == 0
+  if (p_superiority_A == 0) {
+    p_superiority_A <- 0.001
+  }
+  # calculate utility over as set of possible bets at the given odds
+  utility_in_dollars <- seq(from=-1, to=0, length.out = length(possible_bets))
+  for (i in 1:length(possible_bets)) {
+    utility_in_dollars[i] <- (1 - loss_rate)*(budget - possible_bets[i]) + p_superiority_A * tax_winnings(possible_bets[i] / p_superiority_A) # payoff proportional to risk
+  }
+  # determine the bet with the maximum expected utility
+  return(possible_bets[which(utility_in_dollars==max(utility_in_dollars))])
+}
+
+tax_winnings <- function(winnings) {
+  tiers <- append(seq(0, 2, by = 0.5), Inf)
+  rates <- seq(0, .5, by = .1)
+  taxed_winnings <- sum(diff(c(0, pmin(winnings, tiers))) * (1-rates))
+  return(taxed_winnings)
+}

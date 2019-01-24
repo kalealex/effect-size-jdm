@@ -226,7 +226,7 @@ animate(hops, fps=2.5)
 
 With HOPs, I would expect users to judge CLES based on the proportion of draws crossing the zero line.
 $$Perceived Pr(A > B) \propto 100 * \frac{\Sigma(draws > 0)}{\Sigma (draws)}$$
-Given representative sampling this should be pretty close to the ground truth. Although maybe we can test order effects---and thus differentiate the subitizing heuristic from the ground truth---by manipulating the series of draws and modeling primacy and recency as different weighting functions over the timeseries of draws.
+Given representative sampling this should be pretty close to the ground truth. Although maybe we can test order effects---and thus differentiate the outcome proportion heuristic from the ground truth---by manipulating the series of draws and modeling primacy and recency as different weighting functions over the timeseries of draws.
 
 ###Quantile Dotplots
 
@@ -447,7 +447,7 @@ animate(hops, fps=2.5)
 
 With HOPs, I would expect users to judge CLES based on the proportion of draws crossing each other.
 $$Perceived Pr(A > B) \propto 100 * \frac{\Sigma(draws_{A > B})}{\Sigma (draws)}$$
-Given representative sampling this should be pretty close to the ground truth. Although maybe we can test order effects---and thus differentiate the subitizing heuristic from the ground truth---by manipulating the series of draws and modeling primacy and recency as different weighting functions over the timeseries of draws.
+Given representative sampling this should be pretty close to the ground truth. Although maybe we can test order effects---and thus differentiate the outcome proportion heuristic from the ground truth---by manipulating the series of draws and modeling primacy and recency as different weighting functions over the timeseries of draws.
 
 ###Quantile Dotplots
 

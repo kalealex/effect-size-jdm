@@ -1,0 +1,315 @@
+---
+title: "StimuliGeneration"
+author: "Alex Kale"
+date: "1/22/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+This file contains code to generate stimuli for our uncertainty visualization heuristics experiment.
+
+##Data Conditions
+
+We need stimuli for which our heuristics predict maximally different CLES estimates (see _Pilot.Rmd_). We sample extreme levels of ground truth CLES (i.e., odds) because these data should produce the most extreme differences between heuristics corresponding to different visualization conditions. Similarly, we test two dramatically different levels of uncertainty (i.e., std_diff) because we expect the relative mean difference heuristic to produce especially large errors when uncertainty is low and thus visually small mean differences are not representative of reliability.
+
+```{r}
+# set up possible data conditions dataframe
+cond <- c("low sd, 0.025 odds", "low sd, 0.1 odds", "low sd, 0.25 odds", "low sd, 0.75 odds", "low sd, 0.9 odds", "low sd, 0.975 odds",
+          "high sd, 0.025 odds", "high sd, 0.1 odds", "high sd, 0.25 odds", "high sd, 0.75 odds", "high sd, 0.9 odds", "high sd, 0.975 odds")
+std_diff <- c(1, 5) # different levels of uncertainty about the margin of victory
+odds <- c(0.025, 0.1, 0.25, 0.75, 0.9, 0.975) # probability of team A winning
+teamAB <- c("A", "B") # factor for team
+conds_df <- data.frame(
+    "condition" = cond,
+    "sd_diff" = sort(rep(std_diff, length(odds))),
+    "odds_of_victory" = rep(odds, length(std_diff)),
+    "Team" = sort(rep(teamAB, length(std_diff) * length(odds)))
+)
+
+# add column for the mean difference
+conds_df$mean_diff <- - (conds_df$sd_diff * qnorm(conds_df$odds_of_victory)) # mean(B - A)
+
+# compute the mean of distributions A and B
+center <- 50 # set the center point between the score of A and B
+conds_df$mean[conds_df$Team == "A"] <- center - conds_df$mean_diff[conds_df$Team == "A"] / 2
+conds_df$mean[conds_df$Team == "B"] <- center + conds_df$mean_diff[conds_df$Team == "B"] / 2
+
+# compute the sd of distributions A and B, assuming independent and equal variances
+conds_df$sd <- sqrt(conds_df$sd_diff ^ 2 / 2)
+
+# for HOPs and quantile dotplots we need to add draws to our dataframe
+n <- 1000 # number of samples
+n_dots <- 20 # number of dots for quantile dotplots
+conds_df$sample_n <- n
+conds_df <- conds_df %>% as.tibble() %>%
+  mutate(draws=pmap(list(sample_n, mean, sd), rnorm), # get a list of draws from the distribution for each condition
+         draw_n=list(seq(1, n)), # number each sample in order to animate multiple views simultaneously
+         quantiles=map(draws, ~ quantile(unlist(.x), ppoints(n_dots))) # use draw to get quantiles
+         ) # leave these draws and quantiles nested in the dataframe for later use since they are not relevant to most visualizations
+
+# save conds_df with the draws used to create these stimuli (for use in analysis)
+save(conds_df, file = "stimuli/conds_df.Rda")
+
+# print
+head(conds_df)
+```
+
+##Visualization Stimuli
+
+We create one of each plot type for each data condition above and save to a folder called stimuli.
+
+```{r echo=FALSE}
+# need a color scale for teams A and B
+teams <- as.factor(c("A","B"))
+tColors <- brewer.pal(length(teams), "Set1")
+names(tColors) <- levels(teams)
+colScale <- scale_colour_manual(values = tColors)
+```
+
+```{r}
+# select number of draws for HOPs conditions
+n_draws_hops <- 50
+
+# cycle through rows in the table of data conditions
+for (c in unique(conds_df$condition)) {
+  # isolaten data for the current condtion
+  use_df <- conds_df %>% filter(condition %in% c)
+  
+  # means only
+  plt <- use_df %>% ggplot(aes(x=mean, y=Team, color=Team)) +
+    geom_point(size=2) +
+    theme_bw() +
+    colScale +
+    xlim(40, 60) +
+    labs(
+      title="Scores in Previous Rounds of TeamCrossword",
+      x="Average of Past Scores",
+      y=NULL
+    )
+  fname <- paste("stimuli/means only-", c,".svg", sep = "")
+  ggsave(file=fname, plot=plt, width=5, height=3)
+  
+  # intervals only
+  plt <- use_df %>% ggplot(aes(y=mean, x=Team, color=Team)) +
+    geom_errorbar(aes(ymin=mean+qnorm(0.025)*sd, ymax=mean+qnorm(0.975)*sd, width=0)) +
+    coord_flip() +
+    theme_bw() +
+    colScale +
+    ylim(35, 65) +
+    labs(
+      title="Scores in Previous Rounds of TeamCrossword",
+      x=NULL,
+      y="Range Containing 95% of Past Scores"
+    )
+  fname <- paste("stimuli/intervals only-", c,".svg", sep = "")
+  ggsave(file=fname, plot=plt, width=5, height=3)
+  
+  # hops
+  plt <- use_df %>% select(-one_of(c("quantiles"))) %>% unnest() %>%
+    filter(draw_n %in% 1:n_draws_hops) %>% # filter to set number of draws 
+    ggplot(aes(y=draws, x=Team, color=Team)) +
+    geom_point(shape=124, size=8) +
+    coord_flip() +
+    theme_bw() +
+    colScale +
+    ylim(35, 65) +
+    labs(
+      title="Scores in Previous Rounds of TeamCrossword",
+      y="Past Scores",
+      x=NULL
+    ) +
+    transition_manual(draw_n)
+  hops <- animate(plt, fps=2.5, width=480, height=288)
+  fname <- paste("stimuli/HOPs-", c,".gif", sep = "")
+  anim_save(filename = fname, animation = hops)
+  
+  # quantile dotplots
+  plt <- use_df %>% select(-one_of(c("draws", "draw_n"))) %>% unnest() %>%
+    ggplot(aes(x=quantiles, fill=Team)) +
+    geom_dotplot(binwidth=.75, binaxis = "x", binpositions="all") +
+    theme_bw() +
+    scale_fill_brewer(palette="Set1") +
+    xlim(35, 65) +
+    labs(
+      title="Scores in Previous Rounds of TeamCrossword",
+      x="Past Scores",
+      y="Proportion of Past Scores"
+    ) +
+    facet_grid(Team ~ .) +
+    theme(
+      strip.background = element_blank(),
+      strip.text.x = element_blank()
+    )
+  fname <- paste("stimuli/QDPs-", c,".svg", sep = "")
+  ggsave(file=fname, plot=plt, width=5, height=3)
+  
+  # densities
+  plt <- use_df %>% select(-one_of(c("draws", "draw_n"))) %>% unnest() %>%
+    ggplot(aes(x=quantiles, color=Team)) +
+    geom_density() +
+    theme_bw() +
+    colScale +
+    xlim(35, 65) +
+    labs(
+      title="Scores in Previous Rounds of TeamCrossword",
+      x="Past Scores",
+      y="Proportion of Past Scores"
+    )
+  fname <- paste("stimuli/densities-", c,".svg", sep = "")
+  ggsave(file=fname, plot=plt, width=5, height=3)
+
+  # means with intervals
+  plt <- use_df %>% ggplot(aes(y=mean, x=Team, color=Team)) +
+    geom_pointrange(aes(ymin=mean+qnorm(0.025)*sd, ymax=mean+qnorm(0.975)*sd)) +
+    coord_flip() +
+    theme_bw() +
+    colScale +
+    ylim(35, 65) +
+    labs(
+      title="Scores in Previous Rounds of TeamCrossword",
+      y="Past Scores",
+      x=NULL
+    )
+  fname <- paste("stimuli/means w intervals-", c,".svg", sep = "")
+  ggsave(file=fname, plot=plt, width=5, height=3)
+  
+  # means with hops
+  plt <- use_df %>% select(-one_of(c("quantiles"))) %>% unnest() %>%
+    filter(draw_n %in% 1:n_draws_hops) %>% # filter to set number of draws 
+    ggplot(aes(y=mean, x=Team, color=Team)) +
+    geom_point(size=2) +
+    geom_point(aes(y=draws), shape=124, size=8) +
+    coord_flip() +
+    theme_bw() +
+    colScale +
+    ylim(35, 65) +
+    labs(
+      title="Scores in Previous Rounds of TeamCrossword",
+      y="Past Scores",
+      x=NULL
+    ) +
+    transition_manual(draw_n)
+  hops <- animate(plt, fps=2.5, width=480, height=288)
+  fname <- paste("stimuli/HOPs w means-", c,".gif", sep = "")
+  anim_save(filename = fname, animation = hops)
+}
+```
+
+
+<!-- ```{r} -->
+<!-- # means only -->
+<!-- conds_df2 %>% ggplot(aes(x=mean, y=team, color=team)) + -->
+<!--   geom_point(size=2) + -->
+<!--   theme_bw() + -->
+<!--   labs( -->
+<!--     title="Stimulus Conditions: Means Only", -->
+<!--     x="Scores", -->
+<!--     caption="Odds of Victory for Team A * Levels of Uncertainty" -->
+<!--   ) + -->
+<!--   theme(axis.title.y = element_blank()) + -->
+<!--   facet_grid(round(odds_of_victory,2) ~ sd_diff) -->
+
+<!-- # intervals only -->
+<!-- conds_df2 %>% ggplot(aes(y=mean, x=team, color=team)) + -->
+<!--   geom_errorbar(aes(ymin=mean+qnorm(0.025)*sd, ymax=mean+qnorm(0.975)*sd, width=0)) + -->
+<!--   coord_flip() + -->
+<!--   theme_bw() + -->
+<!--   labs( -->
+<!--     title="Stimulus Conditions: Intervals Only", -->
+<!--     y="Scores", -->
+<!--     caption="Odds of Victory for Team A * Levels of Uncertainty" -->
+<!--   ) + -->
+<!--   theme(axis.title.y = element_blank()) + -->
+<!--   facet_grid(round(odds_of_victory,2) ~ sd_diff) -->
+
+<!-- # for HOPs we need to add draws to our dataframe -->
+<!-- n <- 100 # number of samples -->
+<!-- conds_df2$sample_n <- n -->
+<!-- conds_df2_draws <- conds_df2 %>% as_tibble() %>% -->
+<!--   mutate(draw=pmap(list(sample_n, mean, sd), rnorm), # get a list of draws from the distribution for each condition -->
+<!--          draw_n=list(seq(1, n))) %>% #number each sample in order to animate multiple views simultaneously -->
+<!--   unnest() # get back to a tidy format -->
+
+<!-- # hops -->
+<!-- hops = conds_df2_draws %>% -->
+<!--   ggplot(aes(y=draw, x=team, color=team)) + -->
+<!--   geom_point(shape=124, size=5) + -->
+<!--   coord_flip() + -->
+<!--   theme_bw() + -->
+<!--   labs( -->
+<!--     title="Stimulus Conditions: HOPs", -->
+<!--     y="Scores", -->
+<!--     caption="Odds of Victory for Team A * Levels of Uncertainty" -->
+<!--   ) + -->
+<!--   facet_grid(round(odds_of_victory,2) ~ sd_diff) + -->
+<!--   transition_manual(draw_n) -->
+
+<!-- animate(hops, fps=2.5) -->
+
+<!-- # as with hops, we need to add to the dataframe to build quantile dotplots -->
+<!-- n_dots <- 20 # number of dots -->
+<!-- n <- 10000 # number of samples -->
+<!-- conds_df2$sample_n <- n -->
+<!-- conds_df2_quantiles <- conds_df2 %>% as_tibble() %>% -->
+<!--   mutate(draws=pmap(list(sample_n, mean, sd), rnorm), # sample each distribution (as before) -->
+<!--     quantiles=map(draws, ~ quantile(unlist(.x), ppoints(n_dots))), # use these draws to get quantiles -->
+<!--     draws=NULL) %>% # drop draws from the dataframe since these were an intermediate step anyway -->
+<!--   unnest() -->
+
+<!-- # quantile dotplots -->
+<!-- conds_df2_quantiles %>% -->
+<!--   ggplot(aes(x=quantiles, y=team, fill=team)) + -->
+<!--   geom_dotplot(binwidth=.9, binaxis = "x", stackgroups=TRUE, binpositions="all") + -->
+<!--   theme_bw() + -->
+<!--   labs( -->
+<!--     title="Stimulus Conditions: Quantile Dotplots", -->
+<!--     x="Scores", -->
+<!--     caption="Odds of Victory for Team A * Levels of Uncertainty" -->
+<!--   ) + -->
+<!--   facet_grid(round(odds_of_victory,2) ~ sd_diff) -->
+
+<!-- # densities -->
+<!-- conds_df2_quantiles %>% -->
+<!--   ggplot(aes(x=quantiles, color=team)) + -->
+<!--   geom_density() + -->
+<!--   theme_bw() + -->
+<!--   labs( -->
+<!--     title="Stimulus Conditions: Quantile Dotplots", -->
+<!--     x="Scores", -->
+<!--     caption="Odds of Victory for Team A * Levels of Uncertainty" -->
+<!--   ) + -->
+<!--   facet_grid(round(odds_of_victory,2) ~ sd_diff) -->
+
+<!-- # means with intervals -->
+<!-- conds_df2 %>% ggplot(aes(y=mean, x=team, color=team)) + -->
+<!--   geom_pointrange(aes(ymin=mean+qnorm(0.025)*sd, ymax=mean+qnorm(0.975)*sd)) + -->
+<!--   coord_flip() + -->
+<!--   theme_bw() + -->
+<!--   labs( -->
+<!--     title="Stimulus Conditions: Means with Intervals", -->
+<!--     y="Scores", -->
+<!--     caption="Odds of Victory for Team A * Levels of Uncertainty" -->
+<!--   ) + -->
+<!--   theme(axis.title.y = element_blank()) + -->
+<!--   facet_grid(round(odds_of_victory,2) ~ sd_diff) -->
+
+<!-- # means with hops -->
+<!-- hops_means <- conds_df2_draws %>% ggplot(aes(y=mean, x=team, color=team)) + -->
+<!--   geom_point(size=2) + -->
+<!--   geom_point(aes(y=draw), shape=124, size=5) + -->
+<!--   coord_flip() + -->
+<!--   theme_bw() + -->
+<!--   labs( -->
+<!--     title="Stimulus Conditions: Means with HOPs", -->
+<!--     y="Scores", -->
+<!--     caption="Odds of Victory for Team A * Levels of Uncertainty" -->
+<!--   ) + -->
+<!--   theme(axis.title.y = element_blank()) + -->
+<!--   facet_grid(round(odds_of_victory,2) ~ sd_diff) + -->
+<!--   transition_manual(draw_n) -->
+
+<!-- animate(hops_means, fps=2.5) -->
+<!-- ``` -->
