@@ -1,4 +1,14 @@
-DecisionTaskMockup.*
-
+# study planning
+archived/
 stimuli.zip
-stimuli copy
+
+# in repeated-measures-experiment
+node_modules
+.DS_Store
+.cache
+__pycache__
+venv
+flask
+secret
+*.pyc
+config.py

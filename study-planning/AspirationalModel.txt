@@ -20,9 +20,9 @@ int[n_heuristics] heuristic
 heursitic_estimate[1] ~ 50 - 50 * (mean_B - mean_A) / max(abs(mean_B - mean_A))     # relative mean difference
 heursitic_estimate[2] ~ 50 - 50 * (mean_B - mean_A) / interval_length / 2           # mean first, then uncertainty
 heuristic_estimate[3] ~ if (mean_A > mean_B) {                                      # interval overlap
-                            100 - 50 * ((mean_B + interval_length / 2) - (mean_A - interval_length / 2)) / interval_length, # case mean_A > mean_B
-                        } else                                   
-                            50 * ((mean_A + interval_length / 2) - (mean_B - interval_length / 2)) / interval_length) # case mean_A <= mean_B
+                            100 - 50 * ((mean_B + interval_length / 2) - (mean_A - interval_length / 2)) / interval_length
+                        } else # mean_A <= mean_B      
+                            50 * ((mean_A + interval_length / 2) - (mean_B - interval_length / 2)) / interval_length
                         }
 heuristic_estimate[4] ~ 100 * sum(draws < 0) / n_draws                              # outcome proportion
 
@@ -43,9 +43,9 @@ alpha_noise_subject[subject] ~ Normal(0, sigma_noise_subject)                # n
 
 # hyperparameter (population-level estimates) priors
 sigma_p_subject ~ HalfCauchy(0, 1)                          # individual variation in tendancy to use each heuristics
-sigma_noise_vis[vis] ~ HalfCauchy(0, 1)                     # noise in betting associated with visualization (proxy for cognitive load)
 mu_bias_subject ~ Normal(0, 1)                              # population mean bias in betting (e.g., risk aversion)
 sigma_bias_subject ~ HalfCauchy(0, 1)                       # individual variation in bias in betting
+sigma_noise_vis[vis] ~ HalfCauchy(0, 1)                     # noise in betting associated with visualization (proxy for cognitive load)
 sigma_noise_subject ~ HalfCauchy(0, 1)                      # individual variation in betting
 
 # functions
