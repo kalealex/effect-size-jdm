@@ -19,7 +19,8 @@ moment = Moment()
 
 
 def create_app(config_class=Config):
-    app = Flask(__name__)
+    # app = Flask(__name__)
+    app = Flask(__name__, static_url_path='')
     app.config.from_object(config_class)
 
     # db.init_app(app)
@@ -31,8 +32,12 @@ def create_app(config_class=Config):
     cred = credentials.Certificate(Config.FIREBASE_SECRET_PATH)
     # cred = credentials.Certificate('./secret.json')
     firebase_app = firebase_admin.initialize_app(cred, {
-        'databaseURL': 'https://beliefdrivenvis.firebaseio.com/'
+        'databaseURL': "https://uncertainty-vis-heuristics.firebaseio.com"
     })
+    
+    @app.route('/<path:path>')
+    def send_files(path):
+        return send_from_directory('static', path)
 
     from app.db import bp as db_bp
     app.register_blueprint(db_bp)

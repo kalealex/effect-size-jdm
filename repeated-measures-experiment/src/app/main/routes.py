@@ -37,21 +37,48 @@ def instructions():
     workerId = str(request.args.get('workerId'))
     if not workerId:
         return 'Please provide your workerId as a Url Parameter.'
+    cond = str(request.args.get('cond'))
+    if not cond:
+        return 'Please provide visualization condition (cond) as a Url Parameter.'
 
     # Connect to the Firebase instance
     ref = db.reference('/workers/' + workerId)
     token = ''.join(random.choice('0123456789ABCDEF') for i in range(16))
 
-    workerRef = {"workerId": workerId, "token": token}
+    workerRef = {"workerId": workerId, "token": token, "condition": cond}
+
+    # Check for repeat Turkers
+    # if (db.reference(‘/workers/’ + workerId) exists)
+        # do something
+    # or use Unique Turker (http://uniqueturker.myleott.com/)
 
     # Then set at workers/workerId a randomly generated token
     ref.push().set(workerRef)
 
-    next_url = "/2_next_instructions"
+    # next_url = "/2_next_instructions" + "?workerId=" + workerId
+    next_url = "/2_practice" + "?workerId=" + workerId + "&cond=" + cond
 
     return render_template('%s.html' % ('/experiment/' + '/1_instructions'),
         workerId = workerId,
+        cond = cond,
         next_url = next_url)
+
+@bp.route('/2_practice')
+def practice():
+    workerId = str(request.args.get('workerId'))
+    if not workerId:
+        return 'Please provide your workerId as a Url Parameter.'
+    cond = str(request.args.get('cond'))
+    if not cond:
+        return 'Please provide visualization condition (cond) as a Url Parameter.'
+
+    next_url = "/3_main_experiment_interface" + "?workerId=" + workerId + "&cond=" + cond
+
+    return render_template('%s.html' % ('/experiment/' + '/2_practice'),
+        workerId = workerId,
+        cond = cond,
+        next_url = next_url)
+
 
 ## Define more requests similar to above for other main html templates, or api endpoints
 

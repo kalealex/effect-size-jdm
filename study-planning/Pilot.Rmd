@@ -293,8 +293,6 @@ Additionally, the game makers introduced some incentives to encourage betting an
 - Winnings in each round are subject to a tiered tax whereby each increment of 50 cents in winnings is taxed 10% more than the previous 50 cents, and all winnings over $2 are taxed 50%.
 
 ```{r echo=FALSE}
-tiers <- append(seq(0, 2, by = 0.5), Inf)
-rates <- seq(0, .5, by = .1)
 tax_table <- data.frame(
   tier = c("0 to 50 cents", "50 cents to $1", "$1 to$1.5", "$1.5 to $2", "more than $2"),
   tax_rate = c("10%", "20%", "30%", "40%", "50%")
@@ -360,8 +358,6 @@ Additionally, your winnings _in each round_ are subject to a tiered tax whereby 
 
 ```{r echo=FALSE}
 # set up readable version of table
-tiers <- append(seq(0, 2, by = 0.5), Inf)
-rates <- seq(0, .5, by = .1)
 tax_table <- data.frame(
   tier = c("0 to 50 cents", "50 cents to $1", "$1 to $1.5", "$1.5 to $2", "more than $2"),
   tax_rate = c("10%", "20%", "30%", "40%", "50%")

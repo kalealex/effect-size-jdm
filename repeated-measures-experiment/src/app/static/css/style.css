@@ -1,1 +1,27 @@
-/* some styles here */
+/* format table for tiered tax */
+table, th, td {
+    border: 1px solid black;
+    border-collapse: collapse;
+}
+
+/* scaling stimulus image and sliders */
+@media only screen and (min-width: 624px) {
+    #prob, #bet, #stim {
+        width: 70%;
+    }
+}
+@media only screen and (min-width: 924px) {
+    #prob, #bet, #stim {
+        width: 50%;
+    }
+}
+@media only screen and (min-width: 1224px) {
+    #prob, #bet, #stim {
+        width: 40%;
+    }
+}
+@media only screen and (min-width: 1824px) {
+    #slider, #stim {
+        width: 30%;
+    }
+}
