@@ -2,6 +2,7 @@
 archived/
 stimuli/
 stimuli.zip
+presentations/
 
 # in repeated-measures-experiment
 node_modules
@@ -13,4 +14,3 @@ flask
 secret
 *.pyc
 config.py
-img/
