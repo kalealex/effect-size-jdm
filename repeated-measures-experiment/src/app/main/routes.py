@@ -60,6 +60,7 @@ def instructions():
     # Set up database entry for in workers
     workerRef = {"workerId": workerId, "token": token, "condition": cond}
     ref.push().set(workerRef)
+    ref.set(workerRef)
 
     # Send user to practice page
     next_url = "/2_practice" + "?workerId=" + workerId + "&cond=" + cond + "&trial=practice"
@@ -120,6 +121,33 @@ def experiment():
         trialIdx = trialIdx,
         next_url = next_url)
 
+@bp.route('/4_survey')
+def survey():
+    workerId = str(request.args.get('workerId'))
+    if not workerId:
+        return 'Please provide your workerId as a Url Parameter.'
+    cond = str(request.args.get('cond'))
+    if not cond:
+        return 'Please provide visualization condition (cond) as a Url Parameter.'
+    
+    next_url = "/5_final" + "?workerId=" + workerId + "&cond=" + cond
+
+    return render_template('%s.html' % ('/experiment/' + '/4_survey'),
+        workerId = workerId,
+        cond = cond,
+        next_url = next_url)
+
+@bp.route('/5_final')
+def final():
+    workerId = str(request.args.get('workerId'))
+    if not workerId:
+        return 'Please provide your workerId as a Url Parameter.'
+    cond = str(request.args.get('cond'))
+    if not cond:
+        return 'Please provide visualization condition (cond) as a Url Parameter.'
+
+    return render_template('%s.html' % ('/experiment/' + '/5_final'),
+        workerId = workerId) # use workerId to query db for token
 
 ## Define more requests similar to above for other main html templates, or api endpoints
 
