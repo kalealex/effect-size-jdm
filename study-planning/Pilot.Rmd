@@ -280,14 +280,14 @@ In the popular new online game TeamCrossword, teams of friends work together and
 
 Players of the betting game can bet up to $1 per round of TeamCrossword and are payed based on the outcome of the game:-->
 
-The creators of TeamCrossword are giving you an opportunity to place bets on game outcomes. You are assigned to bet on one of two teams each round, and team names are anonymized to "team A" and "team B" to respect the privacy of TeamCrossword players.
+The creators of TeamCrossword are giving you an opportunity to place bets on game outcomes. _You are assigned to bet on one of two teams each round_, and team names are anonymized to "team A" and "team B" to respect the privacy of TeamCrossword players.
 
-You may bet up to $1 per round of TeamCrossword, and you are payed based on the outcome of the game:
+_You may bet up to $1 per round of TeamCrossword_, and you are payed based on the outcome of the game:
 
 - If the team you bet on wins, you win an amount proportional to the odds that team A will win. For example, 1:1 odds give you a 50% chance of winning 2 times bet amount, 4:1 odds give you a 20% chance of winning 5 times bet amount, 1:3 odds give you a 75% chance to win 1.33 times the bet amount, etc. 
 - If your team looses the round, you loose the amount that you bet.
 
-Additionally, the game makers introduced some incentives to encourage betting and generate additional revenue:
+Additionally, the game makers introduced some _incentives_ to encourage betting and generate additional revenue:
 
 - The amount that you _do not_ bet is subject to a flat tax of 25%.
 - Winnings in each round are subject to a tiered tax whereby each increment of 50 cents in winnings is taxed 10% more than the previous 50 cents, and all winnings over $2 are taxed 50%.
@@ -312,7 +312,7 @@ To help you place your bets, the creators of TeamCrossword provide information o
 
 Here's an example of one of your charts showing the how many points each competing team has scored in previous rounds of TeamCrossword.
 
-_<insert png or gif depending on visualization condition>_
+_<insert svg or gif depending on visualization condition>_
 
 Which team is more likely to win this game?
 
@@ -320,11 +320,11 @@ _<radiobuttons with feedback>_
 
 If this game were to happen 100 times, how many times would team A win?
 
-_<dropdown menu or slider with feedback>_
+_<slider with feedback>_
 
 You have a budget of $1 to bet on the outcome of this game. How much do you bet that team A will win?
 
-_<dropdown menu or slider with feedback>_
+_<slider with feedback>_
 
 ###Task Page
 
@@ -334,27 +334,29 @@ _Trial n out of N_
 
 The chart below shows how many points team A and team B have scored in previous rounds of TeamCrossword. Recall that the team with the higher score wins. Use this chart to answer the questions below.
 
-_<insert png or gif>_
+_<insert svg or gif>_
 
 Q1. If this game were to happen 100 times, how many times would you expect team A win?
 
-_<dropdown menu or slider>_
+_<slider>_
 
 Q2. You have a budget of $1 to bet on the outcome of this game. How much do you bet that team A will win?
 
-_<dropdown menu or slider>_
+_<slider>_
 
 ####Betting Rules
 
 _(This should be displayed somewhere on the task screen as a reminder.)_
 
-On each trial, you must choose how much of your $1 budget to bet that your team will win the game. After your bet, you will be payed based on the outcome of the round. 
+You may bet up to $1 per round of TeamCrossword:
 
-If your team wins the game, you win an amount proportional to the odds that your team will win. For example, 1:1 odds give you a 50% chance of winning 2 times the bet amount, 4:1 odds give you a 20% chance of winning 5 times the bet amount, 1:3 odds give you a 75% chance to win 1.33 times the bet amount, etc. If your team looses the round, you loose the amount you bet. 
+- If the team you bet on wins, you win an amount proportional to the odds that team A will win.
+- If your team looses the round, you loose the amount that you bet.
 
-The amount that you _do not_ bet is subject to a flat tax of 25%.
+Incentives:
 
-Additionally, your winnings _in each round_ are subject to a tiered tax whereby each increment of 50 cents in winnings is taxed 10% more than the previous 50 cents, and all winnings over $2 are taxed 50%.
+- The amount that you _do not_ bet is subject to a flat tax of 25%.
+- Winnings in each round are subject to the tiered tax described in the table below.
 
 ```{r echo=FALSE}
 # set up readable version of table
