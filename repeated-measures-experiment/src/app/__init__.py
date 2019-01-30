@@ -28,13 +28,16 @@ def create_app(config_class=Config):
     moment.init_app(app)
     print(os.path.dirname(os.path.abspath(__file__)))
 
-    # init firebase
-    cred = credentials.Certificate(Config.FIREBASE_SECRET_PATH)
-    # cred = credentials.Certificate('./secret.json')
-    firebase_app = firebase_admin.initialize_app(cred, {
-        'databaseURL': "https://uncertainty-vis-heuristics.firebaseio.com"
-    })
-    
+    # init firebase (if not already initialized)
+    if (not len(firebase_admin._apps)):
+        cred = credentials.Certificate(Config.FIREBASE_SECRET_PATH)
+        # cred = credentials.Certificate('./secret.json')
+        firebase_app = firebase_admin.initialize_app(cred, {
+            'databaseURL': "https://uncertainty-vis-heuristics.firebaseio.com"
+        })
+    # else:
+    #     firebase_app = firebase_admin.get_app()
+
     @app.route('/<path:path>')
     def send_files(path):
         return send_from_directory('static', path)

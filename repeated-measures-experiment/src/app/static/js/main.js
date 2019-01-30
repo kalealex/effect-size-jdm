@@ -11,7 +11,8 @@ let filepath
 if (routeVars.trial === "practice") {
     filepath = "../img/" + routeVars.cond + "-high sd, 0.25 odds" + extension();
 } else {
-    filepath = "../img/" + routeVars.cond + "-" + sdList[routeVars.trial] + " sd, " + oddsList[routeVars.trial] + " odds" + extension();
+    console.log(routeVars.trialIdx)
+    filepath = "../img/" + routeVars.cond + "-" + sdList[routeVars.trialIdx] + " sd, " + oddsList[routeVars.trialIdx] + " odds" + extension();
 }
 $("#stim").attr("src", filepath);
 
@@ -30,6 +31,7 @@ $(document).ready(function () {
             "workerId": routeVars.workerId,
             "condition": routeVars.cond,
             "trial": routeVars.trial,
+            "trialIdx": routeVars.trialIdx,
             "cles": cles,
             "bet": bet
         }
@@ -47,6 +49,7 @@ $(document).ready(function () {
             "workerId": routeVars.workerId,
             "condition": routeVars.cond,
             "trial": routeVars.trial, 
+            "trialIdx": routeVars.trialIdx,
             "cles": cles,
             "bet": bet
         }
