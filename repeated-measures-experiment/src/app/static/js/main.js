@@ -1,16 +1,3 @@
-// do something with a fetch polyfill here (if we are using flask to handle data exchange with firebase)
-
-// Set firebase configuration for client side
-var config = {
-    apiKey: "AIzaSyASuhcpPFNfRfGSqyyN5Ab3y2EV7aHFkDs",
-    authDomain: "uncertainty-vis-heuristics.firebaseapp.com",
-    databaseURL: "https://uncertainty-vis-heuristics.firebaseio.com",
-    projectId: "uncertainty-vis-heuristics",
-    storageBucket: "uncertainty-vis-heuristics.appspot.com",
-    messagingSenderId: "180138086344"
-};
-firebase.initializeApp(config);
-
 // Get a reference to the database service
 var database = firebase.database();
 
