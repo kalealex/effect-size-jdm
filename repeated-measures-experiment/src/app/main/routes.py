@@ -2,6 +2,7 @@ from datetime import datetime
 from flask import render_template, flash, redirect, url_for, request, g, \
     jsonify, current_app
 import random
+from config import Config
 import firebase_admin
 from firebase_admin import credentials
 from firebase_admin import db
@@ -45,18 +46,16 @@ def instructions():
     ref = db.reference('/workers/' + workerId)
     token = ''.join(random.choice('0123456789ABCDEF') for i in range(16))
 
+    # Check for repeat Turkers (alternative: Unique Turker (http://uniqueturker.myleott.com/)
+    # if ref.once().exists():
+    #     # Redirect user to page that instructs them to return HIT
+    # else
+    # Set up database entry for in workers
     workerRef = {"workerId": workerId, "token": token, "condition": cond}
-
-    # Check for repeat Turkers
-    # if (db.reference(‘/workers/’ + workerId) exists)
-        # do something
-    # or use Unique Turker (http://uniqueturker.myleott.com/)
-
-    # Then set at workers/workerId a randomly generated token
     ref.push().set(workerRef)
 
-    # next_url = "/2_next_instructions" + "?workerId=" + workerId
-    next_url = "/2_practice" + "?workerId=" + workerId + "&cond=" + cond
+    # Send user to practice page
+    next_url = "/2_practice" + "?workerId=" + workerId + "&cond=" + cond + "&trial=practice"
 
     return render_template('%s.html' % ('/experiment/' + '/1_instructions'),
         workerId = workerId,
@@ -71,12 +70,41 @@ def practice():
     cond = str(request.args.get('cond'))
     if not cond:
         return 'Please provide visualization condition (cond) as a Url Parameter.'
+    trial = str(request.args.get('trial'))
+    if not trial:
+        return 'Please provide trial as a Url Parameter.'
 
-    next_url = "/3_main_experiment_interface" + "?workerId=" + workerId + "&cond=" + cond
+    next_url = "/3_main_experiment_interface" + "?workerId=" + workerId + "&cond=" + cond + "&trial=1"
 
     return render_template('%s.html' % ('/experiment/' + '/2_practice'),
         workerId = workerId,
         cond = cond,
+        trial = "practice",
+        next_url = next_url)
+
+@bp.route('/3_main_experiment_interface')
+def experiment():
+    workerId = str(request.args.get('workerId'))
+    if not workerId:
+        return 'Please provide your workerId as a Url Parameter.'
+    cond = str(request.args.get('cond'))
+    if not cond:
+        return 'Please provide visualization condition (cond) as a Url Parameter.'
+    trial = int(request.args.get('trial'))
+    if not trial:
+        return 'Please provide trial as a Url Parameter.'
+
+    if trial == Config.MAX_TRIALS:
+        # Send to survey
+        next_url = "/4_survey" + "?workerId=" + workerId + "&cond=" + cond
+    else:
+        # Send to next trial
+        next_url = "/3_main_experiment_interface" + "?workerId=" + workerId + "&cond=" + cond + "&trial=" + str(trial + 1)
+
+    return render_template('%s.html' % ('/experiment/' + '/3_main_experiment_interface'),
+        workerId = workerId,
+        cond = cond,
+        trial = trial,
         next_url = next_url)
 
 

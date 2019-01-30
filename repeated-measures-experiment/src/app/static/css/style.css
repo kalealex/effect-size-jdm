@@ -2,26 +2,52 @@
 table, th, td {
     border: 1px solid black;
     border-collapse: collapse;
+    padding: 5px;
 }
 
-/* scaling stimulus image and sliders */
-@media only screen and (min-width: 624px) {
+/* column formatting */
+.column {
+    float: left;
+}
+.left {
+width: 75%;
+}
+.right {
+width: 25%;
+}
+
+/* padding */
+.response, #stim {
+    padding-left: 20px
+}
+
+/* scaling for columns, stimulus image and sliders */
+@media only screen and (max-width: 924px) { 
+    .left {
+        width: 100%;
+    }
+    .right {
+        width: 100%;
+    }
+}
+@media only screen and (min-width: 724px) {
     #prob, #bet, #stim {
         width: 70%;
     }
 }
-@media only screen and (min-width: 924px) {
-    #prob, #bet, #stim {
-        width: 50%;
-    }
-}
 @media only screen and (min-width: 1224px) {
     #prob, #bet, #stim {
+        width: 60%;
+    }
+    .left {
+        width: 60%;
+    }
+    .right {
         width: 40%;
     }
 }
 @media only screen and (min-width: 1824px) {
     #slider, #stim {
-        width: 30%;
+        width: 50%;
     }
 }

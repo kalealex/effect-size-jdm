@@ -38,11 +38,22 @@
 
     <!-- <link rel="icon" href="{{ url_for('static', filename='img/favicon.ico') }}" /> -->
 
+    <!-- Firebase App is always required and must be first -->
+    <script src="https://www.gstatic.com/firebasejs/5.8.1/firebase-app.js"></script>
+
+    <!-- Add additional services that you want to use -->
+    <!-- <script src="https://www.gstatic.com/firebasejs/5.8.1/firebase-auth.js"></script> -->
+    <script src="https://www.gstatic.com/firebasejs/5.8.1/firebase-database.js"></script>
+    <!-- <script src="https://www.gstatic.com/firebasejs/5.8.1/firebase-firestore.js"></script> -->
+    <!-- <script src="https://www.gstatic.com/firebasejs/5.8.1/firebase-messaging.js"></script> -->
+    <!-- <script src="https://www.gstatic.com/firebasejs/5.8.1/firebase-functions.js"></script> -->
+
     <script>
-        // get relevant variables from routes.py
-        const config = {
+        // get relevant variables from routes.py 
+        const routeVars = {
             "workerId": '{{workerId}}',
-            "cond": '{{cond}}'
+            "token": '{{token}}',
+            "cond": '{{cond}}' // use cond to assign stimuli in js
         }
     </script>
 

@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+
+<head>
+    <meta charset="utf-8">
+    <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0-beta.2/css/bootstrap.min.css"
+        integrity="sha384-PsH8R72JQ3SOdhVi3uxftmaW6Vc51MKb0q5P2rRUpPvrszuE4W1povHYgTpBfshb" crossorigin="anonymous">
+
+    <link rel="stylesheet" href="//code.jquery.com/ui/1.12.0/themes/base/jquery-ui.css">
+    <!-- <link rel="stylesheet" href="{{ url_for('static', filename='vendor/jquery-ui-1.12.0.css') }}"> -->
+
+    <script src="https://code.jquery.com/jquery-2.2.4.min.js" integrity="sha256-BbhdlvQf/xTY9gja0Dq3HiwQF8LaCRTXxZKRutelT44="
+        crossorigin="anonymous"></script>
+    <!-- <script src="{{ url_for('static', filename='vendor/jquery-2.2.4.min.js') }}"></script> -->
+    <script src="https://code.jquery.com/ui/1.12.0/jquery-ui.js"></script>
+    <!-- <script src="{{ url_for('static', filename='vendor/jquery-ui-1.12.0.js') }}"></script> -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/3.5.5/d3.min.js"></script>
+    <!-- <script src="{{ url_for('static', filename='vendor/d3.v3.min.js') }}"></script> -->
+    <!-- <script src="{{ url_for('static', filename='vendor/jquery.validate.min.js') }}"></script> -->
+
+    <!-- Latest compiled and minified CSS -->
+    <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/css/bootstrap.min.css" integrity="sha384-BVYiiSIFeK1dGmJRAkycuHAHRg32OmUcww7on3RYdg4Va+PmSTsz/K68vbdEjh4u"
+        crossorigin="anonymous">
+    <!-- <link rel="stylesheet" href="{{ url_for('static', filename='vendor/bootstrap.min.css') }}"> -->
+
+    <!-- Optional theme -->
+    <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/css/bootstrap-theme.min.css" integrity="sha384-rHyoN1iRsVXV4nD0JutlnGaslCJuC7uwjduW9SVrLvRYooPp2bWYgmgJQIXwl/Sp"
+        crossorigin="anonymous">
+    <!-- <link rel="stylesheet" href="{{ url_for('static', filename='vendor/bootstrap-theme.min.css') }}"> -->
+
+    <!-- Latest compiled and minified JavaScript -->
+    <script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/js/bootstrap.min.js" integrity="sha384-Tc5IQib027qvyjSMfHjOMaLkfuWVxZxUPnCJA7l2mCWNIpG9mGCD8wGNIcPD7Txa"
+        crossorigin="anonymous"></script>
+
+    <link href='https://fonts.googleapis.com/css?family=Lato:400,300,300italic,100italic,400italic,700' rel='stylesheet'
+        type='text/css'>
+
+    <link rel="stylesheet" media="screen" href="{{ url_for('static', filename='css/style.css') }}">
+
+    <!-- <link rel="icon" href="{{ url_for('static', filename='img/favicon.ico') }}" /> -->
+
+    <!-- Firebase App is always required and must be first -->
+    <script src="https://www.gstatic.com/firebasejs/5.8.1/firebase-app.js"></script>
+
+    <!-- Add additional services that you want to use -->
+    <!-- <script src="https://www.gstatic.com/firebasejs/5.8.1/firebase-auth.js"></script> -->
+    <script src="https://www.gstatic.com/firebasejs/5.8.1/firebase-database.js"></script>
+    <!-- <script src="https://www.gstatic.com/firebasejs/5.8.1/firebase-firestore.js"></script> -->
+    <!-- <script src="https://www.gstatic.com/firebasejs/5.8.1/firebase-messaging.js"></script> -->
+    <!-- <script src="https://www.gstatic.com/firebasejs/5.8.1/firebase-functions.js"></script> -->
+
+    <script>
+        // get relevant variables from routes.py 
+        const routeVars = {
+            "workerId": '{{workerId}}',
+            "token": '{{token}}',
+            "cond": '{{cond}}', // use cond to assign stimuli in js
+            "trial": '{{trial}}'
+        }
+    </script>
+
+</head>
+
+<body>
+
+    <div class="container-fluid">
+        <h2><b>Experiment</b></h2>
+        <p>The chart below shows how many points team A and team B have scored in previous rounds of TeamCrossword. Recall that the team with the higher score wins. Use this chart to answer the questions below.</p>
+        <div class="row">
+        <div class="column left">
+            <img id="stim">
+            
+            <form class="response">
+                <fieldset>
+                    <p>If this game were to happen 100 times, how many times would team A win?</p>
+                    <!-- slider with feedback -->
+                    <input type="range" name="prob" id="prob" min="0" max="100" step="1" value="50">
+                    <label for="prob" id="prob-selected">No response</label>
+                </fieldset>
+
+                <fieldset>
+                    <p>You have a budget of $1 to bet on the outcome of this game. How much do you bet that team A will win?</p>
+                    <!-- slider with feedback -->
+                    <input type="range" name="bet" id="bet" min="0.01" max="1.00" step="0.01" value="0.50">
+                    <label for="bet" id="bet-selected">No bet selected</label>
+                </fieldset>
+            </form>
+        </div>
+        <div class="column right">
+                <h3>Betting Rules</h3>
+                <ul><b>You may bet up to $1 per round of TeamCrossword</b>:
+                    <li>If the team you bet on wins, you win an amount proportional to the odds that team A will win.</li>
+                    <li>If your team looses the round, you loose the amount that you bet.</li>
+                </ul>
+                <ul><b>Incentives</b>:
+                    <li>The amount that you <i>do not</i> bet is subject to a flat tax of 25%.</li>
+                    <li>Winnings in each round are subject to the tiered tax described in the table below.</li>
+                </ul>
+                <center>
+                <table><b>Tiered Tax on Winnings</b>
+                        <tr>
+                            <th>Tier</th>
+                            <th>Tax Rate</th> 
+                        </tr>
+                        <tr>
+                            <td>0 to 50 cents</td>
+                            <td>10%</td> 
+                        </tr>
+                        <tr>
+                            <td>50 cents to $1</td>
+                            <td>20%</td> 
+                        </tr>
+                        <tr>
+                            <td>$1 to $1.50</td>
+                            <td>30%</td> 
+                        </tr>
+                        <tr>
+                            <td>$1.50 to $2</td>
+                            <td>40%</td> 
+                        </tr>
+                        <tr>
+                            <td>over $2</td>
+                            <td>50%</td> 
+                        </tr>
+                </table>
+                </center>
+        </div>
+        </div>
+    </div>
+
+    <div style="padding: 10px">
+        <center>
+        <p>Click Next to submit your response and move to the next trial.</p>
+        <a class="btn btn-default" href="{{next_url}}">Next</a>
+        </center>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/main.js') }}" type="text/javascript"></script>
+    <!-- <script src="{{ url_for('static', filename='js/2_practice.js') }}" type="text/javascript"></script> -->
+</body>
+
+</html>
