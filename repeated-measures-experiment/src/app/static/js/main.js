@@ -1,24 +1,35 @@
 // Get a reference to the database service
 var database = firebase.database();
 
-
-// lists of trials (will need to find a way to counterbalance this)
+// lists of trials
 const sdList = Array(6).fill("high").concat(Array(6).fill("low"))
 const oddsList = [0.025, 0.100, 0.250, 0.750, 0.900, 0.975, 0.025, 0.100, 0.250, 0.750, 0.900, 0.975]
 
-// set src file for stimulus img
-let filepath
+// determine stimulus parameters on current trial
+let sd, odds;
 if (routeVars.trial === "practice") {
-    filepath = "../img/" + routeVars.cond + "-high sd, 0.25 odds" + extension();
-} else {
-    console.log(routeVars.trialIdx)
-    filepath = "../img/" + routeVars.cond + "-" + sdList[routeVars.trialIdx] + " sd, " + oddsList[routeVars.trialIdx] + " odds" + extension();
+    sd = "high";
+    odds = 0.25;
+} else { // trial index used for counterbalancing
+    console.log("trial index", routeVars.trialIdx);
+    sd = sdList[routeVars.trialIdx];
+    odds = oddsList[routeVars.trialIdx];
 }
+// set src file for stimulus img
+let filepath = "../img/" + routeVars.cond + "-" + sd + " sd, " + odds + " odds" + extension();
 $("#stim").attr("src", filepath);
 
 // slider callbacks
-let cles = -1,
-    bet = -1;
+let respObj = {
+    "workerId": routeVars.workerId,
+    "condition": routeVars.cond,
+    "trial": routeVars.trial,
+    "trialIdx": routeVars.trialIdx,
+    "cles": -1,
+    "bet": -1,
+    "groundTruth": odds,
+    "pay": -1
+}
 $(document).ready(function () {
     // update label
     $("#prob").on("input", function () {
@@ -26,16 +37,8 @@ $(document).ready(function () {
     })
     // update responses in database
     $("#prob").change("input", function () {
-        cles = this.value;
-        let respObj = {
-            "workerId": routeVars.workerId,
-            "condition": routeVars.cond,
-            "trial": routeVars.trial,
-            "trialIdx": routeVars.trialIdx,
-            "cles": cles,
-            "bet": bet
-        }
-        updateResponseData(respObj)
+        respObj.cles = +this.value;
+        updateResponseData(respObj);
     })
     
     // update label
@@ -44,19 +47,10 @@ $(document).ready(function () {
     })
     // update responses in database
     $("#bet").change("input", function () {
-        bet = this.value;
-        let respObj = {
-            "workerId": routeVars.workerId,
-            "condition": routeVars.cond,
-            "trial": routeVars.trial, 
-            "trialIdx": routeVars.trialIdx,
-            "cles": cles,
-            "bet": bet
-        }
-        updateResponseData(respObj)
+        respObj.bet = +this.value;
+        updateResponseData(respObj);
     })
 })
-
 
 // helper functions:
 // determine file extension for stimulus
@@ -78,7 +72,70 @@ function updateResponseData(respObj) {
             trialRef.set(respObj);
         } else { // if repsonses already exist for this trial
             // update existing trial
-            trialRef.update(respObj);
+            if (testMode || snapshot.val().pay === -1) { // only allow updates for trials where pay is tbd
+                trialRef.update(respObj);
+            }
         }
     })
+}
+
+// provide feedback on user responses
+function feedback() {
+    // disable input so that users cannot edit responses
+    $("input").attr("disabled", "disabled");
+    // hide Feedback button
+    $("#feedback-btn").css("display", "none");
+    // simulate outcome based on odds of victory for this stimulus
+    let bet = respObj.bet,
+        keep = roundCent((1 - bet) * (1 - 0.25)), // flat tax
+        win = 0; // update if they win
+    if (outcome(odds)) {
+        // the user's team wins
+        $("#feedback-txt").html("Team A Wins")
+            .css("color", "#e41a1c");
+        // calculate winnings
+        win = tieredTax(bet / odds);
+    } else {
+        // the user's team loses
+        $("#feedback-txt").html("Team B Wins")
+            .css("color", "#377eb8");
+    }
+    // populate table showing bet, keep, win, and total bonus amounts
+    $("#bet-amnt").html("$" + bet);
+    $("#keep-amnt").html("$" + keep);
+    $("#win-amnt").html("$" + win);
+    $("#bonus-amnt").html("$" + roundCent(keep + win));
+    // push pay to db (thus disabling further updates)
+    respObj.pay = keep + win;
+    updateResponseData(respObj);
+    // show feedback and button to advance to next trial
+    $("#feedback-block").css("display","block")
+        .css("background-color", "#e0e0eb");
+}
+
+// biased coin flip for simulating wins and losses
+function outcome(odds) {
+    return Math.random() <= odds;
+    // return true;
+}
+
+// tiered tax on winnings
+function tieredTax(winnings) {
+    let tiers = [0, 0.5, 1, 1.5, 2],
+    rates = [0.1, 0.2, 0.3, 0.4, 0.5],
+    i = 0,
+    taxedWinnings = 0;
+    // cycle through tiers
+    while (i < tiers.length && (winnings - tiers[i]) > 0) {
+        // how much money in this tier does the user keep?
+        taxedWinnings += Math.min(0.5, (winnings - tiers[i])) * (1 - rates[i]);
+        // counter
+        i++;
+    }
+    return roundCent(taxedWinnings);
+}
+
+// round to nearest cent
+function roundCent(amount) {
+    return Math.round(amount * 100) / 100;
 }

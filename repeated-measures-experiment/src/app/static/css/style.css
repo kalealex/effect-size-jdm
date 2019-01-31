@@ -10,15 +10,18 @@ table, th, td {
     float: left;
 }
 .left {
-width: 75%;
+    width: 75%;
 }
 .right {
-width: 25%;
+    width: 25%;
 }
 
 /* padding */
-.response, #stim {
+.response, #stim, .spaced {
     padding-left: 20px
+}
+.spaced {
+    padding-right: 20px
 }
 
 /* scaling for columns, stimulus image and sliders */

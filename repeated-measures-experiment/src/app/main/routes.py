@@ -53,13 +53,13 @@ def instructions():
     token = ''.join(random.choice('0123456789ABCDEF') for i in range(16))
 
     # Check for repeat Turkers (alternative: Unique Turker (http://uniqueturker.myleott.com/)
-    # if ref.once().exists():
+    # if ref.get() & not Config.TESTING:
     #     # Redirect user to page that instructs them to return HIT
-        # return render_template('%s.html' % ('/experiment/' + '/0_return'))
+    #     return render_template('%s.html' % ('/experiment/' + '/0_return'))
     # else
     # Set up database entry for in workers
-    workerRef = {"workerId": workerId, "token": token, "condition": cond}
-    ref.push().set(workerRef)
+    workerRef = {"workerId": workerId, "token": token, "condition": cond, "trialIdx": Config.TRIAL_SET_INDEX}
+    # ref.push().set(workerRef)
     ref.set(workerRef)
 
     # Send user to practice page
@@ -87,8 +87,9 @@ def practice():
     return render_template('%s.html' % ('/experiment/' + '/2_practice'),
         workerId = workerId,
         cond = cond,
-        trial = trial,
+        trial = "practice",
         trialIdx = "practice",
+        testing = Config.TESTING,
         next_url = next_url)
 
 @bp.route('/3_main_experiment_interface')
@@ -103,6 +104,14 @@ def experiment():
     if not trial:
         return 'Please provide trial as a Url Parameter.'
     
+    # After pay is logged in db, send users to next trial on refresh to prevent repeat trials
+    # if not Config.TESTING
+    #     # Connect to Firebase instance for current trial
+    #     ref = db.reference('/response/' + workerId + '/' + trial)
+    #     if ref.get() & ref.get().get("pay") != -1:
+    #         # TODO see what ref.get() returns when the reference doesn't exist
+
+
     # determine the dat condition for the next trial by trial index
     trialIdx = useTrialSet[trial - 1]
 
@@ -119,6 +128,7 @@ def experiment():
         cond = cond,
         trial = trial,
         trialIdx = trialIdx,
+        testing = Config.TESTING,
         next_url = next_url)
 
 @bp.route('/4_survey')
@@ -148,8 +158,6 @@ def final():
 
     return render_template('%s.html' % ('/experiment/' + '/5_final'),
         workerId = workerId) # use workerId to query db for token
-
-## Define more requests similar to above for other main html templates, or api endpoints
 
 
 @bp.after_request

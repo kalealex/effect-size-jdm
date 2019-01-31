@@ -56,6 +56,7 @@
             "trial": '{{trial}}',
             "trialIdx": '{{trialIdx}}'
         }
+        const testMode = '{{testing}}';
     </script>
 
 </head>
@@ -86,52 +87,89 @@
             </form>
         </div>
         <div class="column right">
-                <h3>Betting Rules</h3>
-                <ul><b>You may bet up to $1 per round of TeamCrossword</b>:
-                    <li>If the team you bet on wins, you win an amount proportional to the odds that team A will win.</li>
-                    <li>If your team looses the round, you loose the amount that you bet.</li>
-                </ul>
-                <ul><b>Incentives</b>:
-                    <li>The amount that you <i>do not</i> bet is subject to a flat tax of 25%.</li>
-                    <li>Winnings in each round are subject to the tiered tax described in the table below.</li>
-                </ul>
-                <center>
-                <table><b>Tiered Tax on Winnings</b>
-                        <tr>
-                            <th>Tier</th>
-                            <th>Tax Rate</th> 
-                        </tr>
-                        <tr>
-                            <td>0 to 50 cents</td>
-                            <td>10%</td> 
-                        </tr>
-                        <tr>
-                            <td>50 cents to $1</td>
-                            <td>20%</td> 
-                        </tr>
-                        <tr>
-                            <td>$1 to $1.50</td>
-                            <td>30%</td> 
-                        </tr>
-                        <tr>
-                            <td>$1.50 to $2</td>
-                            <td>40%</td> 
-                        </tr>
-                        <tr>
-                            <td>over $2</td>
-                            <td>50%</td> 
-                        </tr>
-                </table>
-                </center>
+            <h3>Betting Rules</h3>
+            <ul><b>You may bet up to $1 per round of TeamCrossword</b>:
+                <li>If the team you bet on wins, you win an amount proportional to the odds that team A will win.</li>
+                <li>If your team looses the round, you loose the amount that you bet.</li>
+            </ul>
+            <ul><b>Incentives</b>:
+                <li>The amount that you <i>do not</i> bet is subject to a flat tax of 25%.</li>
+                <li>Winnings in each round are subject to the tiered tax described in the table below.</li>
+            </ul>
+            <center>
+            <table><b>Tiered Tax on Winnings</b>
+                    <tr>
+                        <th>Tier</th>
+                        <th>Tax Rate</th> 
+                    </tr>
+                    <tr>
+                        <td>0 to 50 cents</td>
+                        <td>10%</td> 
+                    </tr>
+                    <tr>
+                        <td>50 cents to $1</td>
+                        <td>20%</td> 
+                    </tr>
+                    <tr>
+                        <td>$1 to $1.50</td>
+                        <td>30%</td> 
+                    </tr>
+                    <tr>
+                        <td>$1.50 to $2</td>
+                        <td>40%</td> 
+                    </tr>
+                    <tr>
+                        <td>over $2</td>
+                        <td>50%</td> 
+                    </tr>
+            </table>
+            </center>
         </div>
         </div>
     </div>
-
-    <div style="padding: 10px">
+    
+    <div style="padding: 10px; display: block;" id="feedback-btn">
         <center>
-        <p>Click Next to submit your response and move to the next trial.</p>
-        <a class="btn btn-default" href="{{next_url}}">Next</a>
+        <p>Click Feedback to submit your response and receive feedback.<br/>
+            <b>You will not be able to change your response after receiving feedback</b>.</p>
+        <a class="btn btn-default" onclick="feedback()">Feedback</a>
         </center>
+    </div>
+
+    <div class="row-fluid" style="display: none;" id="feedback-block">
+        <!-- <div class="row"> -->
+            <div style="padding: 10px;" class="col-lg-4">
+                <center>
+                <p><strong id="feedback-txt" style="font-size: 28pt;"></strong></p>
+                </center>
+            </div>
+
+            <div style="padding: 10px;" class="col-lg-4">
+                    <center>
+                    <table><b>Your Bonus for this Round</b>
+                        <tr>
+                            <th>You Bet</th>
+                            <th>You Keep</th> 
+                            <th>You Win</th>
+                            <th>Total Bonus</th>
+                        </tr>
+                        <tr>
+                            <td id="bet-amnt"></td>
+                            <td id="keep-amnt"></td>
+                            <td id="win-amnt"></td> 
+                            <td id="bonus-amnt"></td> 
+                        </tr>
+                    </table>
+                    </center>
+                </div>
+            
+            <div style="padding: 10px;" class="col-lg-4">
+                <center>
+                <p>Click Next to move to the next trial.</p>
+                <a class="btn btn-default" href="{{next_url}}">Next</a>
+                </center>
+            </div>
+        <!-- </div> -->
     </div>
 
     <script src="{{ url_for('static', filename='js/db-init.js') }}" type="text/javascript"></script>

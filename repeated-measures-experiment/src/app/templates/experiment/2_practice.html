@@ -56,6 +56,7 @@
             "trial": '{{trial}}',
             "trialIdx": '{{trialIdx}}'
         }
+        const testMode = '{{testing}}';
     </script>
 
 </head>
@@ -70,12 +71,12 @@
             <img id="stim">
             
             <form class="response">
-                <fieldset>
-                    <p>Which team is more likely to win this game?</p>
+                <!-- <fieldset> -->
+                    <!-- <p>Which team is more likely to win this game?</p> -->
                     <!-- radiobuttons with feedback -->
-                    <input type="radio" name="winner" value="team A"> Team A<br>
-                    <input type="radio" name="winner" value="team B"> Team B<br>
-                </fieldset>
+                    <!-- <input type="radio" name="winner" value="team A"> Team A<br> -->
+                    <!-- <input type="radio" name="winner" value="team B"> Team B<br> -->
+                <!-- </fieldset> -->
 
                 <fieldset>
                     <p>If this game were to happen 100 times, how many times would team A win?</p>
@@ -134,12 +135,56 @@
         </div>
     </div>
 
-    <div style="padding: 10px">
+    <div style="padding: 10px; display: block;" id="feedback-btn">
+        <center>
+        <p>Click Feedback to submit your response and receive feedback.<br/>
+        <b>You will not be able to change your response after receiving feedback</b>.</p>
+        <a class="btn btn-default" onclick="feedback()">Feedback</a>
+        </center>
+    </div>
+
+    <div class="row-fluid" style="display: none;" id="feedback-block">
+        <!-- <div class="row"> -->
+            <div style="padding: 10px;" class="column spaced">
+                <center>
+                <p><strong id="feedback-txt" style="font-size: 28pt;"></strong></p>
+                </center>
+            </div>
+
+            <div style="padding: 10px;" class="column spaced">
+                    <center>
+                    <table><b>What Your Bonus Would Be</b>
+                        <tr>
+                            <th>You Bet</th>
+                            <th>You Keep</th> 
+                            <th>You Win</th>
+                            <th>Total Bonus</th>
+                        </tr>
+                        <tr>
+                            <td id="bet-amnt"></td>
+                            <td id="keep-amnt"></td>
+                            <td id="win-amnt"></td> 
+                            <td id="bonus-amnt"></td> 
+                        </tr>
+                    </table>
+                    </center>
+                </div>
+            
+            <div style="padding: 10px;" class="column spaced">
+                <center>
+                <p>Click Start to begin the experiment.</p>
+                <a class="btn btn-default" href="{{next_url}}">Next</a>
+                </center>
+            </div>
+        <!-- </div> -->
+    </div>
+
+    <!-- <div style="padding: 10px">
         <center>
         <p>After trying the practice questions above, click Start to begin the experiment.</p>
         <a class="btn btn-default" href="{{next_url}}">Start</a>
         </center>
-    </div>
+    </div> -->
 
     <script src="{{ url_for('static', filename='js/db-init.js') }}" type="text/javascript"></script>
     <script src="{{ url_for('static', filename='js/main.js') }}" type="text/javascript"></script>
