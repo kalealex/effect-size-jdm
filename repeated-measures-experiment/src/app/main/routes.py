@@ -11,11 +11,19 @@ from firebase_admin import db
 # from app.models import User, Post
 from app.main import bp
 
-# counterbalance trial order
-trialSet = range(int(Config.MAX_TRIALS))                  # 0:(MAX_TRIALS - 1)
-# trialPerm = list(itertools.permutations(trialSet))      # all possible orderings
-# useTrialSet = trialPerm[int(Config.TRIAL_SET_INDEX)]    # selected trial order for this run (set in config.py)
-useTrialSet = trialSet
+# helper function to generate balanced trial order
+# from https://medium.com/@graycoding/balanced-latin-squares-in-python-2c3aa6ec95b9
+def balanced_latin_square(n):
+    l = [[((j/2+1 if j%2 else n-j/2) + i) % n for j in range(n)] for i in range(n)]
+    if n % 2:  # Repeat reversed for odd n
+        l += [seq[::-1] for seq in l]
+    return l
+
+# counterbalance trial order using latin square
+# trialSet = range(int(Config.MAX_TRIALS))                  # 0:(MAX_TRIALS - 1)
+# trialPerm = list(itertools.permutations(trialSet))        # all possible orderings
+latinSqare = balanced_latin_square(int(Config.MAX_TRIALS))
+useTrialSet = latinSqare[int(Config.TRIAL_SET_INDEX)]       # selected trial order for this run (set in config.py)
 
 @bp.before_app_request
 def before_request():
@@ -39,6 +47,11 @@ def static_page(page_name):
     return render_template('%s.html' % ('/experiment/' + page_name))
 
 
+@bp.route('/0_return')
+def return_HIT():
+    # Page that instructs worker to return HIT
+    return render_template('%s.html' % ('/experiment/' + '/0_return'))
+
 @bp.route('/1_instructions')
 def instructions():
     workerId = str(request.args.get('workerId'))
@@ -53,14 +66,13 @@ def instructions():
     token = ''.join(random.choice('0123456789ABCDEF') for i in range(16))
 
     # Check for repeat Turkers (alternative: Unique Turker (http://uniqueturker.myleott.com/)
-    # if ref.get() & not Config.TESTING:
-    #     # Redirect user to page that instructs them to return HIT
-    #     return render_template('%s.html' % ('/experiment/' + '/0_return'))
-    # else
-    # Set up database entry for in workers
-    workerRef = {"workerId": workerId, "token": token, "condition": cond, "trialIdx": Config.TRIAL_SET_INDEX}
-    # ref.push().set(workerRef)
-    ref.set(workerRef)
+    if (ref.get() == None) | Config.TESTING:
+        # Set up database entry for in workers
+        workerRef = {"workerId": workerId, "token": token, "condition": cond, "trialSet": Config.TRIAL_SET_INDEX}
+        ref.set(workerRef)
+    else: # Repeat participation
+        # Redirect user to page that instructs them to return HIT
+        return redirect("/0_return" + "?workerId=" + workerId + "&cond=" + cond)
 
     # Send user to practice page
     next_url = "/2_practice" + "?workerId=" + workerId + "&cond=" + cond + "&trial=practice"
@@ -103,17 +115,9 @@ def experiment():
     trial = int(request.args.get('trial'))
     if not trial:
         return 'Please provide trial as a Url Parameter.'
-    
-    # After pay is logged in db, send users to next trial on refresh to prevent repeat trials
-    # if not Config.TESTING
-    #     # Connect to Firebase instance for current trial
-    #     ref = db.reference('/response/' + workerId + '/' + trial)
-    #     if ref.get() & ref.get().get("pay") != -1:
-    #         # TODO see what ref.get() returns when the reference doesn't exist
-
 
     # determine the dat condition for the next trial by trial index
-    trialIdx = useTrialSet[trial - 1]
+    trialIdx = int(useTrialSet[trial - 1])
 
     # send to next page based on trial number
     if trial == int(Config.MAX_TRIALS):
@@ -123,12 +127,27 @@ def experiment():
         # Send to next trial
         next_url = "/3_main_experiment_interface" + "?workerId=" + workerId + "&cond=" + cond + "&trial=" + str(trial + 1)
 
+    # If not testing and pay is logged in db, send users to next trial on refresh to prevent repeat trials.
+    if not Config.TESTING:
+        # Connect to Firebase instance for current trial
+        ref = db.reference('/responses/' + workerId + '/' + str(trial))
+        # Does this entry exist?
+        if ref != None:
+            # Is there data logged from this entry?
+            if ref.get() != None:
+                # Has the user already received feedback on this trial?
+                if ref.get().get("pay") != -1:
+                    # Payment has been logged for this participant. Send to next page.
+                    return redirect(next_url)
+    
+    # Otherwise, load the current trial.
     return render_template('%s.html' % ('/experiment/' + '/3_main_experiment_interface'),
         workerId = workerId,
         cond = cond,
         trial = trial,
         trialIdx = trialIdx,
         testing = Config.TESTING,
+        # test = test,
         next_url = next_url)
 
 @bp.route('/4_survey')

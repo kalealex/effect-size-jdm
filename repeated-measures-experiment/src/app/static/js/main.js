@@ -30,7 +30,7 @@ let respObj = {
     "groundTruth": odds,
     "pay": -1
 }
-$(document).ready(function () {
+$(document).ready(function () { // TODO fetch starting value from db on refresh
     // update label
     $("#prob").on("input", function () {
         $("#prob-selected").html(this.value + " out of 100")

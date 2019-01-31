@@ -74,13 +74,13 @@ The block of code below summarizes the incentive structure for the betting task.
 
 ```{r}
 # set range of possible bets based on given budget and minimum bet
-budget <- 1
+budget <- 0.5
 min_bet <- 0.01
 possible_bets <- seq(from=min_bet, to=budget, by=0.01) 
 
 # create a tiered capital gains tax
 tax_winnings <- function(winnings) {
-  tiers <- append(seq(0, 2, by = 0.5), Inf)
+  tiers <- append(seq(0, 1, by = 0.25), Inf)
   rates <- seq(0, .5, by = .1)
   taxed_winnings <- sum(diff(c(0, pmin(winnings, tiers))) * (1-rates))
   return(taxed_winnings)
@@ -90,7 +90,7 @@ tax_winnings <- function(winnings) {
 loss_rate <- 0.25
 
 # calculate expected payout for different odds
-odds_to_check <- ppoints(50)
+odds_to_check <- ppoints(20)
 payoff <- matrix(NaN, nrow = length(possible_bets), ncol = length(odds_to_check))
 net_pay <- matrix(NaN, nrow = length(possible_bets), ncol = length(odds_to_check))
 for (i in 1:length(possible_bets)) {
