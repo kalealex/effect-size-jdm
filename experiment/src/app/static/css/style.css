@@ -23,6 +23,9 @@ table, th, td {
 .spaced {
     padding-right: 20px
 }
+.survey-item {
+    padding-top: 20px
+}
 
 /* scaling for columns, stimulus image and sliders */
 @media only screen and (max-width: 924px) { 

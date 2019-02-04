@@ -61,21 +61,22 @@
 <body>
 
     <div class="container-fluid">
-        <h2><b>Survey</b></h2>
-        <p>Please answer the following questions to the best of your ability.</p>
+        <h2><b>Your Strategy</b></h2>
+        <p>Please be as detailed as possible in answering the following question.</p>
         
-        <form class="response">
+        <form class="response" id="survey" autocomplete="off" method="post" onsubmit="return false;">
             <fieldset>
-                <p>Question?</p>
-                <input type="text" name="field" id="field" placeholder="your response here">
+                <p>How did you use the chart provided to judge the probability of your team winning?</p>
+                <!-- <input type="text" name="strategy" id="strategy" placeholder="your response here"> -->
+                <textarea rows="3" cols="70" id="strategy" placeholder="your response here"></textarea>
             </fieldset>
         </form>
     </div>
 
     <div style="padding: 10px">
         <center>
-        <p>Click Submit to receive your token for participating.</p>
-        <a class="btn btn-default" href="{{next_url}}">Submit</a>
+        <p>Click Next to move to the next page.</p>
+        <a class="btn btn-default" href="{{next_url}}">Next</a>
         </center>
     </div>
 

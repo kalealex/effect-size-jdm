@@ -57,6 +57,9 @@ def instructions():
     workerId = str(request.args.get('workerId'))
     if not workerId:
         return 'Please provide your workerId as a Url Parameter.'
+    assignmentId = str(request.args.get('assignmentId'))
+    if not assignmentId:
+        return 'Please provide your assignmentId as a Url Parameter.'
     cond = str(request.args.get('cond'))
     if not cond:
         return 'Please provide visualization condition (cond) as a Url Parameter.'
@@ -68,7 +71,15 @@ def instructions():
     # Check for repeat Turkers (alternative: Unique Turker (http://uniqueturker.myleott.com/)
     if (ref.get() == None) | Config.TESTING:
         # Set up database entry for in workers
-        workerRef = {"workerId": workerId, "token": token, "condition": cond, "trialSet": Config.TRIAL_SET_INDEX}
+        workerRef = {
+            "workerId": workerId, 
+            "assignmentId": assignmentId,
+            "token": token, 
+            "condition": cond,                      # vis condition
+            "trialSet": Config.TRIAL_SET_INDEX,     # counterbalancing set
+            "run": Config.RUN,                      # pilot or experiment
+            "bonus": -1                             # dummy value
+        }
         ref.set(workerRef)
     else: # Repeat participation
         # Redirect user to page that instructs them to return HIT
@@ -122,7 +133,7 @@ def experiment():
     # send to next page based on trial number
     if trial == int(Config.MAX_TRIALS):
         # Send to survey
-        next_url = "/4_survey" + "?workerId=" + workerId + "&cond=" + cond
+        next_url = "/4a_strategy" + "?workerId=" + workerId + "&cond=" + cond
     else:
         # Send to next trial
         next_url = "/3_main_experiment_interface" + "?workerId=" + workerId + "&cond=" + cond + "&trial=" + str(trial + 1)
@@ -150,7 +161,23 @@ def experiment():
         # test = test,
         next_url = next_url)
 
-@bp.route('/4_survey')
+@bp.route('/4a_strategy')
+def strategy():
+    workerId = str(request.args.get('workerId'))
+    if not workerId:
+        return 'Please provide your workerId as a Url Parameter.'
+    cond = str(request.args.get('cond'))
+    if not cond:
+        return 'Please provide visualization condition (cond) as a Url Parameter.'
+    
+    next_url = "/4b_survey" + "?workerId=" + workerId + "&cond=" + cond
+
+    return render_template('%s.html' % ('/experiment/' + '/4a_strategy'),
+        workerId = workerId,
+        cond = cond,
+        next_url = next_url)
+
+@bp.route('/4b_survey')
 def survey():
     workerId = str(request.args.get('workerId'))
     if not workerId:
@@ -161,7 +188,7 @@ def survey():
     
     next_url = "/5_final" + "?workerId=" + workerId + "&cond=" + cond
 
-    return render_template('%s.html' % ('/experiment/' + '/4_survey'),
+    return render_template('%s.html' % ('/experiment/' + '/4b_survey'),
         workerId = workerId,
         cond = cond,
         next_url = next_url)

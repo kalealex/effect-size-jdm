@@ -7,6 +7,9 @@ output: html_document
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(gganimate)
+library(RColorBrewer)
 ```
 
 This file contains code to generate stimuli for our uncertainty visualization heuristics experiment.
@@ -76,10 +79,10 @@ n_draws_hops <- 50
 # cycle through rows in the table of data conditions
 for (c in unique(conds_df$condition)) {
   # isolaten data for the current condtion
-  use_df <- conds_df %>% filter(condition %in% c)
+  use_df <- conds_df %>% filter(condition %in% c) #%>% arrange(desc(Team))
   
   # means only
-  plt <- use_df %>% ggplot(aes(x=mean, y=Team, color=Team)) +
+  plt <- use_df %>% ggplot(aes(x=mean, y=reorder(Team, desc(Team)), color=Team)) +
     geom_point(size=2) +
     theme_bw() +
     colScale +
@@ -87,13 +90,14 @@ for (c in unique(conds_df$condition)) {
     labs(
       title="Scores in Previous Rounds of TeamCrossword",
       x="Average of Past Scores",
-      y=NULL
+      y=NULL,
+      caption="Dots represent the average score in past games for each team."
     )
   fname <- paste("stimuli/means only-", c,".svg", sep = "")
   ggsave(file=fname, plot=plt, width=5, height=3)
   
   # intervals only
-  plt <- use_df %>% ggplot(aes(y=mean, x=Team, color=Team)) +
+  plt <- use_df %>% ggplot(aes(y=mean, x=reorder(Team, desc(Team)), color=Team)) +
     geom_errorbar(aes(ymin=mean+qnorm(0.025)*sd, ymax=mean+qnorm(0.975)*sd, width=0)) +
     coord_flip() +
     theme_bw() +
@@ -102,15 +106,16 @@ for (c in unique(conds_df$condition)) {
     labs(
       title="Scores in Previous Rounds of TeamCrossword",
       x=NULL,
-      y="Range Containing 95% of Past Scores"
+      y="Range Containing 95% of Past Scores",
+      caption="Intervals represent the span of past scores for 95% of games played by each team."
     )
   fname <- paste("stimuli/intervals only-", c,".svg", sep = "")
   ggsave(file=fname, plot=plt, width=5, height=3)
-  
+
   # hops
   plt <- use_df %>% select(-one_of(c("quantiles"))) %>% unnest() %>%
-    filter(draw_n %in% 1:n_draws_hops) %>% # filter to set number of draws 
-    ggplot(aes(y=draws, x=Team, color=Team)) +
+    filter(draw_n %in% 1:n_draws_hops) %>% # filter to set number of draws
+    ggplot(aes(y=draws, x=reorder(Team, desc(Team)), color=Team)) +
     geom_point(shape=124, size=8) +
     coord_flip() +
     theme_bw() +
@@ -119,13 +124,14 @@ for (c in unique(conds_df$condition)) {
     labs(
       title="Scores in Previous Rounds of TeamCrossword",
       y="Past Scores",
-      x=NULL
+      x=NULL,
+      caption="Lines represent past scores in individual games for each team."
     ) +
     transition_manual(draw_n)
   hops <- animate(plt, fps=2.5, width=480, height=288)
   fname <- paste("stimuli/HOPs-", c,".gif", sep = "")
   anim_save(filename = fname, animation = hops)
-  
+
   # quantile dotplots
   plt <- use_df %>% select(-one_of(c("draws", "draw_n"))) %>% unnest() %>%
     ggplot(aes(x=quantiles, fill=Team)) +
@@ -136,7 +142,8 @@ for (c in unique(conds_df$condition)) {
     labs(
       title="Scores in Previous Rounds of TeamCrossword",
       x="Past Scores",
-      y="Proportion of Past Scores"
+      y="Proportion of Past Scores",
+      caption="Each dot represents 5% of past scores for each team."
     ) +
     facet_grid(Team ~ .) +
     theme(
@@ -145,7 +152,7 @@ for (c in unique(conds_df$condition)) {
     )
   fname <- paste("stimuli/QDPs-", c,".svg", sep = "")
   ggsave(file=fname, plot=plt, width=5, height=3)
-  
+
   # densities
   plt <- use_df %>% select(-one_of(c("draws", "draw_n"))) %>% unnest() %>%
     ggplot(aes(x=quantiles, color=Team)) +
@@ -156,14 +163,16 @@ for (c in unique(conds_df$condition)) {
     labs(
       title="Scores in Previous Rounds of TeamCrossword",
       x="Past Scores",
-      y="Proportion of Past Scores"
+      y="Proportion of Past Scores",
+      caption="The height of the line represents the proportion of past scores for each team."
     )
   fname <- paste("stimuli/densities-", c,".svg", sep = "")
   ggsave(file=fname, plot=plt, width=5, height=3)
 
   # means with intervals
-  plt <- use_df %>% ggplot(aes(y=mean, x=Team, color=Team)) +
-    geom_pointrange(aes(ymin=mean+qnorm(0.025)*sd, ymax=mean+qnorm(0.975)*sd)) +
+  plt <- use_df %>% ggplot(aes(y=mean, x=reorder(Team, desc(Team)), color=Team)) +
+    geom_pointrange(aes(ymin=mean+qnorm(0.025)*sd, ymax=mean+qnorm(0.975)*sd), show.legend=FALSE) +
+    geom_line(aes(y=mean-1000)) + geom_point(aes(y=mean-1000), size=2.5) + # hack to get legend symbols oriented properly
     coord_flip() +
     theme_bw() +
     colScale +
@@ -171,15 +180,16 @@ for (c in unique(conds_df$condition)) {
     labs(
       title="Scores in Previous Rounds of TeamCrossword",
       y="Past Scores",
-      x=NULL
+      x=NULL,
+      caption="Dots represent the average score in past games for each team. Intervals represent the span of past scores for 95% of games played by each team."
     )
   fname <- paste("stimuli/means w intervals-", c,".svg", sep = "")
   ggsave(file=fname, plot=plt, width=5, height=3)
-  
+
   # means with hops
   plt <- use_df %>% select(-one_of(c("quantiles"))) %>% unnest() %>%
-    filter(draw_n %in% 1:n_draws_hops) %>% # filter to set number of draws 
-    ggplot(aes(y=mean, x=Team, color=Team)) +
+    filter(draw_n %in% 1:n_draws_hops) %>% # filter to set number of draws
+    ggplot(aes(y=mean, x=reorder(Team, desc(Team)), color=Team)) +
     geom_point(size=2) +
     geom_point(aes(y=draws), shape=124, size=8) +
     coord_flip() +
@@ -189,7 +199,8 @@ for (c in unique(conds_df$condition)) {
     labs(
       title="Scores in Previous Rounds of TeamCrossword",
       y="Past Scores",
-      x=NULL
+      x=NULL,
+      caption="Dots represent the average score in past games for each team. Lines represent past scores in individual games for each team."
     ) +
     transition_manual(draw_n)
   hops <- animate(plt, fps=2.5, width=480, height=288)
