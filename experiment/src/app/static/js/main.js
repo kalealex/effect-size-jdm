@@ -2,21 +2,23 @@
 var database = firebase.database();
 
 // lists of trials
-const sdList = Array(6).fill("high").concat(Array(6).fill("low"))
-const oddsList = [0.025, 0.100, 0.250, 0.750, 0.900, 0.975, 0.025, 0.100, 0.250, 0.750, 0.900, 0.975]
+const sdList = Array(6).fill(1).concat(Array(5).fill(5))
+const oddsList = [0.025, 0.055, 0.116, 0.228, 0.400, 0.600, 0.772, 0.884, 0.945, 0.975];
 
 // determine stimulus parameters on current trial
-let sd, odds;
-if (routeVars.trial === "practice") {
-    sd = "high";
-    odds = 0.25;
+let sd, odds, filepath;
+if (routeVars.trial === "practice") {   // TODO add special practice stimuli with graphical legends
+    sd = 5;
+    odds = 0.228;
+    filepath = "../img/" + routeVars.cond + "-" + sd + " sd, " + odds + " odds" + extension();
+    // filepath = "../img/" + routeVars.cond + "-practice" + extension();
 } else { // trial index used for counterbalancing
     console.log("trial index", routeVars.trialIdx);
     sd = sdList[routeVars.trialIdx];
     odds = oddsList[routeVars.trialIdx];
+    filepath = "../img/" + routeVars.cond + "-" + sd + " sd, " + odds + " odds" + extension();
 }
 // set src file for stimulus img
-let filepath = "../img/" + routeVars.cond + "-" + sd + " sd, " + odds + " odds" + extension();
 $("#stim").attr("src", filepath);
 
 // slider callbacks

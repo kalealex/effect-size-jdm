@@ -20,13 +20,22 @@ We need stimuli for which our heuristics predict maximally different CLES estima
 
 ```{r}
 # set up possible data conditions dataframe
-cond <- c("low sd, 0.025 odds", "low sd, 0.1 odds", "low sd, 0.25 odds", "low sd, 0.75 odds", "low sd, 0.9 odds", "low sd, 0.975 odds",
-          "high sd, 0.025 odds", "high sd, 0.1 odds", "high sd, 0.25 odds", "high sd, 0.75 odds", "high sd, 0.9 odds", "high sd, 0.975 odds")
 std_diff <- c(1, 5) # different levels of uncertainty about the margin of victory
-odds <- c(0.025, 0.1, 0.25, 0.75, 0.9, 0.975) # probability of team A winning
+logodds <- seq(log(0.025/(1-0.025)), log(0.975/(1-0.975)), length.out = 10) # linear sampling of log odds for ground truth Pr(A > B)
+odds <- 1 - 1 / (exp(logodds) + 1)
+# odds <- c(0.025, 0.1, 0.25, 0.75, 0.9, 0.975)
 teamAB <- c("A", "B") # factor for team
+# name conditions
+cond <- vector(mode="character", length=10)
+for (i in 1:length(std_diff)) {
+  for (j in 1:length(odds)) {
+    cond[(i - 1) * length(odds) + j] <- paste(c(std_diff[i],"sd,",round(odds[j], 3),"odds"), collapse=" ")
+  }
+}
+# cond <- c("low sd, 0.025 odds", "low sd, 0.1 odds", "low sd, 0.25 odds", "low sd, 0.75 odds", "low sd, 0.9 odds", "low sd, 0.975 odds",
+#           "high sd, 0.025 odds", "high sd, 0.1 odds", "high sd, 0.25 odds", "high sd, 0.75 odds", "high sd, 0.9 odds", "high sd, 0.975 odds")
 conds_df <- data.frame(
-    "condition" = cond,
+    "condition" = rep(cond, 2),
     "sd_diff" = sort(rep(std_diff, length(odds))),
     "odds_of_victory" = rep(odds, length(std_diff)),
     "Team" = sort(rep(teamAB, length(std_diff) * length(odds)))
@@ -208,119 +217,3 @@ for (c in unique(conds_df$condition)) {
   anim_save(filename = fname, animation = hops)
 }
 ```
-
-
-<!-- ```{r} -->
-<!-- # means only -->
-<!-- conds_df2 %>% ggplot(aes(x=mean, y=team, color=team)) + -->
-<!--   geom_point(size=2) + -->
-<!--   theme_bw() + -->
-<!--   labs( -->
-<!--     title="Stimulus Conditions: Means Only", -->
-<!--     x="Scores", -->
-<!--     caption="Odds of Victory for Team A * Levels of Uncertainty" -->
-<!--   ) + -->
-<!--   theme(axis.title.y = element_blank()) + -->
-<!--   facet_grid(round(odds_of_victory,2) ~ sd_diff) -->
-
-<!-- # intervals only -->
-<!-- conds_df2 %>% ggplot(aes(y=mean, x=team, color=team)) + -->
-<!--   geom_errorbar(aes(ymin=mean+qnorm(0.025)*sd, ymax=mean+qnorm(0.975)*sd, width=0)) + -->
-<!--   coord_flip() + -->
-<!--   theme_bw() + -->
-<!--   labs( -->
-<!--     title="Stimulus Conditions: Intervals Only", -->
-<!--     y="Scores", -->
-<!--     caption="Odds of Victory for Team A * Levels of Uncertainty" -->
-<!--   ) + -->
-<!--   theme(axis.title.y = element_blank()) + -->
-<!--   facet_grid(round(odds_of_victory,2) ~ sd_diff) -->
-
-<!-- # for HOPs we need to add draws to our dataframe -->
-<!-- n <- 100 # number of samples -->
-<!-- conds_df2$sample_n <- n -->
-<!-- conds_df2_draws <- conds_df2 %>% as_tibble() %>% -->
-<!--   mutate(draw=pmap(list(sample_n, mean, sd), rnorm), # get a list of draws from the distribution for each condition -->
-<!--          draw_n=list(seq(1, n))) %>% #number each sample in order to animate multiple views simultaneously -->
-<!--   unnest() # get back to a tidy format -->
-
-<!-- # hops -->
-<!-- hops = conds_df2_draws %>% -->
-<!--   ggplot(aes(y=draw, x=team, color=team)) + -->
-<!--   geom_point(shape=124, size=5) + -->
-<!--   coord_flip() + -->
-<!--   theme_bw() + -->
-<!--   labs( -->
-<!--     title="Stimulus Conditions: HOPs", -->
-<!--     y="Scores", -->
-<!--     caption="Odds of Victory for Team A * Levels of Uncertainty" -->
-<!--   ) + -->
-<!--   facet_grid(round(odds_of_victory,2) ~ sd_diff) + -->
-<!--   transition_manual(draw_n) -->
-
-<!-- animate(hops, fps=2.5) -->
-
-<!-- # as with hops, we need to add to the dataframe to build quantile dotplots -->
-<!-- n_dots <- 20 # number of dots -->
-<!-- n <- 10000 # number of samples -->
-<!-- conds_df2$sample_n <- n -->
-<!-- conds_df2_quantiles <- conds_df2 %>% as_tibble() %>% -->
-<!--   mutate(draws=pmap(list(sample_n, mean, sd), rnorm), # sample each distribution (as before) -->
-<!--     quantiles=map(draws, ~ quantile(unlist(.x), ppoints(n_dots))), # use these draws to get quantiles -->
-<!--     draws=NULL) %>% # drop draws from the dataframe since these were an intermediate step anyway -->
-<!--   unnest() -->
-
-<!-- # quantile dotplots -->
-<!-- conds_df2_quantiles %>% -->
-<!--   ggplot(aes(x=quantiles, y=team, fill=team)) + -->
-<!--   geom_dotplot(binwidth=.9, binaxis = "x", stackgroups=TRUE, binpositions="all") + -->
-<!--   theme_bw() + -->
-<!--   labs( -->
-<!--     title="Stimulus Conditions: Quantile Dotplots", -->
-<!--     x="Scores", -->
-<!--     caption="Odds of Victory for Team A * Levels of Uncertainty" -->
-<!--   ) + -->
-<!--   facet_grid(round(odds_of_victory,2) ~ sd_diff) -->
-
-<!-- # densities -->
-<!-- conds_df2_quantiles %>% -->
-<!--   ggplot(aes(x=quantiles, color=team)) + -->
-<!--   geom_density() + -->
-<!--   theme_bw() + -->
-<!--   labs( -->
-<!--     title="Stimulus Conditions: Quantile Dotplots", -->
-<!--     x="Scores", -->
-<!--     caption="Odds of Victory for Team A * Levels of Uncertainty" -->
-<!--   ) + -->
-<!--   facet_grid(round(odds_of_victory,2) ~ sd_diff) -->
-
-<!-- # means with intervals -->
-<!-- conds_df2 %>% ggplot(aes(y=mean, x=team, color=team)) + -->
-<!--   geom_pointrange(aes(ymin=mean+qnorm(0.025)*sd, ymax=mean+qnorm(0.975)*sd)) + -->
-<!--   coord_flip() + -->
-<!--   theme_bw() + -->
-<!--   labs( -->
-<!--     title="Stimulus Conditions: Means with Intervals", -->
-<!--     y="Scores", -->
-<!--     caption="Odds of Victory for Team A * Levels of Uncertainty" -->
-<!--   ) + -->
-<!--   theme(axis.title.y = element_blank()) + -->
-<!--   facet_grid(round(odds_of_victory,2) ~ sd_diff) -->
-
-<!-- # means with hops -->
-<!-- hops_means <- conds_df2_draws %>% ggplot(aes(y=mean, x=team, color=team)) + -->
-<!--   geom_point(size=2) + -->
-<!--   geom_point(aes(y=draw), shape=124, size=5) + -->
-<!--   coord_flip() + -->
-<!--   theme_bw() + -->
-<!--   labs( -->
-<!--     title="Stimulus Conditions: Means with HOPs", -->
-<!--     y="Scores", -->
-<!--     caption="Odds of Victory for Team A * Levels of Uncertainty" -->
-<!--   ) + -->
-<!--   theme(axis.title.y = element_blank()) + -->
-<!--   facet_grid(round(odds_of_victory,2) ~ sd_diff) + -->
-<!--   transition_manual(draw_n) -->
-
-<!-- animate(hops_means, fps=2.5) -->
-<!-- ``` -->
