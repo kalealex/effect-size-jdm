@@ -38,6 +38,9 @@
 
     <!-- <link rel="icon" href="{{ url_for('static', filename='img/favicon.ico') }}" /> -->
 
+    <!-- favicon -->
+    <!-- <link rel="icon" href="{{  url_for('static', filename='favicon.ico')  }}" type="image/x-icon"/> -->
+
     <!-- Firebase App is always required and must be first -->
     <script src="https://www.gstatic.com/firebasejs/5.8.1/firebase-app.js"></script>
 
@@ -54,9 +57,10 @@
             "workerId": '{{workerId}}',
             "cond": '{{cond}}',
             "trial": '{{trial}}',
-            "trialIdx": '{{trialIdx}}'
+            "trialIdx": '{{trialIdx}}',
+            "budget": '{{budget}}',
+            "testMode": '{{testing}}'
         }
-        const testMode = '{{testing}}';
     </script>
 
 </head>
@@ -80,22 +84,20 @@
 
                 <fieldset>
                     <p>If this game were to happen 100 times, how many times would team A win?</p>
-                    <!-- slider with feedback -->
                     <input type="range" name="prob" id="prob" min="0" max="100" step="1" value="50">
                     <label for="prob" id="prob-selected">No response</label>
                 </fieldset>
 
                 <fieldset>
-                    <p>You have a budget of $1 to bet on the outcome of this game. How much do you bet that team A will win?</p>
-                    <!-- slider with feedback -->
-                    <input type="range" name="bet" id="bet" min="0.01" max="1.00" step="0.01" value="0.50">
+                    <p>You have a budget of 50 cents to bet on the outcome of this game. How much do you bet that team A will win?</p>
+                    <input type="range" name="bet" id="bet" min="0.01" max='{{budget}}' step="0.01" value="0.25">
                     <label for="bet" id="bet-selected">No bet selected</label>
                 </fieldset>
             </form>
         </div>
         <div class="column right">
                 <h3>Betting Rules</h3>
-                <ul><b>You may bet up to $1 per round of TeamCrossword</b>:
+                <ul><b>You may bet up to 50 cents per round of TeamCrossword</b>:
                     <li>If the team you bet on wins, you win an amount proportional to the odds that team A will win.</li>
                     <li>If your team looses the round, you loose the amount that you bet.</li>
                 </ul>
@@ -153,12 +155,12 @@
 
             <div style="padding: 10px;" class="column spaced">
                     <center>
-                    <table><b>What Your Bonus Would Be</b>
+                    <table><b>This is how the feedback on your bets will look.</b>
                         <tr>
-                            <th>You Bet</th>
-                            <th>You Keep</th> 
-                            <th>You Win</th>
-                            <th>Total Bonus</th>
+                            <th>Bet Amount</th>
+                            <th>Keep Amount (after flat tax)</th> 
+                            <th>Winnings (after tiered tax)</th>
+                            <th>What Your Bonus for This Round Would Be</th>
                         </tr>
                         <tr>
                             <td id="bet-amnt"></td>

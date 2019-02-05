@@ -18,33 +18,34 @@ table, th, td {
 
 /* padding */
 .response, #stim, .spaced {
-    padding-left: 20px
+    padding-left: 40px;
+    padding-right: 40px;
 }
 .spaced {
-    padding-right: 20px
+    padding-right: 20px;
 }
 .survey-item {
-    padding-top: 20px
+    padding-top: 20px;
 }
 
 /* scaling for columns, stimulus image and sliders */
 @media only screen and (max-width: 924px) { 
     .left {
-        width: 100%;
+        width: 90%;
     }
     .right {
         width: 100%;
     }
 }
-@media only screen and (min-width: 724px) {
+@media only screen and (min-width: 774px) {
     #prob, #bet, #stim {
-        width: 70%;
+        width: 80%;
     }
 }
 @media only screen and (min-width: 1224px) {
-    #prob, #bet, #stim {
+    /* #prob, #bet, #stim {
         width: 60%;
-    }
+    } */
     .left {
         width: 60%;
     }

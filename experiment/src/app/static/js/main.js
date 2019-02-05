@@ -2,23 +2,24 @@
 var database = firebase.database();
 
 // lists of trials
-const sdList = Array(6).fill(1).concat(Array(5).fill(5))
-const oddsList = [0.025, 0.055, 0.116, 0.228, 0.400, 0.600, 0.772, 0.884, 0.945, 0.975];
+const sdList = Array(10).fill(1).concat(Array(10).fill(5))
+const oddsList = [0.025, 0.055, 0.116, 0.228, 0.400, 0.600, 0.772, 0.884, 0.945, 0.975, 0.025, 0.055, 0.116, 0.228, 0.400, 0.600, 0.772, 0.884, 0.945, 0.975];
 
 // determine stimulus parameters on current trial
 let sd, odds, filepath;
 if (routeVars.trial === "practice") {   // TODO add special practice stimuli with graphical legends
     sd = 5;
     odds = 0.228;
-    filepath = "../img/" + routeVars.cond + "-" + sd + " sd, " + odds + " odds" + extension();
+    filepath = "../img/" + routeVars.cond + "-" + sd + "_sd_" + odds + "_odds" + extension();
     // filepath = "../img/" + routeVars.cond + "-practice" + extension();
 } else { // trial index used for counterbalancing
     console.log("trial index", routeVars.trialIdx);
     sd = sdList[routeVars.trialIdx];
     odds = oddsList[routeVars.trialIdx];
-    filepath = "../img/" + routeVars.cond + "-" + sd + " sd, " + odds + " odds" + extension();
+    filepath = "../img/" + routeVars.cond + "-" + sd + "_sd_" + odds + "_odds" + extension();
 }
 // set src file for stimulus img
+console.log("loading stim", filepath)
 $("#stim").attr("src", filepath);
 
 // slider callbacks
@@ -27,9 +28,10 @@ let respObj = {
     "condition": routeVars.cond,
     "trial": routeVars.trial,
     "trialIdx": routeVars.trialIdx,
+    "groundTruth": odds,
+    "sdDiff": sd,
     "cles": -1,
     "bet": -1,
-    "groundTruth": odds,
     "pay": -1
 }
 $(document).ready(function () { // TODO fetch starting value from db on refresh
@@ -45,11 +47,11 @@ $(document).ready(function () { // TODO fetch starting value from db on refresh
     
     // update label
     $("#bet").on("input", function () {
-        $("#bet-selected").html("$" + this.value + " out of $1")
+        $("#bet-selected").html(Math.round(+this.value * 100) + " out of " + Math.round(routeVars.budget * 100) + " cents")
     })
     // update responses in database
     $("#bet").change("input", function () {
-        respObj.bet = +this.value;
+        respObj.bet = roundCent(+this.value);
         updateResponseData(respObj);
     })
 })
@@ -74,7 +76,7 @@ function updateResponseData(respObj) {
             trialRef.set(respObj);
         } else { // if repsonses already exist for this trial
             // update existing trial
-            if (testMode || snapshot.val().pay === -1) { // only allow updates for trials where pay is tbd
+            if (routeVars.testMode || snapshot.val().pay === -1) { // only allow updates for trials where pay is tbd
                 trialRef.update(respObj);
             }
         }
@@ -89,7 +91,7 @@ function feedback() {
     $("#feedback-btn").css("display", "none");
     // simulate outcome based on odds of victory for this stimulus
     let bet = respObj.bet,
-        keep = roundCent((1 - bet) * (1 - 0.25)), // flat tax
+        keep = roundCent((routeVars.budget - bet) * (1 - 0.25)), // flat tax
         win = 0; // update if they win
     if (outcome(odds)) {
         // the user's team wins
@@ -103,9 +105,9 @@ function feedback() {
             .css("color", "#377eb8");
     }
     // populate table showing bet, keep, win, and total bonus amounts
-    $("#bet-amnt").html("$" + bet);
-    $("#keep-amnt").html("$" + keep);
-    $("#win-amnt").html("$" + win);
+    $("#bet-amnt").html("$" + roundCent(bet));
+    $("#keep-amnt").html("$" + roundCent(keep));
+    $("#win-amnt").html("$" + roundCent(win));
     $("#bonus-amnt").html("$" + roundCent(keep + win));
     // push pay to db (thus disabling further updates)
     respObj.pay = keep + win;

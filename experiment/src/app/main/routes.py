@@ -1,6 +1,7 @@
 from datetime import datetime
 from flask import render_template, flash, redirect, url_for, request, g, \
-    jsonify, current_app
+    jsonify, current_app, send_from_directory
+import os
 import random
 import itertools
 from config import Config
@@ -46,6 +47,10 @@ def static_page(page_name):
     print('GET: ' + '%s.html' % ('/experiment/' + page_name))
     return render_template('%s.html' % ('/experiment/' + page_name))
 
+@bp.route('/favicon.ico')
+def favicon():
+    return send_from_directory(os.path.join(bp.root_path, 'static'), 'favicon.ico', mimetype='image/vnd.microsoft.icon')
+
 
 @bp.route('/0_return')
 def return_HIT():
@@ -75,7 +80,9 @@ def instructions():
             "workerId": workerId, 
             "assignmentId": assignmentId,
             "token": token, 
+            "batch": Config.BATCH,
             "condition": cond,                      # vis condition
+            "budget": Config.BUDGET,                # budget for betting
             "trialSet": Config.TRIAL_SET_INDEX,     # counterbalancing set
             "run": Config.RUN,                      # pilot or experiment
             "bonus": -1                             # dummy value
@@ -113,6 +120,7 @@ def practice():
         trial = "practice",
         trialIdx = "practice",
         testing = Config.TESTING,
+        budget = Config.BUDGET,
         next_url = next_url)
 
 @bp.route('/3_main_experiment_interface')
@@ -158,7 +166,7 @@ def experiment():
         trial = trial,
         trialIdx = trialIdx,
         testing = Config.TESTING,
-        # test = test,
+        budget = Config.BUDGET,
         next_url = next_url)
 
 @bp.route('/4a_strategy')
