@@ -37,21 +37,41 @@ let respObj = {
 $(document).ready(function () { // TODO fetch starting value from db on refresh
     // update label
     $("#prob").on("input", function () {
-        $("#prob-selected").html(this.value + " out of 100")
+        if (this.value == '') {
+            $("#prob-selected").html("No response")
+        } else if (isNaN(this.value)) {
+            $("#prob-selected").html("Please provide a numeric answer")
+        } else {
+            $("#prob-selected").html(this.value + " out of 100")
+        }
     })
     // update responses in database
     $("#prob").change("input", function () {
-        respObj.cles = +this.value;
+        if (this.value == '' || isNaN(this.value)) {
+            respObj.cles = this.value;
+        } else {
+            respObj.cles = +this.value;
+        }
         updateResponseData(respObj);
     })
     
     // update label
     $("#bet").on("input", function () {
-        $("#bet-selected").html(Math.round(+this.value * 100) + " out of " + Math.round(routeVars.budget * 100) + " cents")
+        if (this.value == '') {
+            $("#bet-selected").html("No response")
+        } else if (isNaN(this.value)) {
+            $("#bet-selected").html("Please provide a numeric answer")
+        } else {
+            $("#bet-selected").html(Math.round(+this.value) + " out of " + Math.round(routeVars.budget * 100) + " cents")
+        }
     })
     // update responses in database
     $("#bet").change("input", function () {
-        respObj.bet = roundCent(+this.value);
+        if (this.value == '' || isNaN(this.value)) {
+            respObj.bet = this.value;
+        } else {
+            respObj.bet = roundCent(+this.value / 100);
+        }
         updateResponseData(respObj);
     })
 })
@@ -85,36 +105,46 @@ function updateResponseData(respObj) {
 
 // provide feedback on user responses
 function feedback() {
-    // disable input so that users cannot edit responses
-    $("input").attr("disabled", "disabled");
-    // hide Feedback button
-    $("#feedback-btn").css("display", "none");
-    // simulate outcome based on odds of victory for this stimulus
-    let bet = respObj.bet,
-        keep = roundCent((routeVars.budget - bet) * (1 - 0.25)), // flat tax
-        win = 0; // update if they win
-    if (outcome(odds)) {
-        // the user's team wins
-        $("#feedback-txt").html("Team A Wins")
-            .css("color", "#e41a1c");
-        // calculate winnings
-        win = tieredTax(bet / odds);
+    // catch non-numeric responses
+    if (respObj.cles == '' || isNaN(respObj.cles) || respObj.cles == -1 || respObj.bet == '' || isNaN(respObj.bet || respObj.bet == -1)) {
+        console.log("response object", respObj);
+        $("#feedback-catch").addClass("show");
+        // wait to reset display
+        setTimeout(function () {
+            $("#feedback-catch").removeClass("show");
+        }, 4000);
     } else {
-        // the user's team loses
-        $("#feedback-txt").html("Team B Wins")
-            .css("color", "#377eb8");
+        // disable input so that users cannot edit responses
+        $("input").attr("disabled", "disabled");
+        // hide Feedback button
+        $("#feedback-btn").css("display", "none");
+        // simulate outcome based on odds of victory for this stimulus
+        let bet = respObj.bet,
+            keep = roundCent((routeVars.budget - bet) * (1 - 0.25)), // flat tax
+            win = 0; // update if they win
+        if (outcome(odds)) {
+            // the user's team wins
+            $("#feedback-txt").html("Winner: Team A")
+                .css("color", "#e41a1c");
+            // calculate winnings
+            win = tieredTax(bet / odds);
+        } else {
+            // the user's team loses
+            $("#feedback-txt").html("Winner: Team B")
+                .css("color", "#377eb8");
+        }
+        // populate table showing bet, keep, win, and total bonus amounts
+        $("#bet-amnt").html("$" + roundCent(bet));
+        $("#keep-amnt").html("$" + roundCent(keep));
+        $("#win-amnt").html("$" + roundCent(win));
+        $("#bonus-amnt").html("$" + roundCent(keep + win));
+        // push pay to db (thus disabling further updates)
+        respObj.pay = keep + win;
+        updateResponseData(respObj);
+        // show feedback and button to advance to next trial
+        $("#feedback-block").css("display","block")
+            .css("background-color", "#f7fbff");
     }
-    // populate table showing bet, keep, win, and total bonus amounts
-    $("#bet-amnt").html("$" + roundCent(bet));
-    $("#keep-amnt").html("$" + roundCent(keep));
-    $("#win-amnt").html("$" + roundCent(win));
-    $("#bonus-amnt").html("$" + roundCent(keep + win));
-    // push pay to db (thus disabling further updates)
-    respObj.pay = keep + win;
-    updateResponseData(respObj);
-    // show feedback and button to advance to next trial
-    $("#feedback-block").css("display","block")
-        .css("background-color", "#e0e0eb");
 }
 
 // biased coin flip for simulating wins and losses

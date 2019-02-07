@@ -243,7 +243,7 @@ for (c in unique(conds_df$condition)) {
     ) +
     transition_manual(draw_n)
   hops <- animate(plt, fps=2.5, width=480, height=288)
-  fname <- paste("stimuli/HOPs w means-", c,".gif", sep = "")
+  fname <- paste("stimuli/HOPs_w_means-", c,".gif", sep = "")
   anim_save(filename = fname, animation = hops)
 }
 ```

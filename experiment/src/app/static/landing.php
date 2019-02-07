@@ -35,8 +35,10 @@
                 <p>In this HIT, you will bet on the outcomes of a game where two teams compete. For each bet you place, you will be shown a chart of the past scores for each of the competing teams.</p>
                 <p>For example, you might see this chart:</p>
                 <img id="stim"/>
-                <p>You will be assigned to bet on one of the two teams. You will report an estimate of the probability that your team will win. Then you will allocate some portion of a 50 cent budget to bet.</p> 
-                <p>On the next page, we describe the payoff scheme for the betting task. You will bet on 20 rounds of the game. The sum of your funds across all rounds is your bonus for completing the HIT. Your task is to maximize your bonus by basing your bets on the information presented in the charts. After placing your bets, you will complete a brief questionnaire. The HIT should take no more than 40 minutes.</p>
+                <!-- <p>You will be assigned to bet on one of the two teams. You will report an estimate of the probability that your team will win. Then you will allocate some portion of a 50 cent budget to bet.</p>  -->
+                <p>On the next page, we describe the payoff scheme for the betting task. You will bet on 20 rounds of the game.</p>
+                <p>The sum of your funds across all rounds is your bonus for completing the HIT. <b>Your task is to maximize your bonus by basing your bets on the information presented in the charts.</b></p> 
+                <p>After placing your bets, you will complete a brief questionnaire. The HIT should take no more than 40 minutes.</p>
                 <p><b>You will receive $2.00 for your work on this HIT in addition to your bonus. If you bet well, your expected bonus is about $8.</b></p>
                 <p>This HIT is part of a research project. We are interested in how well you do on the task without the help of other resources.</p>
                 <center><a href="http://127.0.0.1:5000/1_instructions?workerId=<?php echo $workerId; ?>&assignmentId=<?php echo $assignmentId; ?>&cond=<?php echo $cond; ?>">Start HIT in New Tab</a></center>

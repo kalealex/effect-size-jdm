@@ -1,26 +1,57 @@
-/* format table for tiered tax */
+/* experiment and practice page */
+hr {
+    clear: both;
+}
+
+/* tables for tiered tax and feedback*/
 table, th, td {
     border: 1px solid black;
     border-collapse: collapse;
-    padding: 5px;
+    padding: 2px;
+}
+#tax {
+    padding-top: 20px;
+}
+@media only screen and (min-width: 948px) { 
+    #tax {
+        padding-bottom: 20px;
+    }
+}
+@media only screen and (max-width: 767px) { 
+    #tax {
+        padding-bottom: 20px;
+    }
 }
 
-/* column formatting */
-.column {
-    float: left;
+/* feedback */
+@keyframes fadeOut {
+    0% {
+      opacity: 1;
+    }  
+    100% {
+      opacity: 0;
+    }
 }
-.left {
-    width: 75%;
+#feeback-catch {
+    visibility: hidden; 
+    opacity: 0;
+    /* transition: all 0.5s ease; */
 }
-.right {
-    width: 25%;
+#feedback-catch.show {
+    color:crimson;
+    visibility: visible; 
+    animation-name: fadeOut;
+    animation-delay: 2s;
+    animation-duration: 2s;
+}
+.padded {
+    padding-left: 20px;
+    padding-right: 20px;
+    padding-top: 10px;
+    padding-bottom: 10px;
 }
 
-/* padding */
-.response, #stim, .spaced {
-    padding-left: 40px;
-    padding-right: 40px;
-}
+/* for survey */
 .spaced {
     padding-right: 20px;
 }
@@ -28,8 +59,48 @@ table, th, td {
     padding-top: 20px;
 }
 
-/* scaling for columns, stimulus image and sliders */
-@media only screen and (max-width: 924px) { 
+/** overlaid div when screen size is too small **/
+.resize-container-hidden {
+    display: initial;
+    width: 100vw;
+    height: 100vh;
+    background-color: black;
+    background: black;
+    z-index: 10;
+    position: fixed;
+    left:0;
+    top:0;
+}
+@media only screen and (min-width: 600px) { 
+    .resize-container-hidden {
+        display: none;
+    }
+}
+.resize-container-hidden p {
+    color: white;
+}
+body {
+    overflow: hidden;
+}
+@media only screen and (min-width: 600px) { 
+    body {
+        overflow: auto;
+    }
+}
+
+
+/* stimulus image and sliders */
+/* column formatting */
+/*.column {
+    float: left;
+}
+.left {
+    width: 60%;
+}
+.right {
+    width: 40%;
+} */
+/* @media only screen and (max-width: 924px) { 
     .left {
         width: 90%;
     }
@@ -43,9 +114,9 @@ table, th, td {
     }
 }
 @media only screen and (min-width: 1224px) {
-    /* #prob, #bet, #stim {
+    #prob, #bet, #stim {
         width: 60%;
-    } */
+    } 
     .left {
         width: 60%;
     }
@@ -57,4 +128,4 @@ table, th, td {
     #slider, #stim {
         width: 50%;
     }
-}
+} 

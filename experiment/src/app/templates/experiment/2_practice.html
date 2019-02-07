@@ -71,7 +71,7 @@
         <h2><b>Practice</b></h2>
         <p>Here's an example of a chart showing the how many points each competing team has scored in previous rounds of TeamCrossword.</p>
         <div class="row">
-        <div class="column left">
+        <div class="column left mx-auto">
             <img id="stim">
             
             <form class="response">
@@ -95,18 +95,21 @@
                 </fieldset>
             </form>
         </div>
-        <div class="column right">
-                <h3>Betting Rules</h3>
-                <ul><b>You may bet up to 50 cents per round of TeamCrossword</b>:
-                    <li>If the team you bet on wins, you win an amount proportional to the odds that team A will win.</li>
-                    <li>If your team looses the round, you loose the amount that you bet.</li>
-                </ul>
-                <ul><b>Incentives</b>:
+        <div class="column right mx-auto">
+                <h3>Remember the Betting Rules</h3>
+                <ul> 
+                    <!-- <b>You may bet up to 50 cents per round of TeamCrossword</b>: -->
+                    <!-- <li>If the team you bet on wins, you win an amount proportional to the odds that team A will win.</li> -->
+                    <li>The amount you win is proportional to the odds of victory for the team you bet on.</li>
+                    <li>If your team loses the round, you lose the amount that you bet.</li>
+                <!-- </ul> -->
+                <!-- <ul><b>Incentives</b>: -->
                     <li>The amount that you <i>do not</i> bet is subject to a flat tax of 25%.</li>
-                    <li>Winnings in each round are subject to the tiered tax described in the table below.</li>
+                    <li>Winnings in each round are subject to the tiered tax described in the table.</li>
                 </ul>
                 <center>
-                <table><b>Tiered Tax on Winnings</b>
+                <table>
+                    <!-- <b>Tiered Tax on Winnings</b> -->
                         <tr>
                             <th>Tier</th>
                             <th>Tax Rate</th> 
@@ -160,7 +163,7 @@
                             <th>Bet Amount</th>
                             <th>Keep Amount (after flat tax)</th> 
                             <th>Winnings (after tiered tax)</th>
-                            <th>What Your Bonus for This Round Would Be</th>
+                            <th>Your Bonus Would Be (Keep + Winnings)</th>
                         </tr>
                         <tr>
                             <td id="bet-amnt"></td>
@@ -175,7 +178,7 @@
             <div style="padding: 10px;" class="column spaced">
                 <center>
                 <p>Click Start to begin the experiment.</p>
-                <a class="btn btn-default" href="{{next_url}}">Next</a>
+                <a class="btn btn-default" href="{{next_url}}">Start</a>
                 </center>
             </div>
         <!-- </div> -->
