@@ -33,15 +33,15 @@ table, th, td {
     }
 }
 #feeback-catch {
-    visibility: hidden; 
+    /* visibility: hidden;  */
     opacity: 0;
     /* transition: all 0.5s ease; */
 }
 #feedback-catch.show {
     color:crimson;
-    visibility: visible; 
+    /* visibility: visible;  */
     animation-name: fadeOut;
-    animation-delay: 2s;
+    animation-delay: 2.5s;
     animation-duration: 2s;
 }
 .padded {

@@ -41,6 +41,8 @@ $(document).ready(function () { // TODO fetch starting value from db on refresh
             $("#prob-selected").html("No response")
         } else if (isNaN(this.value)) {
             $("#prob-selected").html("Please provide a numeric answer")
+        } else if (+this.value > 100 || +this.value < 0) {
+            $("#prob-selected").html("Please provide a value between 0 and 100")
         } else {
             $("#prob-selected").html(this.value + " out of 100")
         }
@@ -61,6 +63,8 @@ $(document).ready(function () { // TODO fetch starting value from db on refresh
             $("#bet-selected").html("No response")
         } else if (isNaN(this.value)) {
             $("#bet-selected").html("Please provide a numeric answer")
+        } else if (+this.value > Math.round(routeVars.budget * 100) || +this.value < 1) {
+            $("#bet-selected").html("Please provide a value between 1 and " + Math.round(routeVars.budget * 100) + " cents")
         } else {
             $("#bet-selected").html(Math.round(+this.value) + " out of " + Math.round(routeVars.budget * 100) + " cents")
         }
@@ -70,6 +74,7 @@ $(document).ready(function () { // TODO fetch starting value from db on refresh
         if (this.value == '' || isNaN(this.value)) {
             respObj.bet = this.value;
         } else {
+            // convert bet to dollars for storage
             respObj.bet = roundCent(+this.value / 100);
         }
         updateResponseData(respObj);
@@ -105,15 +110,29 @@ function updateResponseData(respObj) {
 
 // provide feedback on user responses
 function feedback() {
-    // catch non-numeric responses
-    if (respObj.cles == '' || isNaN(respObj.cles) || respObj.cles == -1 || respObj.bet == '' || isNaN(respObj.bet || respObj.bet == -1)) {
+    // catch non-numeric and out of range responses
+    if (respObj.cles === -1 || respObj.cles == '' || isNaN(respObj.cles) || 
+        respObj.bet === -1 || respObj.bet == '' || isNaN(respObj.bet)) {
         console.log("response object", respObj);
+        // prompt for numeric response
+        $("#feedback-catch").html("You need to provide a numeric response to both questions.");
         $("#feedback-catch").addClass("show");
         // wait to reset display
         setTimeout(function () {
             $("#feedback-catch").removeClass("show");
-        }, 4000);
+        }, 4250);
+    } else if (respObj.cles < 0 || respObj.cles > 100 || 
+        respObj.bet < 0.01 || respObj.bet > routeVars.budget) {
+        console.log("response object", respObj);
+        // prompt for value in range
+        $("#feedback-catch").html("You need to provide in range responses to both questions.");
+        $("#feedback-catch").addClass("show");
+        // wait to reset display
+        setTimeout(function () {
+            $("#feedback-catch").removeClass("show");
+        }, 4250);
     } else {
+        console.log("response object", respObj);
         // disable input so that users cannot edit responses
         $("input").attr("disabled", "disabled");
         // hide Feedback button

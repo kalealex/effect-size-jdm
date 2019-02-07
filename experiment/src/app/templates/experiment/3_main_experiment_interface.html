@@ -126,13 +126,13 @@
                     <fieldset class="col-xs-6">
                         <p>If this game were to happen 100 times, how many times would team A win?</p>
                         <!-- <input type="range" name="prob" id="prob" min="0" max="100" step="1" value="50"> -->
-                        <input type="text" name="prob" id="prob" placeholder="your answer here">
+                        <input type="text" name="prob" id="prob" placeholder="your answer here"><br/>
                         <label for="prob" id="prob-selected">No response</label>
                     </fieldset>
                     <fieldset class="col-xs-6">
                         <p>You have 50 cents to bet on this game. How much do you bet that team A will win?</p>
                         <!-- <input type="range" name="bet" id="bet" min="0.01" max='{{budget}}' step="0.01" value="0.25"> -->
-                        <input type="text" name="bet" id="bet" placeholder="your answer here">
+                        <input type="text" name="bet" id="bet" placeholder="your answer here"><br/>
                         <label for="bet" id="bet-selected">No response</label>
                     </fieldset>
                 </form>
@@ -145,7 +145,7 @@
         <p>Click Feedback to submit your response and receive feedback.<br/>
             <b>You will not be able to change your response after receiving feedback</b>.</p>
         <a class="btn btn-default" id="feedback" onclick="feedback()">Feedback</a>
-        <p><strong id="feedback-catch" class="hide">You need to provide a numeric response to both questions.</strong></p>
+        <p><strong id="feedback-catch" class="hide"></strong></p>
         </center>
     </div>
     <div class="container-fluid" style="display: none;" id="feedback-block">
