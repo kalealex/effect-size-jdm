@@ -155,7 +155,7 @@ for (c in unique(conds_df$condition)) {
   plt <- use_df %>% select(-one_of(c("quantiles"))) %>% unnest() %>%
     filter(draw_n %in% 1:n_draws_hops) %>% # filter to set number of draws
     ggplot(aes(y=draws, x=reorder(Team, desc(Team)), color=Team)) +
-    geom_point(shape=124, size=means_size) +
+    geom_point(shape=124, size=HOPs_size) +
     coord_flip() +
     theme_bw() +
     colScale +
