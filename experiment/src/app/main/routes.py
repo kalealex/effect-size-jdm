@@ -51,7 +51,7 @@ def static_page(page_name):
 def favicon():
     return send_from_directory(os.path.join(bp.root_path, 'static'), 'favicon.ico', mimetype='image/vnd.microsoft.icon')
 
-
+# application pages
 @bp.route('/0_landing')
 def landing():
     workerId = str(request.args.get('workerId'))
@@ -256,6 +256,128 @@ def final():
 
     return render_template('%s.html' % ('/experiment/' + '/5_final'),
         workerId = workerId) # use workerId to query db for token
+
+
+# api for passing data to and from firebase
+@bp.route('/api/update_response', methods=['POST'])
+def update_response():
+    # Get the json object from the request
+    data = request.get_json(force=True)
+
+    # Connect to Firebase instance for current trial
+    ref = db.reference('/responses/' + data['workerId'] + '/' + data['trial'])
+    # Does this entry exist?
+    if ref != None:
+        # Is there data logged for this entry?
+        if ref.get() == None:
+            # Create new entry
+            ref.set(data)
+        else:
+            # Add to existing entry
+            ref.update(data)
+    
+    return jsonify(data)
+
+@bp.route('/api/update_strategy', methods=['POST'])
+def update_strategy():
+    # Get the json object from the request
+    data = request.get_json(force=True)
+
+    # Connect to Firebase instance for current trial
+    ref = db.reference('/survey/' + data['workerId'])
+    # Does this entry exist?
+    if ref != None:
+        # Is there data logged for this entry?
+        if ref.get() == None:
+            # Create new entry
+            ref.set(data)
+        else:
+            # Add to existing entry
+            ref.update(data)
+    
+    return jsonify(data)
+
+@bp.route('/api/update_survey', methods=['POST'])
+def update_survey():
+    # Get the json object from the request
+    data = request.get_json(force=True)
+
+    # Connect to Firebase instance for current trial
+    ref = db.reference('/survey/' + data['workerId'] + '/numeracy')
+    # Don't push workerId. This value is only here to tell firebase where to put the data.
+    data.pop('workerId')
+    # Does this entry exist?
+    if ref != None:
+        # Is there data logged for this entry?
+        if ref.get() == None:
+            # Create new entry
+            ref.set(data)
+        else:
+            # Add to existing entry
+            ref.update(data)
+    
+    return jsonify(data)
+
+@bp.route('/api/check_survey', methods=['POST'])
+def check_survey():
+    # Get the json object from the request
+    data = request.get_json(force=True)
+
+    # Connect to Firebase instance for current trial
+    ref = db.reference('/survey/' + data['workerId'])
+    # Remove workerId. This value is only here to tell firebase where to look for data.
+    data.pop('workerId')
+    # Does this entry exist?
+    if ref != None:
+        # Add db enty to object if it exists.
+        if ref.get() != None:
+            # Update data object to match survey entry, so we can validate responses in javascript.
+            data.update(ref.get())
+    
+    return jsonify(data)
+
+@bp.route('/api/check_responses', methods=['POST'])
+def check_responses():
+    # Get the json object from the request
+    data = request.get_json(force=True)
+
+    # Connect to Firebase instance for current trial
+    ref = db.reference('/responses/' + data['workerId'])
+    # Remove workerId. This value is only here to tell firebase where to look for data.
+    data.pop('workerId')
+    # Does this entry exist?
+    if ref != None:
+        # Add db enty to object if it exists.
+        if ref.get() != None:
+            # Update data object to match responses entry, so we can sum up the bonus for this worker in javascript.
+            data.update(ref.get())
+    
+    return jsonify(data)
+
+@bp.route('/api/check_workers', methods=['POST'])
+def check_workers():
+    # Get the json object from the request
+    data = request.get_json(force=True)
+
+    # Connect to Firebase instance for current trial
+    ref = db.reference('/workers/' + data['workerId'])
+    # Remove workerId. This value is only here to tell firebase where to look for data.
+    data.pop('workerId')
+    # Does this entry exist?
+    if ref != None:
+        # Add db enty to object if it exists.
+        if ref.get() != None:
+            # Update data object to match workers entry, so we provide the token for this worker in javascript.
+            # This update call also adds the worker's pay to the db.
+            data.update(ref.get())
+        else:
+            # If entry doesn't exist, return an empty json to trigger message.
+            data.pop('bonus')
+    else:
+        # If entry doesn't exist, return an empty json to trigger message.
+        data.pop('bonus')
+    
+    return jsonify(data)
 
 
 @bp.after_request

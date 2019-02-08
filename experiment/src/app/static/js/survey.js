@@ -1,5 +1,5 @@
 // Get a reference to the database service
-var database = firebase.database();
+// var database = firebase.database();
 
 // callbacks to record and manage responses
 $(document).ready(function () {
@@ -12,7 +12,7 @@ $(document).ready(function () {
                 // radio buttons
                 $("input[type=radio][name=numeracy-" + i + "]").click(function () {
                     let key = "" + i;
-                    let respObj = {};
+                    let respObj = { "workerId": routeVars.workerId };
                     if (this.value == '' || isNaN(this.value)) {
                         respObj[key] = this.value;
                     } else {
@@ -25,7 +25,7 @@ $(document).ready(function () {
                 // text entry
                 $("#numeracy-" + i).change("input", function () {
                     let key = "" + i;
-                    let respObj = {};
+                    let respObj = { "workerId": routeVars.workerId };
                     if (this.value == '' || isNaN(this.value)) {
                         respObj[key] = this.value;
                     } else {
@@ -67,7 +67,7 @@ $(document).ready(function () {
             } else if (+this.value > 100 || +this.value < 0) {
                 $("#numeracy-3-selected").html("Please provide a value between 0 and 100")
             } else {
-                $("#numeracy-3-selected").html(Math.round(+this.value) + "% of tickets")
+                $("#numeracy-3-selected").html(+this.value + "% of tickets")
             }
         })
         $("#numeracy-6").on("input", function () {
@@ -78,7 +78,7 @@ $(document).ready(function () {
             } else if (+this.value > 100 || +this.value < 0) {
                 $("#numeracy-6-selected").html("Please provide a value between 0 and 100")
             } else {
-                $("#numeracy-6-selected").html(Math.round(+this.value) + "%")
+                $("#numeracy-6-selected").html(+this.value + "%")
             }
         })
         $("#numeracy-7").on("input", function () {
@@ -122,7 +122,7 @@ $(document).ready(function () {
             } else if (+this.value > 100 || +this.value < 0) {
                 $("#numeracy-10-selected").html("Please provide a value between 0 and 100")
             } else {
-                $("#numeracy-10-selected").html(Math.round(+this.value) + "% chance")
+                $("#numeracy-10-selected").html(+this.value + "% chance")
             }
         })
         $("#numeracy-11").on("input", function () {
@@ -170,37 +170,54 @@ $('a.feedback').click(function (e) {
 
 // reactively push strategy response to firebase
 function updateStrategy(responseObj) {
-    let workerRef = database.ref("survey/" + routeVars.workerId)
-    workerRef.once("value", function (snapshot) {
-        if (!snapshot.exists()) {
-            // create a survey entry for this worker
-            workerRef.set(responseObj);
-        } else {
-            // update existing survey response object
-            workerRef.update(responseObj);
-        }
+    fetch('/api/update_strategy', {
+        method: "post",
+        body: JSON.stringify(responseObj)
+    }).then(function (resp) {
+        console.log("resp", resp);
+        return resp.json();
+    }).then(function (result) {
+        console.log("result", result);
+    }).catch(function (err) {
+        console.log("error", err);
     })
+
+    // let workerRef = database.ref("survey/" + routeVars.workerId)
+    // workerRef.once("value", function (snapshot) {
+    //     if (!snapshot.exists()) {
+    //         // create a survey entry for this worker
+    //         workerRef.set(responseObj);
+    //     } else {
+    //         // update existing survey response object
+    //         workerRef.update(responseObj);
+    //     }
+    // })
 }
 
 // reactively push survey responses to firebase
 function updateSurvey(responseObj) {
-    // fetch(post, responseObj, apiUrl)
-    //     .then(Json.obj(data))
-    //     .then(function(responseData) {
-    //         ...
-    //     });
-
-
-    let surveyRef = database.ref("survey/" + routeVars.workerId + "/numeracy")
-    surveyRef.once("value", function (snapshot) {
-        if (!snapshot.exists()) {
-            // create a survey entry for this worker
-            surveyRef.set(responseObj);
-        } else {
-            // update existing survey response object
-            surveyRef.update(responseObj);
-        }
+    fetch('/api/update_survey', {
+        method: "post",
+        body: JSON.stringify(responseObj)
+    }).then(function (resp) {
+        console.log("resp", resp);
+        return resp.json();
+    }).then(function (result) {
+        console.log("result", result);
+    }).catch(function (err) {
+        console.log("error", err);
     })
+
+    // let surveyRef = database.ref("survey/" + routeVars.workerId + "/numeracy")
+    // surveyRef.once("value", function (snapshot) {
+    //     if (!snapshot.exists()) {
+    //         // create a survey entry for this worker
+    //         surveyRef.set(responseObj);
+    //     } else {
+    //         // update existing survey response object
+    //         surveyRef.update(responseObj);
+    //     }
+    // })
 }
 
 // determine file extension for stimulus
@@ -215,10 +232,15 @@ function extension() {
 
 // prevent invalid responses on submit
 function handleSubmitStrategy() {
-    // access response in db
-    let workerRef = database.ref("survey/" + routeVars.workerId);
-    workerRef.once("value", function (snapshot) {
-        if (!snapshot.exists()) {
+    fetch('/api/check_strategy', {
+        method: "post",
+        body: JSON.stringify({ "workerId": routeVars.workerId })
+    }).then(function (resp) {
+        console.log("resp", resp);
+        return resp.json();
+    }).then(function (result) {
+        console.log("result", result);
+        if (!result) {
             // no entry for worker: give feedback
             $("#feedback-catch").html("You have not submitted a response.");
             $("#feedback-catch").addClass("show");
@@ -226,7 +248,7 @@ function handleSubmitStrategy() {
             setTimeout(function () {
                 $("#feedback-catch").removeClass("show");
             }, 4250);
-        } else if (!snapshot.val().strategy) {
+        } else if (!result.strategy) {
             // no response logged: give feedback
             $("#feedback-catch").html("You have not submitted a response.");
             $("#feedback-catch").addClass("show");
@@ -238,17 +260,49 @@ function handleSubmitStrategy() {
             // response is logged and valid: pass onto next page
             window.location.href = nextUrl;
         }
-    });
+    }).catch(function (err) {
+        console.log("error", err);
+    })
+
+    // // access response in db
+    // let workerRef = database.ref("survey/" + routeVars.workerId);
+    // workerRef.once("value", function (snapshot) {
+    //     if (!snapshot.exists()) {
+    //         // no entry for worker: give feedback
+    //         $("#feedback-catch").html("You have not submitted a response.");
+    //         $("#feedback-catch").addClass("show");
+    //         // wait to reset display
+    //         setTimeout(function () {
+    //             $("#feedback-catch").removeClass("show");
+    //         }, 4250);
+    //     } else if (!snapshot.val().strategy) {
+    //         // no response logged: give feedback
+    //         $("#feedback-catch").html("You have not submitted a response.");
+    //         $("#feedback-catch").addClass("show");
+    //         // wait to reset display
+    //         setTimeout(function () {
+    //             $("#feedback-catch").removeClass("show");
+    //         }, 4250);
+    //     } else {
+    //         // response is logged and valid: pass onto next page
+    //         window.location.href = nextUrl;
+    //     }
+    // });
 }
 
 // prevent invalid responses on submit
 function handleSubmitSurvey() {
     // use boolean to determine whether user passes to next page
     let moveOn = true;
-    // access response in db
-    let workerRef = database.ref("survey/" + routeVars.workerId);
-    workerRef.once("value", function (snapshot) {
-        if (!snapshot.exists()) {
+    fetch('/api/check_survey', {
+        method: "post",
+        body: JSON.stringify({ "workerId": routeVars.workerId })
+    }).then(function (resp) {
+        console.log("resp", resp);
+        return resp.json();
+    }).then(function (result) {
+        console.log("result", result);
+        if (!result) {
             // no entry for worker: give feedback
             $("#feedback-catch").html("You have not submitted a response.");
             $("#feedback-catch").addClass("show");
@@ -257,7 +311,7 @@ function handleSubmitSurvey() {
                 $("#feedback-catch").removeClass("show");
             }, 4250);
             moveOn = false;
-        } else if (!snapshot.val().numeracy) {
+        } else if (!result.numeracy) {
             // no responses have been logged: give feedback
             $("#feedback-catch").html("You have not submitted any responses.");
             $("#feedback-catch").addClass("show");
@@ -268,7 +322,7 @@ function handleSubmitSurvey() {
             moveOn = false;
         } else {
             // iterate through survey items
-            let survey = snapshot.val().numeracy;
+            let survey = result.numeracy;
             const MAX_RESP = [1000, 1000, 100, 1000, 100, 100, 100, 100, 1000, 100, 10000]; // set up array of maximum allowable response on each item
             for (let i = 1; i <= 11; i++) {
                 console.log("item " + i, survey[i])
@@ -295,8 +349,64 @@ function handleSubmitSurvey() {
         }
         if (moveOn) {
             // all responses are logged and valid: pass onto next page
-            // console.log("responses approved")
             window.location.href = nextUrl;
         }
-    });
+    }).catch(function (err) {
+        console.log("error", err);
+    })
+
+    // // access response in db
+    // let workerRef = database.ref("survey/" + routeVars.workerId);
+    // workerRef.once("value", function (snapshot) {
+    //     if (!snapshot.exists()) {
+    //         // no entry for worker: give feedback
+    //         $("#feedback-catch").html("You have not submitted a response.");
+    //         $("#feedback-catch").addClass("show");
+    //         // wait to reset display
+    //         setTimeout(function () {
+    //             $("#feedback-catch").removeClass("show");
+    //         }, 4250);
+    //         moveOn = false;
+    //     } else if (!snapshot.val().numeracy) {
+    //         // no responses have been logged: give feedback
+    //         $("#feedback-catch").html("You have not submitted any responses.");
+    //         $("#feedback-catch").addClass("show");
+    //         // wait to reset display
+    //         setTimeout(function () {
+    //             $("#feedback-catch").removeClass("show");
+    //         }, 4250);
+    //         moveOn = false;
+    //     } else {
+    //         // iterate through survey items
+    //         let survey = snapshot.val().numeracy;
+    //         const MAX_RESP = [1000, 1000, 100, 1000, 100, 100, 100, 100, 1000, 100, 10000]; // set up array of maximum allowable response on each item
+    //         for (let i = 1; i <= 11; i++) {
+    //             console.log("item " + i, survey[i])
+    //             if (!survey[i]) {
+    //                 // no response logged for this item: give feedback
+    //                 $("#feedback-catch").html("You have not submitted a response for question " + i + ".");
+    //                 $("#feedback-catch").addClass("show");
+    //                 // wait to reset display
+    //                 setTimeout(function () {
+    //                     $("#feedback-catch").removeClass("show");
+    //                 }, 4250);
+    //                 moveOn = false;
+    //             } else if (survey[i] == '' || isNaN(survey[i] || survey[i] < 0 || survey[i] > MAX_RESP[i - 1])) {
+    //                 // invalid: give feedback
+    //                 $("#feedback-catch").html("You have submitted an invalid response for question " + i + ".");
+    //                 $("#feedback-catch").addClass("show");
+    //                 // wait to reset display
+    //                 setTimeout(function () {
+    //                     $("#feedback-catch").removeClass("show");
+    //                 }, 4250);
+    //                 moveOn = false;
+    //             }
+    //         }
+    //     }
+    //     if (moveOn) {
+    //         // all responses are logged and valid: pass onto next page
+    //         // console.log("responses approved")
+    //         window.location.href = nextUrl;
+    //     }
+    // });
 }

@@ -1,5 +1,5 @@
 // Get a reference to the database service
-var database = firebase.database();
+// var database = firebase.database();
 
 // lists of trials
 const sdList = Array(10).fill(1).concat(Array(10).fill(5))
@@ -101,20 +101,31 @@ function extension() {
     }
 }
 
-// reactively push responses to firebase
+// push responses to firebase
 function updateResponseData(respObj) {
-    let trialRef = database.ref("responses/" + routeVars.workerId + "/" + routeVars.trial)
-    trialRef.once("value", function (snapshot) {
-        if (!snapshot.exists()) {
-            // create a response entry for this trial
-            trialRef.set(respObj);
-        } else { // if repsonses already exist for this trial
-            // update existing trial
-            if (routeVars.testMode || snapshot.val().pay === -1) { // only allow updates for trials where pay is tbd
-                trialRef.update(respObj);
-            }
-        }
+    fetch('/api/update_response', {
+        method: "post",
+        body: JSON.stringify(respObj)
+    }).then(function (resp) {
+        console.log("resp", resp);
+        return resp.json();
+    }).then(function (result) {
+        console.log("result", result);
+    }).catch(function (err) {
+        console.log("error", err);
     })
+    // let trialRef = database.ref("responses/" + routeVars.workerId + "/" + routeVars.trial)
+    // trialRef.once("value", function (snapshot) {
+    //     if (!snapshot.exists()) {
+    //         // create a response entry for this trial
+    //         trialRef.set(respObj);
+    //     } else { // if repsonses already exist for this trial
+    //         // update existing trial
+    //         if (routeVars.testMode || snapshot.val().pay === -1) { // only allow updates for trials where pay is tbd
+    //             trialRef.update(respObj);
+    //         }
+    //     }
+    // })
 }
 
 // provide feedback on user responses
@@ -122,7 +133,7 @@ function feedback() {
     // catch non-numeric and out of range responses
     if (respObj.cles === -1 || respObj.cles == '' || isNaN(respObj.cles) || 
         respObj.bet === -1 || respObj.bet == '' || isNaN(respObj.bet)) {
-        console.log("response object", respObj);
+        // console.log("response object", respObj);
         // prompt for numeric response
         $("#feedback-catch").html("You need to provide a numeric response to both questions.");
         $("#feedback-catch").addClass("show");
@@ -132,7 +143,7 @@ function feedback() {
         }, 4250);
     } else if (respObj.cles < 0 || respObj.cles > 100 || 
         respObj.bet < 0.01 || respObj.bet > routeVars.budget) {
-        console.log("response object", respObj);
+        // console.log("response object", respObj);
         // prompt for value in range
         $("#feedback-catch").html("You need to provide in range responses to both questions.");
         $("#feedback-catch").addClass("show");
@@ -141,7 +152,7 @@ function feedback() {
             $("#feedback-catch").removeClass("show");
         }, 4250);
     } else {
-        console.log("response object", respObj);
+        // console.log("response object", respObj);
         // disable input so that users cannot edit responses
         $("input").attr("disabled", "disabled");
         // hide Feedback button
