@@ -1,4 +1,12 @@
 /* experiment and practice page */
+#frame {
+    max-width: 850px;
+    margin: auto;
+}
+#frame.survey {
+    max-width: 750px;
+    margin: auto;
+}
 hr {
     clear: both;
 }
@@ -21,6 +29,11 @@ table, th, td {
     #tax {
         padding-bottom: 20px;
     }
+}
+
+/* stimulus image */
+#stim {
+    padding: 20px
 }
 
 /* feedback */
@@ -71,7 +84,7 @@ table, th, td {
     left:0;
     top:0;
 }
-@media only screen and (min-width: 600px) { 
+@media only screen and (min-width: 670px) { 
     .resize-container-hidden {
         display: none;
     }
@@ -82,7 +95,7 @@ table, th, td {
 body {
     overflow: hidden;
 }
-@media only screen and (min-width: 600px) { 
+@media only screen and (min-width: 670px) { 
     body {
         overflow: auto;
     }

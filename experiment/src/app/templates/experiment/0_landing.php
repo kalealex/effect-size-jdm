@@ -12,6 +12,8 @@
     <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/css/bootstrap-theme.min.css" integrity="sha384-rHyoN1iRsVXV4nD0JutlnGaslCJuC7uwjduW9SVrLvRYooPp2bWYgmgJQIXwl/Sp" crossorigin="anonymous">
     <script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/js/bootstrap.min.js" integrity="sha384-Tc5IQib027qvyjSMfHjOMaLkfuWVxZxUPnCJA7l2mCWNIpG9mGCD8wGNIcPD7Txa" crossorigin="anonymous"></script>
 
+    <link rel="stylesheet" media="screen" href="{{ url_for('static', filename='css/style.css') }}">
+    
     <?php
         error_reporting(0);
         @ini_set('display_errors', 0);
@@ -21,6 +23,14 @@
         $formAction = "https://workersandbox.mturk.com/mturk/externalSubmit";
         //$formAction = "https://www.mturk.com/mturk/externalSubmit";
     ?>
+
+    <script>
+        // get relevant variables from routes.py 
+        const routeVars = {
+            "workerId": '{{workerId}}',
+            "cond": '{{cond}}'
+        }
+    </script>
 </head>
 
 <body>
@@ -34,16 +44,17 @@
                 <center><h2>"Betting on Outcomes of a Simulated Game"</h2></center>
                 <p>In this HIT, you will bet on the outcomes of a game where two teams compete. For each bet you place, you will be shown a chart of the past scores for each of the competing teams.</p>
                 <p>For example, you might see this chart:</p>
-                <img id="stim"/>
+                <center><img id="stim"/></center>
                 <!-- <p>You will be assigned to bet on one of the two teams. You will report an estimate of the probability that your team will win. Then you will allocate some portion of a 50 cent budget to bet.</p>  -->
                 <p>On the next page, we describe the payoff scheme for the betting task. You will bet on 20 rounds of the game.</p>
                 <p>The sum of your funds across all rounds is your bonus for completing the HIT. <b>Your task is to maximize your bonus by basing your bets on the information presented in the charts.</b></p> 
                 <p>After placing your bets, you will complete a brief questionnaire. The HIT should take no more than 40 minutes.</p>
                 <p><b>You will receive $2.00 for your work on this HIT in addition to your bonus. If you bet well, your expected bonus is about $8.</b></p>
                 <p>This HIT is part of a research project. We are interested in how well you do on the task without the help of other resources.</p>
-                <center><a href="http://127.0.0.1:5000/1_instructions?workerId=<?php echo $workerId; ?>&assignmentId=<?php echo $assignmentId; ?>&cond=<?php echo $cond; ?>">Start HIT in New Tab</a></center>
+                <center><a href="{{next_url}}">Start HIT in New Tab</a></center>
             </div>
-            <div id="submission" style="padding-top: 40px;">
+            <hr style="margin-bottom: 0px;"/>
+            <div id="submission" class="padded">
                 <center>
                 <p>When you have finished the HIT, enter the token you are given in the text box below, then press Submit!</p>
                 <input type="text" name="token" id="token" placeholder="your token here">
@@ -51,9 +62,9 @@
                 <input type="submit" id="submitbutton" class="btn btn-default" value="Submit">
                 </center>
             </div>
-
         </div>
-        
     </form>
+
+    <script src="{{ url_for('static', filename='js/landing.js') }}" type="text/javascript"></script>
 </body>
 </html>

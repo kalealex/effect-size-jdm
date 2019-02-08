@@ -94,6 +94,9 @@ wrap_label <- function(label, char_width) {
 # select number of draws for HOPs conditions
 n_draws_hops <- 50
 
+# select limits for x-axis
+data_domain <- c(38, 62)
+
 # cycle through rows in the table of data conditions
 for (c in unique(conds_df$condition)) {
   # isolaten data for the current condtion
@@ -104,7 +107,7 @@ for (c in unique(conds_df$condition)) {
     geom_point(size=2) +
     theme_bw() +
     colScale +
-    xlim(40, 60) +
+    xlim(data_domain[1], data_domain[2]) +
     labs(
       title="Scores in Previous Rounds of TeamCrossword",
       x="Average of Past Scores",
@@ -123,7 +126,7 @@ for (c in unique(conds_df$condition)) {
     coord_flip() +
     theme_bw() +
     colScale +
-    ylim(35, 65) +
+    ylim(data_domain[1], data_domain[2]) +
     labs(
       title="Scores in Previous Rounds of TeamCrossword",
       x=NULL,
@@ -144,7 +147,7 @@ for (c in unique(conds_df$condition)) {
     coord_flip() +
     theme_bw() +
     colScale +
-    ylim(35, 65) +
+    ylim(data_domain[1], data_domain[2]) +
     labs(
       title="Scores in Previous Rounds of TeamCrossword",
       y="Past Scores",
@@ -166,7 +169,7 @@ for (c in unique(conds_df$condition)) {
     geom_dotplot(binwidth=.75, binaxis = "x", binpositions="all") +
     theme_bw() +
     scale_fill_brewer(palette="Set1") +
-    xlim(35, 65) +
+    xlim(data_domain[1], data_domain[2]) +
     labs(
       title="Scores in Previous Rounds of TeamCrossword",
       x="Past Scores",
@@ -188,7 +191,7 @@ for (c in unique(conds_df$condition)) {
     geom_density() +
     theme_bw() +
     colScale +
-    xlim(35, 65) +
+    xlim(data_domain[1], data_domain[2]) +
     labs(
       title="Scores in Previous Rounds of TeamCrossword",
       x="Past Scores",
@@ -208,7 +211,7 @@ for (c in unique(conds_df$condition)) {
     coord_flip() +
     theme_bw() +
     colScale +
-    ylim(35, 65) +
+    ylim(data_domain[1], data_domain[2]) +
     labs(
       title="Scores in Previous Rounds of TeamCrossword",
       y="Past Scores",
@@ -230,7 +233,7 @@ for (c in unique(conds_df$condition)) {
     coord_flip() +
     theme_bw() +
     colScale +
-    ylim(35, 65) +
+    ylim(data_domain[1], data_domain[2]) +
     labs(
       title="Scores in Previous Rounds of TeamCrossword",
       y="Past Scores",

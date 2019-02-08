@@ -68,26 +68,26 @@
 <body>
     <div class="resize-container-hidden"><p>Please re-size your browser to a larger width to run this experiment.</p></div>
 
-
-    <div class="container-fluid">
-        <h2><b>Experiment</b></h2>
-        <!-- <hr/> -->
-        <div class="row-fluid">
-            <!-- <div class="column left mx-auto"> -->
-            <div class="col-xs-9 col-md-7 col-lg-6">
-                <h3>Remember the Betting Rules</h3>
-                <ul> 
-                    <li>The amount you win is proportional to the odds of victory for the team you bet on.</li>
-                    <li>If your team loses the round, you lose the amount that you bet.</li>
-                    <li>The amount that you <i>do not</i> bet is subject to a flat tax of 25%.</li>
-                    <li>Winnings in each round are subject to the tiered tax described in the table.</li>
-                </ul>
-            </div>
-            <!-- <div class="column right mx-auto"> -->
-            <div class="col-xs-3 col-md-5 col-lg-6" id="tax">
-                <!-- <center> -->
-                <!-- <h3>Tiered Tax on Winnings</h3> -->
-                <table>
+    <div id="frame">
+        <div class="container-fluid">
+            <h2><b>Experiment</b></h2>
+            <strong id="trial-counter"></strong>
+            <div class="row-fluid">
+                <!-- <div class="column left mx-auto"> -->
+                <div class="col-xs-9 col-lg-7">
+                    <h3>Remember the Betting Rules</h3>
+                    <ul> 
+                        <li>The amount you win is proportional to the odds of victory for the team you bet on.</li>
+                        <li>If your team loses the round, you lose the amount that you bet.</li>
+                        <li>The amount that you <i>do not</i> bet is subject to a flat tax of 25%.</li>
+                        <li>Winnings in each round are subject to the tiered tax described in the table.</li>
+                    </ul>
+                </div>
+                <!-- <div class="column right mx-auto"> -->
+                <div class="col-xs-3 col-lg-5" id="tax">
+                    <!-- <center> -->
+                    <!-- <h3>Tiered Tax on Winnings</h3> -->
+                    <table>
                         <tr>
                             <th>Tier</th>
                             <th>Tax Rate</th> 
@@ -112,47 +112,46 @@
                             <td>over $2</td>
                             <td>50%</td> 
                         </tr>
-                </table>
-                <!-- </center> -->
+                    </table>
+                    <!-- </center> -->
+                </div>
+            </div>
+            <hr/>
+            <div class="row-fluid">
+                <div class="col-xs-12" id="task">
+                    <h3>Task</h3>
+                    <p>This chart shows how many points team A and team B have scored in previous rounds of TeamCrossword. The team with the higher score wins. Use this chart to answer the questions below.</p>
+                    <center><img id="stim"></center>
+                    <form class="response">
+                        <fieldset class="col-xs-6">
+                            <p>If this game were to happen 100 times, how many times would team A win?</p>
+                            <!-- <input type="range" name="prob" id="prob" min="0" max="100" step="1" value="50"> -->
+                            <input type="text" name="prob" id="prob" placeholder="your answer here"><br/>
+                            <label for="prob" id="prob-selected">No response</label>
+                        </fieldset>
+                        <fieldset class="col-xs-6">
+                            <p>You have 50 cents to bet on this game. How much do you bet that team A will win?</p>
+                            <!-- <input type="range" name="bet" id="bet" min="0.01" max='{{budget}}' step="0.01" value="0.25"> -->
+                            <input type="text" name="bet" id="bet" placeholder="your answer here"><br/>
+                            <label for="bet" id="bet-selected">No response</label>
+                        </fieldset>
+                    </form>
+                </div>
             </div>
         </div>
-        <hr/>
-        <div class="row-fluid">
-            <div class="column mx-auto" id="task">
-                <h3>Task</h3>
-                <p>This chart shows how many points team A and team B have scored in previous rounds of TeamCrossword. The team with the higher score wins. Use this chart to answer the questions below.</p>
-                <center><img id="stim"></center>
-                <form class="response">
-                    <fieldset class="col-xs-6">
-                        <p>If this game were to happen 100 times, how many times would team A win?</p>
-                        <!-- <input type="range" name="prob" id="prob" min="0" max="100" step="1" value="50"> -->
-                        <input type="text" name="prob" id="prob" placeholder="your answer here"><br/>
-                        <label for="prob" id="prob-selected">No response</label>
-                    </fieldset>
-                    <fieldset class="col-xs-6">
-                        <p>You have 50 cents to bet on this game. How much do you bet that team A will win?</p>
-                        <!-- <input type="range" name="bet" id="bet" min="0.01" max='{{budget}}' step="0.01" value="0.25"> -->
-                        <input type="text" name="bet" id="bet" placeholder="your answer here"><br/>
-                        <label for="bet" id="bet-selected">No response</label>
-                    </fieldset>
-                </form>
-            </div>
+        <hr style="margin-bottom: 0px;"/>
+        <div style="display: block;" id="feedback-btn" class="padded">
+            <center>
+            <p>Click Feedback to submit your response and receive feedback.<br/>
+                <b>You will not be able to change your response after receiving feedback</b>.</p>
+            <a class="btn btn-default feedback" id="feedback" onclick="feedback()">Feedback</a>
+            <p><strong id="feedback-catch" class="hide"></strong></p>
+            </center>
         </div>
-    </div>
-    <hr style="margin-bottom: 0px;"/>
-    <div style="display: block;" id="feedback-btn" class="padded">
-        <center>
-        <p>Click Feedback to submit your response and receive feedback.<br/>
-            <b>You will not be able to change your response after receiving feedback</b>.</p>
-        <a class="btn btn-default" id="feedback" onclick="feedback()">Feedback</a>
-        <p><strong id="feedback-catch" class="hide"></strong></p>
-        </center>
-    </div>
-    <div class="container-fluid" style="display: none;" id="feedback-block">
-        <!-- <div class="row"> -->
+        <div class="container-fluid" style="display: none;" id="feedback-block">
             <div class="padded">
                 <center>
-                <p><strong id="feedback-txt" style="font-size: 18pt;"></strong></p>
+                <strong id="feedback-txt" style="font-size: 18pt;"></strong>
                 </center>
             </div>
             <div class="padded">
@@ -179,7 +178,7 @@
                 <a class="btn btn-default" href="{{next_url}}">Next</a>
                 </center>
             </div>
-        <!-- </div> -->
+        </div>
     </div>
 
     <script src="{{ url_for('static', filename='js/db-init.js') }}" type="text/javascript"></script>

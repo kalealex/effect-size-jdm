@@ -28,7 +28,7 @@ flask run
 
 or if you haven't done the above,
 ```
-source your-venv/bin/activate
+source venv/bin/activate
 export FLASK_APP=application.py
 export FLASK_ENV=development
 flask run

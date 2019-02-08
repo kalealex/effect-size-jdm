@@ -52,13 +52,8 @@ def favicon():
     return send_from_directory(os.path.join(bp.root_path, 'static'), 'favicon.ico', mimetype='image/vnd.microsoft.icon')
 
 
-@bp.route('/0_return')
-def return_HIT():
-    # Page that instructs worker to return HIT
-    return render_template('%s.html' % ('/experiment/' + '/0_return'))
-
-@bp.route('/1_instructions')
-def instructions():
+@bp.route('/0_landing')
+def landing():
     workerId = str(request.args.get('workerId'))
     if not workerId:
         return 'Please provide your workerId as a Url Parameter.'
@@ -68,7 +63,7 @@ def instructions():
     cond = str(request.args.get('cond'))
     if not cond:
         return 'Please provide visualization condition (cond) as a Url Parameter.'
-
+    
     # Connect to the Firebase instance
     ref = db.reference('/workers/' + workerId)
     token = ''.join(random.choice('0123456789ABCDEF') for i in range(16))
@@ -88,16 +83,65 @@ def instructions():
             "bonus": -1                             # dummy value
         }
         ref.set(workerRef)
-    else: # Repeat participation
+    else: # repeat participation
         # Redirect user to page that instructs them to return HIT
         return redirect("/0_return" + "?workerId=" + workerId + "&cond=" + cond)
+
+    # Send user to practice page
+    next_url = "/1_instructions" + "?workerId=" + workerId + "&cond=" + cond + "&trial=practice"
+
+    # Landing page for external HIT, the very start of the experiment
+    return render_template('%s.php' % ('/experiment/' + '/0_landing'),
+        workerId = workerId,
+        cond = cond, 
+        next_url = next_url)
+
+@bp.route('/0_return')
+def return_HIT():
+    # Page that instructs worker to return HIT
+    return render_template('%s.html' % ('/experiment/' + '/0_return'))
+
+@bp.route('/1_instructions')
+def instructions():
+    workerId = str(request.args.get('workerId'))
+    if not workerId:
+        return 'Please provide your workerId as a Url Parameter.'
+    # assignmentId = str(request.args.get('assignmentId'))
+    # if not assignmentId:
+    #     return 'Please provide your assignmentId as a Url Parameter.'
+    cond = str(request.args.get('cond'))
+    if not cond:
+        return 'Please provide visualization condition (cond) as a Url Parameter.'
+
+    # # Connect to the Firebase instance
+    # ref = db.reference('/workers/' + workerId)
+    # token = ''.join(random.choice('0123456789ABCDEF') for i in range(16))
+
+    # # Check for repeat Turkers (alternative: Unique Turker (http://uniqueturker.myleott.com/)
+    # if (ref.get() == None) | Config.TESTING:
+    #     # Set up database entry for in workers
+    #     workerRef = {
+    #         "workerId": workerId, 
+    #         "assignmentId": assignmentId,
+    #         "token": token, 
+    #         "batch": Config.BATCH,
+    #         "condition": cond,                      # vis condition
+    #         "budget": Config.BUDGET,                # budget for betting
+    #         "trialSet": Config.TRIAL_SET_INDEX,     # counterbalancing set
+    #         "run": Config.RUN,                      # pilot or experiment
+    #         "bonus": -1                             # dummy value
+    #     }
+    #     ref.set(workerRef)
+    # else: # Repeat participation
+    #     # Redirect user to page that instructs them to return HIT
+    #     return redirect("/0_return" + "?workerId=" + workerId + "&cond=" + cond)
 
     # Send user to practice page
     next_url = "/2_practice" + "?workerId=" + workerId + "&cond=" + cond + "&trial=practice"
 
     return render_template('%s.html' % ('/experiment/' + '/1_instructions'),
         workerId = workerId,
-        cond = cond,
+        cond = cond, 
         next_url = next_url)
 
 @bp.route('/2_practice')

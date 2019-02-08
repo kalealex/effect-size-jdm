@@ -13,13 +13,13 @@ if (routeVars.trial === "practice") {   // TODO add special practice stimuli wit
     filepath = "../img/" + routeVars.cond + "-" + sd + "_sd_" + odds + "_odds" + extension();
     // filepath = "../img/" + routeVars.cond + "-practice" + extension();
 } else { // trial index used for counterbalancing
-    console.log("trial index", routeVars.trialIdx);
+    // console.log("trial index", routeVars.trialIdx);
     sd = sdList[routeVars.trialIdx];
     odds = oddsList[routeVars.trialIdx];
     filepath = "../img/" + routeVars.cond + "-" + sd + "_sd_" + odds + "_odds" + extension();
 }
 // set src file for stimulus img
-console.log("loading stim", filepath)
+// console.log("loading stim", filepath);
 $("#stim").attr("src", filepath);
 
 // slider callbacks
@@ -79,7 +79,16 @@ $(document).ready(function () { // TODO fetch starting value from db on refresh
         }
         updateResponseData(respObj);
     })
+    // add text to trial counter
+    $('#trial-counter').html("Round " + routeVars.trial + " of 20")
+        .css("font-size", "14pt")
 })
+
+// disable click from bringing user to top of the page
+$('a.feedback').click(function (e) {
+    // Cancel the default action
+    e.preventDefault();
+});
 
 // helper functions:
 // determine file extension for stimulus

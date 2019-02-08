@@ -57,30 +57,38 @@
             "workerId": '{{workerId}}',
             "cond": '{{cond}}'
         }
+        const nextUrl = "{{next_url}}";
     </script>
 
 </head>
 
 <body>
+    <div class="resize-container-hidden"><p>Please re-size your browser to a larger width to run this experiment.</p></div>
 
-    <div class="container-fluid">
-        <h2><b>Your Strategy</b></h2>
-        <p>Please be as detailed as possible in answering the following question.</p>
-        
-        <form class="response" id="survey" autocomplete="off" method="post" onsubmit="return false;">
-            <fieldset>
-                <p>How did you use the chart provided to judge the probability of your team winning?</p>
-                <!-- <input type="text" name="strategy" id="strategy" placeholder="your response here"> -->
-                <textarea rows="3" cols="70" id="strategy" placeholder="your response here"></textarea>
-            </fieldset>
-        </form>
-    </div>
-
-    <div style="padding: 10px">
-        <center>
-        <p>Click Next to move to the next page.</p>
-        <a class="btn btn-default" href="{{next_url}}">Next</a>
-        </center>
+    <div id="frame" class="survey">
+        <div class="container-fluid">
+            <h2><b>Your Strategy</b></h2>
+            <p>Please be as detailed as possible in answering the following question.</p>
+            <center><img id="stim"></center>
+            <form class="response" id="survey" autocomplete="off" method="post" onsubmit="return false;">
+                <fieldset>
+                    <p>How did you use the chart provided to judge the probability of your team winning?<br/>
+                        For example, what visual features of the chart did you rely on to compare the teams?<br/>
+                        How exactly did you compare them?</p>
+                    <!-- <input type="text" name="strategy" id="strategy" placeholder="your response here"> -->
+                    <textarea rows="3" cols="70" id="strategy" placeholder="your response here"></textarea>
+                </fieldset>
+            </form>
+        </div>
+        <hr style="margin-bottom: 0px;"/>
+        <div class="padded">
+            <center>
+            <p>Click Next to move to the next page.</p>
+            <!-- <a class="btn btn-default" href="{{next_url}}">Next</a> -->
+            <a class="btn btn-default feedback" href="#" onclick="handleSubmitStrategy()">Next</a>
+            <p><strong id="feedback-catch" class="hide"></strong></p>
+            </center>
+        </div>
     </div>
 
     <script src="{{ url_for('static', filename='js/db-init.js') }}" type="text/javascript"></script>

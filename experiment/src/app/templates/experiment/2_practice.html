@@ -66,50 +66,23 @@
 </head>
 
 <body>
+    <div class="resize-container-hidden"><p>Please re-size your browser to a larger width to run this experiment.</p></div>
 
-    <div class="container-fluid">
-        <h2><b>Practice</b></h2>
-        <p>Here's an example of a chart showing the how many points each competing team has scored in previous rounds of TeamCrossword.</p>
-        <div class="row">
-        <div class="column left mx-auto">
-            <img id="stim">
-            
-            <form class="response">
-                <!-- <fieldset> -->
-                    <!-- <p>Which team is more likely to win this game?</p> -->
-                    <!-- radiobuttons with feedback -->
-                    <!-- <input type="radio" name="winner" value="team A"> Team A<br> -->
-                    <!-- <input type="radio" name="winner" value="team B"> Team B<br> -->
-                <!-- </fieldset> -->
-
-                <fieldset>
-                    <p>If this game were to happen 100 times, how many times would team A win?</p>
-                    <input type="range" name="prob" id="prob" min="0" max="100" step="1" value="50">
-                    <label for="prob" id="prob-selected">No response</label>
-                </fieldset>
-
-                <fieldset>
-                    <p>You have a budget of 50 cents to bet on the outcome of this game. How much do you bet that team A will win?</p>
-                    <input type="range" name="bet" id="bet" min="0.01" max='{{budget}}' step="0.01" value="0.25">
-                    <label for="bet" id="bet-selected">No bet selected</label>
-                </fieldset>
-            </form>
-        </div>
-        <div class="column right mx-auto">
-                <h3>Remember the Betting Rules</h3>
-                <ul> 
-                    <!-- <b>You may bet up to 50 cents per round of TeamCrossword</b>: -->
-                    <!-- <li>If the team you bet on wins, you win an amount proportional to the odds that team A will win.</li> -->
-                    <li>The amount you win is proportional to the odds of victory for the team you bet on.</li>
-                    <li>If your team loses the round, you lose the amount that you bet.</li>
-                <!-- </ul> -->
-                <!-- <ul><b>Incentives</b>: -->
-                    <li>The amount that you <i>do not</i> bet is subject to a flat tax of 25%.</li>
-                    <li>Winnings in each round are subject to the tiered tax described in the table.</li>
-                </ul>
-                <center>
-                <table>
-                    <!-- <b>Tiered Tax on Winnings</b> -->
+    <div id="frame">
+        <div class="container-fluid">
+            <h2><b>Practice</b></h2>
+            <div class="row-fluid">
+                <div class="col-xs-9 col-lg-7">
+                    <h3>Remember the Betting Rules</h3>
+                    <ul> 
+                        <li>The amount you win is proportional to the odds of victory for the team you bet on.</li>
+                        <li>If your team loses the round, you lose the amount that you bet.</li>
+                        <li>The amount that you <i>do not</i> bet is subject to a flat tax of 25%.</li>
+                        <li>Winnings in each round are subject to the tiered tax described in the table.</li>
+                    </ul>
+                </div>
+                <div class="col-xs-3 col-lg-5" id="tax">
+                    <table>
                         <tr>
                             <th>Tier</th>
                             <th>Tax Rate</th> 
@@ -134,9 +107,129 @@
                             <td>over $2</td>
                             <td>50%</td> 
                         </tr>
+                    </table>
+                </div>
+            </div>
+            <hr/>
+            <div class="row-fluid">
+                <div class="col-xs-12" id="task">
+                    <h3>Task</h3>
+                    <p>Here's an example of a chart showing the how many points each competing team has scored in previous rounds of TeamCrossword. Use the chart to answer the questions below.</p>
+                    <center><img id="stim"></center>
+                    <form class="response">
+                        <fieldset class="col-xs-6">
+                            <p>If this game were to happen 100 times, how many times would team A win?</p>
+                            <input type="text" name="prob" id="prob" placeholder="your answer here"><br/>
+                            <label for="prob" id="prob-selected">No response</label>
+                        </fieldset>
+                        <fieldset class="col-xs-6">
+                            <p>You have 50 cents to bet on this game. How much do you bet that team A will win?</p>
+                            <input type="text" name="bet" id="bet" placeholder="your answer here"><br/>
+                            <label for="bet" id="bet-selected">No response</label>
+                        </fieldset>
+                    </form>
+                </div>
+            </div>
+        </div>
+        <hr style="margin-bottom: 0px;"/>
+        <div style="display: block;" id="feedback-btn" class="padded">
+            <center>
+            <p>Click Feedback to submit your response and receive feedback.<br/>
+                <b>You will not be able to change your response after receiving feedback</b>.</p>
+            <a class="btn btn-default feedback" id="feedback" onclick="feedback()">Feedback</a>
+            <p><strong id="feedback-catch" class="hide"></strong></p>
+            </center>
+        </div>
+        <div class="container-fluid" style="display: none;" id="feedback-block">
+            <div class="padded">
+                <center>
+                <strong id="feedback-txt" style="font-size: 18pt;"></strong>
+                </center>
+            </div>
+            <div class="padded">
+                <center>
+                <table><b>This is how the feedback on your bets will look.</b>
+                    <tr>
+                        <th>Bet Amount</th>
+                        <th>Keep Amount (after flat tax)</th> 
+                        <th>Winnings (after tiered tax)</th>
+                        <th>Your Bonus Would Be (Keep + Winnings)</th>
+                    </tr>
+                    <tr>
+                        <td id="bet-amnt"></td>
+                        <td id="keep-amnt"></td>
+                        <td id="win-amnt"></td> 
+                        <td id="bonus-amnt"></td> 
+                    </tr>
                 </table>
                 </center>
+            </div>
+            <div class="padded">
+                <center>
+                    <p>Click Start to begin the experiment.</p>
+                    <a class="btn btn-default" href="{{next_url}}">Start</a>
+                </center>
+            </div>
         </div>
+    </div>
+
+    <!-- <div class="container-fluid">
+        <h2><b>Practice</b></h2>
+        <p>Here's an example of a chart showing the how many points each competing team has scored in previous rounds of TeamCrossword.</p>
+        <div class="row">
+        <div class="column left mx-auto">
+            <img id="stim">
+            
+            <form class="response">
+                <fieldset>
+                    <p>If this game were to happen 100 times, how many times would team A win?</p>
+                    <input type="range" name="prob" id="prob" min="0" max="100" step="1" value="50">
+                    <label for="prob" id="prob-selected">No response</label>
+                </fieldset>
+
+                <fieldset>
+                    <p>You have a budget of 50 cents to bet on the outcome of this game. How much do you bet that team A will win?</p>
+                    <input type="range" name="bet" id="bet" min="0.01" max='{{budget}}' step="0.01" value="0.25">
+                    <label for="bet" id="bet-selected">No bet selected</label>
+                </fieldset>
+            </form>
+        </div>
+        <div class="column right mx-auto">
+            <h3>Remember the Betting Rules</h3>
+            <ul> 
+                <li>The amount you win is proportional to the odds of victory for the team you bet on.</li>
+                <li>If your team loses the round, you lose the amount that you bet.</li>
+                <li>The amount that you <i>do not</i> bet is subject to a flat tax of 25%.</li>
+                <li>Winnings in each round are subject to the tiered tax described in the table.</li>
+            </ul>
+            <center>
+            <table>
+                <tr>
+                    <th>Tier</th>
+                    <th>Tax Rate</th> 
+                </tr>
+                <tr>
+                    <td>0 to 50 cents</td>
+                    <td>10%</td> 
+                </tr>
+                <tr>
+                    <td>50 cents to $1</td>
+                    <td>20%</td> 
+                </tr>
+                <tr>
+                    <td>$1 to $1.50</td>
+                    <td>30%</td> 
+                </tr>
+                <tr>
+                    <td>$1.50 to $2</td>
+                    <td>40%</td> 
+                </tr>
+                <tr>
+                    <td>over $2</td>
+                    <td>50%</td> 
+                </tr>
+            </table>
+            </center>
         </div>
     </div>
 
@@ -149,46 +242,36 @@
     </div>
 
     <div class="row-fluid" style="display: none;" id="feedback-block">
-        <!-- <div class="row"> -->
-            <div style="padding: 10px;" class="column spaced">
-                <center>
-                <p><strong id="feedback-txt" style="font-size: 28pt;"></strong></p>
-                </center>
-            </div>
-
-            <div style="padding: 10px;" class="column spaced">
-                    <center>
-                    <table><b>This is how the feedback on your bets will look.</b>
-                        <tr>
-                            <th>Bet Amount</th>
-                            <th>Keep Amount (after flat tax)</th> 
-                            <th>Winnings (after tiered tax)</th>
-                            <th>Your Bonus Would Be (Keep + Winnings)</th>
-                        </tr>
-                        <tr>
-                            <td id="bet-amnt"></td>
-                            <td id="keep-amnt"></td>
-                            <td id="win-amnt"></td> 
-                            <td id="bonus-amnt"></td> 
-                        </tr>
-                    </table>
-                    </center>
-                </div>
-            
-            <div style="padding: 10px;" class="column spaced">
-                <center>
-                <p>Click Start to begin the experiment.</p>
-                <a class="btn btn-default" href="{{next_url}}">Start</a>
-                </center>
-            </div>
-        <!-- </div> -->
-    </div>
-
-    <!-- <div style="padding: 10px">
-        <center>
-        <p>After trying the practice questions above, click Start to begin the experiment.</p>
-        <a class="btn btn-default" href="{{next_url}}">Start</a>
-        </center>
+        <div style="padding: 10px;" class="column spaced">
+            <center>
+            <p><strong id="feedback-txt" style="font-size: 28pt;"></strong></p>
+            </center>
+        </div>
+        <div style="padding: 10px;" class="column spaced">
+            <center>
+            <table><b>This is how the feedback on your bets will look.</b>
+                <tr>
+                    <th>Bet Amount</th>
+                    <th>Keep Amount (after flat tax)</th> 
+                    <th>Winnings (after tiered tax)</th>
+                    <th>Your Bonus Would Be (Keep + Winnings)</th>
+                </tr>
+                <tr>
+                    <td id="bet-amnt"></td>
+                    <td id="keep-amnt"></td>
+                    <td id="win-amnt"></td> 
+                    <td id="bonus-amnt"></td> 
+                </tr>
+            </table>
+            </center>
+        </div>
+        
+        <div style="padding: 10px;" class="column spaced">
+            <center>
+            <p>Click Start to begin the experiment.</p>
+            <a class="btn btn-default" href="{{next_url}}">Start</a>
+            </center>
+        </div>
     </div> -->
 
     <script src="{{ url_for('static', filename='js/db-init.js') }}" type="text/javascript"></script>
