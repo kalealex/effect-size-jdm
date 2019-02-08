@@ -295,8 +295,8 @@ function handleSubmitSurvey() {
         }
         if (moveOn) {
             // all responses are logged and valid: pass onto next page
-            console.log("responses approved")
-            // window.location.href = nextUrl;
+            // console.log("responses approved")
+            window.location.href = nextUrl;
         }
     });
 }
