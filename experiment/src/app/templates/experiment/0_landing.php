@@ -13,7 +13,7 @@
     <script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/js/bootstrap.min.js" integrity="sha384-Tc5IQib027qvyjSMfHjOMaLkfuWVxZxUPnCJA7l2mCWNIpG9mGCD8wGNIcPD7Txa" crossorigin="anonymous"></script>
 
     <link rel="stylesheet" media="screen" href="{{ url_for('static', filename='css/style.css') }}">
-    
+
     <?php
         error_reporting(0);
         @ini_set('display_errors', 0);
@@ -51,7 +51,7 @@
                 <p>After placing your bets, you will complete a brief questionnaire. The HIT should take no more than 40 minutes.</p>
                 <p><b>You will receive $2.00 for your work on this HIT in addition to your bonus. If you bet well, your expected bonus is about $8.</b></p>
                 <p>This HIT is part of a research project. We are interested in how well you do on the task without the help of other resources.</p>
-                <center><a href="{{next_url}}">Start HIT in New Tab</a></center>
+                <center><a href="{{next_url}}" target="_blank">Start HIT in New Tab</a></center>
             </div>
             <hr style="margin-bottom: 0px;"/>
             <div id="submission" class="padded">
