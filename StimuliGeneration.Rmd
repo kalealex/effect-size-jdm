@@ -97,6 +97,9 @@ n_draws_hops <- 50
 # select limits for x-axis
 data_domain <- c(38, 62)
 
+# set pixel dimensions for GIF
+dims <- c(770, 462)
+
 # cycle through rows in the table of data conditions
 for (c in unique(conds_df$condition)) {
   # isolaten data for the current condtion
@@ -159,7 +162,7 @@ for (c in unique(conds_df$condition)) {
       plot.caption=element_text(size=11, hjust=0)
     ) +
     transition_manual(draw_n)
-  hops <- animate(plt, fps=2.5, width=480, height=288)
+  hops <- animate(plt, fps=2.5, width=dims[1], height=dims[2])
   fname <- paste("stimuli/HOPs-", c,".gif", sep = "")
   anim_save(filename = fname, animation = hops)
 
@@ -245,7 +248,7 @@ for (c in unique(conds_df$condition)) {
       plot.caption=element_text(size=11, hjust=0)
     ) +
     transition_manual(draw_n)
-  hops <- animate(plt, fps=2.5, width=480, height=288)
+  hops <- animate(plt, fps=2.5, width=dims[1], height=dims[2])
   fname <- paste("stimuli/HOPs_w_means-", c,".gif", sep = "")
   anim_save(filename = fname, animation = hops)
 }

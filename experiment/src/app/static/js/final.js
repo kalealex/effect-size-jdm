@@ -17,7 +17,7 @@ $(document).ready(function () {
         if ($.isEmptyObject(result)) {
             // what to do if entry is missing?
             console.log("No responses db entry found for worker", routeVars.workerId);
-            $("#token").html("Your workerId is not logged in our database. Please check that your workerId is properly provided as a url parameter, and reload the page.");
+            $("#token").html("Your workerId is not logged in our database.\nPlease check that your workerId is properly provided as a url parameter, and reload the page.");
         } else {
             // add up pay across non-practice trials
             for (key in result) {
@@ -61,7 +61,7 @@ $(document).ready(function () {
         if ($.isEmptyObject(result)) {
             // what to do if entry is missing?
             console.log("No workers db entry found for worker", routeVars.workerId);
-            $("#token").html("Your workerId is not logged in our database. Please check that your workerId is properly provided as a url parameter, and reload the page.");
+            $("#token").html("Your workerId is not logged in our database.\nPlease check that your workerId is properly provided as a url parameter, and reload the page.");
         } else {
             // provide token
             token = result.token;

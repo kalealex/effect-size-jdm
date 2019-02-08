@@ -232,7 +232,7 @@ function extension() {
 
 // prevent invalid responses on submit
 function handleSubmitStrategy() {
-    fetch('/api/check_strategy', {
+    fetch('/api/check_survey', {
         method: "post",
         body: JSON.stringify({ "workerId": routeVars.workerId })
     }).then(function (resp) {

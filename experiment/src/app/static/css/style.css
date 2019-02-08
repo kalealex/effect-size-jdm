@@ -1,6 +1,6 @@
 /* experiment and practice page */
 #frame {
-    max-width: 850px;
+    max-width: 830px;
     margin: auto;
 }
 #frame.survey {
@@ -33,7 +33,13 @@ table, th, td {
 
 /* stimulus image */
 #stim {
-    padding: 20px
+    padding: 20px;
+}
+.scale-width {
+    width: 100%;
+}
+.scale-width img {
+    width: 100%;
 }
 
 /* feedback */
