@@ -97,8 +97,17 @@ n_draws_hops <- 50
 # select limits for x-axis
 data_domain <- c(38, 62)
 
-# set pixel dimensions for GIF
-dims <- c(770, 462)
+# set plot dimensions
+dims <- c(770, 462) # pixel dims for gifs
+ppi <- 75 # assume 75 ppi for the avg monitor
+
+# geom sizes
+means_size <- 3
+HOPs_size <- 10
+HOPs_mean_size_factor <- 1.5
+interval_mean_size_factor <- 1.85
+caption_size <- 12
+char_before_wrap <- 150
 
 # cycle through rows in the table of data conditions
 for (c in unique(conds_df$condition)) {
@@ -107,7 +116,7 @@ for (c in unique(conds_df$condition)) {
   
   # means only
   plt <- use_df %>% ggplot(aes(x=mean, y=reorder(Team, desc(Team)), color=Team)) +
-    geom_point(size=2) +
+    geom_point(size=means_size) +
     theme_bw() +
     colScale +
     xlim(data_domain[1], data_domain[2]) +
@@ -115,13 +124,13 @@ for (c in unique(conds_df$condition)) {
       title="Scores in Previous Rounds of TeamCrossword",
       x="Average of Past Scores",
       y=NULL,
-      caption=wrap_label("Dots represent the average score in past games for each team.", 67)
+      caption=wrap_label("Dots represent the average score in past games for each team.", char_before_wrap)
     ) +
     theme(
-      plot.caption=element_text(size=10, hjust=0)
+      plot.caption=element_text(size=caption_size, hjust=0)
     )
   fname <- paste("stimuli/means_only-", c,".svg", sep = "")
-  ggsave(file=fname, plot=plt, width=5, height=3)
+  ggsave(file=fname, plot=plt, width=dims[1]/ppi, height=dims[2]/ppi)
   
   # intervals only
   plt <- use_df %>% ggplot(aes(y=mean, x=reorder(Team, desc(Team)), color=Team)) +
@@ -134,19 +143,19 @@ for (c in unique(conds_df$condition)) {
       title="Scores in Previous Rounds of TeamCrossword",
       x=NULL,
       y="Range Containing 95% of Past Scores",
-      caption=wrap_label("Intervals represent the span of past scores for 95% of games played by each team.", 67)
+      caption=wrap_label("Intervals represent the span of past scores for 95% of games played by each team.", char_before_wrap)
     ) +
     theme(
-      plot.caption=element_text(size=10, hjust=0)
+      plot.caption=element_text(size=caption_size, hjust=0)
     )
   fname <- paste("stimuli/intervals_only-", c,".svg", sep = "")
-  ggsave(file=fname, plot=plt, width=5, height=3)
+  ggsave(file=fname, plot=plt, width=dims[1]/ppi, height=dims[2]/ppi)
 
   # hops
   plt <- use_df %>% select(-one_of(c("quantiles"))) %>% unnest() %>%
     filter(draw_n %in% 1:n_draws_hops) %>% # filter to set number of draws
     ggplot(aes(y=draws, x=reorder(Team, desc(Team)), color=Team)) +
-    geom_point(shape=124, size=8) +
+    geom_point(shape=124, size=means_size) +
     coord_flip() +
     theme_bw() +
     colScale +
@@ -155,11 +164,11 @@ for (c in unique(conds_df$condition)) {
       title="Scores in Previous Rounds of TeamCrossword",
       y="Past Scores",
       x=NULL,
-      caption=wrap_label("Lines represent past scores in individual games for each team.", 80)
+      caption=wrap_label("Lines represent past scores in individual games for each team.", char_before_wrap)
     ) +
     theme(
-      plot.title=element_text(size=16, hjust=0),
-      plot.caption=element_text(size=11, hjust=0)
+      # plot.title=element_text(size=16, hjust=0),
+      plot.caption=element_text(size=caption_size, hjust=0)
     ) +
     transition_manual(draw_n)
   hops <- animate(plt, fps=2.5, width=dims[1], height=dims[2])
@@ -167,50 +176,50 @@ for (c in unique(conds_df$condition)) {
   anim_save(filename = fname, animation = hops)
 
   # quantile dotplots
-  plt <- use_df %>% select(-one_of(c("draws", "draw_n"))) %>% unnest() %>%
-    ggplot(aes(x=quantiles, fill=Team)) +
-    geom_dotplot(binwidth=.75, binaxis = "x", binpositions="all") +
-    theme_bw() +
-    scale_fill_brewer(palette="Set1") +
-    xlim(data_domain[1], data_domain[2]) +
-    labs(
-      title="Scores in Previous Rounds of TeamCrossword",
-      x="Past Scores",
-      y="Proportion of Past Scores",
-      caption=wrap_label("Each dot represents 5% of past scores for each team.", 67)
-    ) +
-    facet_grid(Team ~ .) +
-    theme(
-      strip.background = element_blank(),
-      strip.text.x = element_blank(),
-      plot.caption=element_text(size=10, hjust=0)
-    )
-  fname <- paste("stimuli/QDPs-", c,".svg", sep = "")
-  ggsave(file=fname, plot=plt, width=5, height=3)
+  # plt <- use_df %>% select(-one_of(c("draws", "draw_n"))) %>% unnest() %>%
+  #   ggplot(aes(x=quantiles, fill=Team)) +
+  #   geom_dotplot(binwidth=.75, binaxis = "x", binpositions="all") +
+  #   theme_bw() +
+  #   scale_fill_brewer(palette="Set1") +
+  #   xlim(data_domain[1], data_domain[2]) +
+  #   labs(
+  #     title="Scores in Previous Rounds of TeamCrossword",
+  #     x="Past Scores",
+  #     y="Proportion of Past Scores",
+  #     caption=wrap_label("Each dot represents 5% of past scores for each team.", char_before_wrap)
+  #   ) +
+  #   facet_grid(Team ~ .) +
+  #   theme(
+  #     strip.background = element_blank(),
+  #     strip.text.x = element_blank(),
+  #     plot.caption=element_text(size=caption_size, hjust=0)
+  #   )
+  # fname <- paste("stimuli/QDPs-", c,".svg", sep = "")
+  # ggsave(file=fname, plot=plt, width=dims[1]/ppi, height=dims[2]/ppi)
 
   # densities
-  plt <- use_df %>% select(-one_of(c("draws", "draw_n"))) %>% unnest() %>%
-    ggplot(aes(x=quantiles, color=Team)) +
-    geom_density() +
-    theme_bw() +
-    colScale +
-    xlim(data_domain[1], data_domain[2]) +
-    labs(
-      title="Scores in Previous Rounds of TeamCrossword",
-      x="Past Scores",
-      y="Proportion of Past Scores",
-      caption=wrap_label("The height of the line represents the proportion of past scores for each team.", 67)
-    ) + 
-    theme(
-      plot.caption=element_text(size=10, hjust=0)
-    )
-  fname <- paste("stimuli/densities-", c,".svg", sep = "")
-  ggsave(file=fname, plot=plt, width=5, height=3)
+  # plt <- use_df %>% select(-one_of(c("draws", "draw_n"))) %>% unnest() %>%
+  #   ggplot(aes(x=quantiles, color=Team)) +
+  #   geom_density() +
+  #   theme_bw() +
+  #   colScale +
+  #   xlim(data_domain[1], data_domain[2]) +
+  #   labs(
+  #     title="Scores in Previous Rounds of TeamCrossword",
+  #     x="Past Scores",
+  #     y="Proportion of Past Scores",
+  #     caption=wrap_label("The height of the line represents the proportion of past scores for each team.", char_before_wrap)
+  #   ) +
+  #   theme(
+  #     plot.caption=element_text(size=caption_size, hjust=0)
+  #   )
+  # fname <- paste("stimuli/densities-", c,".svg", sep = "")
+  # ggsave(file=fname, plot=plt, width=dims[1]/ppi, height=dims[2]/ppi)
 
   # intervals with means
   plt <- use_df %>% ggplot(aes(y=mean, x=reorder(Team, desc(Team)), color=Team)) +
-    geom_pointrange(aes(ymin=mean+qnorm(0.025)*sd, ymax=mean+qnorm(0.975)*sd), show.legend=FALSE) +
-    geom_line(aes(y=mean-1000)) + geom_point(aes(y=mean-1000), size=2.5) + # hack to get legend symbols oriented properly
+    geom_pointrange(aes(ymin=mean+qnorm(0.025)*sd, ymax=mean+qnorm(0.975)*sd), show.legend=FALSE, fatten=means_size*interval_mean_size_factor) +
+    geom_line(aes(y=mean-1000)) + geom_point(aes(y=mean-1000)) + # hack to get legend symbols oriented properly
     coord_flip() +
     theme_bw() +
     colScale +
@@ -219,20 +228,20 @@ for (c in unique(conds_df$condition)) {
       title="Scores in Previous Rounds of TeamCrossword",
       y="Past Scores",
       x=NULL,
-      caption=wrap_label("Dots represent the average score in past games for each team, and intervals represent the span of past scores for 95% of games.", 67)
+      caption=wrap_label("Dots represent the average score in past games for each team, and intervals represent the span of past scores for 95% of games.", char_before_wrap)
     ) +
     theme(
-      plot.caption=element_text(size=10, hjust=0)
+      plot.caption=element_text(size=caption_size, hjust=0)
     )
   fname <- paste("stimuli/intervals_w_means-", c,".svg", sep = "")
-  ggsave(file=fname, plot=plt, width=5, height=3)
+  ggsave(file=fname, plot=plt, width=dims[1]/ppi, height=dims[2]/ppi)
 
   # hops with means
   plt <- use_df %>% select(-one_of(c("quantiles"))) %>% unnest() %>%
     filter(draw_n %in% 1:n_draws_hops) %>% # filter to set number of draws
     ggplot(aes(y=mean, x=reorder(Team, desc(Team)), color=Team)) +
-    geom_point(size=2) +
-    geom_point(aes(y=draws), shape=124, size=8) +
+    geom_point(size=means_size*HOPs_mean_size_factor) +
+    geom_point(aes(y=draws), shape=124, size=HOPs_size) +
     coord_flip() +
     theme_bw() +
     colScale +
@@ -241,11 +250,11 @@ for (c in unique(conds_df$condition)) {
       title="Scores in Previous Rounds of TeamCrossword",
       y="Past Scores",
       x=NULL,
-      caption=wrap_label("Dots represent the average score in past games for each team, and lines represent past scores in individual games.", 80)
+      caption=wrap_label("Dots represent the average score in past games for each team, and lines represent past scores in individual games.", char_before_wrap)
     ) +
     theme(
-      plot.title=element_text(size=16, hjust=0),
-      plot.caption=element_text(size=11, hjust=0)
+      # plot.title=element_text(size=16, hjust=0),
+      plot.caption=element_text(size=caption_size, hjust=0)
     ) +
     transition_manual(draw_n)
   hops <- animate(plt, fps=2.5, width=dims[1], height=dims[2])

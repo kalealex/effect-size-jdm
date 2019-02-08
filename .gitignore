@@ -3,6 +3,8 @@ archived/
 stimuli/
 stimuli.zip
 presentations/
+.Rhistory
+.RHistory
 
 # in repeated-measures-experiment
 node_modules

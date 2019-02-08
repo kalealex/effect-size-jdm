@@ -1,0 +1,6 @@
+[submodule "experiment/src/heuristics-experiment-interface"]
+	path = experiment/src/heuristics-experiment-interface
+	url = https://github.com/kalealex/heuristics-experiment-interface.git
+[submodule "experiment/heuristics-experiment-interface"]
+	path = experiment/heuristics-experiment-interface
+	url = https://github.com/kalealex/heuristics-experiment-interface.git
