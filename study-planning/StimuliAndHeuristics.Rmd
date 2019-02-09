@@ -90,7 +90,9 @@ tax_winnings <- function(winnings) {
 loss_rate <- 0.25
 
 # calculate expected payout for different odds
-odds_to_check <- ppoints(20)
+# odds_to_check <- ppoints(20)
+logodds <- seq(log(0.025/(1-0.025)), log(0.975/(1-0.975)), length.out = 10) # linear sampling of log odds for ground truth Pr(A > B)
+odds_to_check <- 1 - 1 / (exp(logodds) + 1)
 payoff <- matrix(NaN, nrow = length(possible_bets), ncol = length(odds_to_check))
 net_pay <- matrix(NaN, nrow = length(possible_bets), ncol = length(odds_to_check))
 for (i in 1:length(possible_bets)) {
