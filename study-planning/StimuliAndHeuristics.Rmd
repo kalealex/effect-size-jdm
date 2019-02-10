@@ -74,17 +74,23 @@ The block of code below summarizes the incentive structure for the betting task.
 
 ```{r}
 # set range of possible bets based on given budget and minimum bet
-budget <- 0.5
-min_bet <- 0.01
-possible_bets <- seq(from=min_bet, to=budget, by=0.01) 
+budget <- 1000
+min_bet <- 1
+possible_bets <- seq(from=min_bet, to=budget, by=1)
 
 # create a tiered capital gains tax
 tax_winnings <- function(winnings) {
-  tiers <- append(seq(0, 1, by = 0.25), Inf)
-  rates <- seq(0, .5, by = .1)
+  tiers <- append(seq(0, 2000, by = 500), Inf)
+  rates <- seq(0, 0.5, by = .1)
   taxed_winnings <- sum(diff(c(0, pmin(winnings, tiers))) * (1-rates))
   return(taxed_winnings)
 }
+# tax_winnings <- function(winnings) {
+#   tiers <- append(seq(0, 2000, by = 250), Inf)
+#   rates <- seq(0, .9, by = .1)
+#   taxed_winnings <- sum(diff(c(0, pmin(winnings, tiers))) * (1-rates))
+#   return(taxed_winnings)
+# }
 
 # set cost of not betting
 loss_rate <- 0.25
@@ -93,12 +99,15 @@ loss_rate <- 0.25
 # odds_to_check <- ppoints(20)
 logodds <- seq(log(0.025/(1-0.025)), log(0.975/(1-0.975)), length.out = 10) # linear sampling of log odds for ground truth Pr(A > B)
 odds_to_check <- 1 - 1 / (exp(logodds) + 1)
+win_pay <- matrix(NaN, nrow = length(possible_bets), ncol = length(odds_to_check))
 payoff <- matrix(NaN, nrow = length(possible_bets), ncol = length(odds_to_check))
 net_pay <- matrix(NaN, nrow = length(possible_bets), ncol = length(odds_to_check))
 for (i in 1:length(possible_bets)) {
   for (j in 1:length(odds_to_check)) {
+    win_pay[i, j] <- tax_winnings(possible_bets[i] / odds_to_check[j])
     payoff[i, j] <- odds_to_check[j] * tax_winnings(possible_bets[i] / odds_to_check[j])
     net_pay[i, j] <- (1 - loss_rate)*(budget - possible_bets[i]) + payoff[i, j]
+    win_pay[i, j] <- tax_winnings(possible_bets[i] / odds_to_check[j]) + (1 - loss_rate)*(budget - possible_bets[i])
   }
 }
 
@@ -110,6 +119,7 @@ for (i in 2:length(odds_to_check)) {
 # determine the best bet at each level of odds
 best_pay <- apply(net_pay, 2, max)
 best_bets <- seq(-1, 0, length.out = length(best_pay))
+max_win <- apply(win_pay, 2, max)
 for (i in 1:length(best_pay)) {
   best_bets[i] <- possible_bets[which(net_pay[,i]==best_pay[i])]
 }
