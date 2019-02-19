@@ -82,6 +82,7 @@ tColors <- brewer.pal(length(teams), "Set1")
 names(tColors) <- levels(teams)
 colScale <- scale_colour_manual(values = tColors)
 ```
+
 ```{r echo=FALSE}
 # function to draw captions in a consistent location relative to other text
 wrap_label <- function(label, char_width) {
@@ -98,16 +99,18 @@ n_draws_hops <- 50
 data_domain <- c(38, 62)
 
 # set plot dimensions
-dims <- c(770, 462) # pixel dims for gifs
+dims_pix <- c(770, 462) # pixel dimensions
 ppi <- 75 # assume 75 ppi for the avg monitor
+dims <- dims_pix / ppi # dimensions in inches
 
 # geom sizes
 means_size <- 3
 HOPs_size <- 10
 HOPs_mean_size_factor <- 1.5
 interval_mean_size_factor <- 1.85
-caption_size <- 12
-char_before_wrap <- 150
+title_size <- 18
+caption_size <- 16
+char_before_wrap <- 86
 
 # cycle through rows in the table of data conditions
 for (c in unique(conds_df$condition)) {
@@ -127,10 +130,11 @@ for (c in unique(conds_df$condition)) {
       caption=wrap_label("Dots represent the average score in past games for each team.", char_before_wrap)
     ) +
     theme(
+      plot.title=element_text(size=title_size),
       plot.caption=element_text(size=caption_size, hjust=0)
     )
   fname <- paste("stimuli/means_only-", c,".svg", sep = "")
-  ggsave(file=fname, plot=plt, width=dims[1]/ppi, height=dims[2]/ppi)
+  ggsave(file=fname, plot=plt, width=dims[1], height=dims[2])
   
   # intervals only
   plt <- use_df %>% ggplot(aes(y=mean, x=reorder(Team, desc(Team)), color=Team)) +
@@ -146,10 +150,11 @@ for (c in unique(conds_df$condition)) {
       caption=wrap_label("Intervals represent the span of past scores for 95% of games played by each team.", char_before_wrap)
     ) +
     theme(
+      plot.title=element_text(size=title_size),
       plot.caption=element_text(size=caption_size, hjust=0)
     )
   fname <- paste("stimuli/intervals_only-", c,".svg", sep = "")
-  ggsave(file=fname, plot=plt, width=dims[1]/ppi, height=dims[2]/ppi)
+  ggsave(file=fname, plot=plt, width=dims[1], height=dims[2])
 
   # hops
   plt <- use_df %>% select(-one_of(c("quantiles"))) %>% unnest() %>%
@@ -167,11 +172,11 @@ for (c in unique(conds_df$condition)) {
       caption=wrap_label("Lines represent past scores in individual games for each team.", char_before_wrap)
     ) +
     theme(
-      # plot.title=element_text(size=16, hjust=0),
+      plot.title=element_text(size=title_size),
       plot.caption=element_text(size=caption_size, hjust=0)
     ) +
     transition_manual(draw_n)
-  hops <- animate(plt, fps=2.5, width=dims[1], height=dims[2])
+  hops <- animate(plt, fps=2.5, res=100, width=dims[1]*100, height=dims[2]*100)
   fname <- paste("stimuli/HOPs-", c,".gif", sep = "")
   anim_save(filename = fname, animation = hops)
 
@@ -192,10 +197,11 @@ for (c in unique(conds_df$condition)) {
   #   theme(
   #     strip.background = element_blank(),
   #     strip.text.x = element_blank(),
+  #     plot.title=element_text(size=title_size),
   #     plot.caption=element_text(size=caption_size, hjust=0)
   #   )
   # fname <- paste("stimuli/QDPs-", c,".svg", sep = "")
-  # ggsave(file=fname, plot=plt, width=dims[1]/ppi, height=dims[2]/ppi)
+  # ggsave(file=fname, plot=plt, width=dims[1], height=dims[2])
 
   # densities
   # plt <- use_df %>% select(-one_of(c("draws", "draw_n"))) %>% unnest() %>%
@@ -211,10 +217,11 @@ for (c in unique(conds_df$condition)) {
   #     caption=wrap_label("The height of the line represents the proportion of past scores for each team.", char_before_wrap)
   #   ) +
   #   theme(
+  #     plot.title=element_text(size=title_size),
   #     plot.caption=element_text(size=caption_size, hjust=0)
   #   )
   # fname <- paste("stimuli/densities-", c,".svg", sep = "")
-  # ggsave(file=fname, plot=plt, width=dims[1]/ppi, height=dims[2]/ppi)
+  # ggsave(file=fname, plot=plt, width=dims[1], height=dims[2])
 
   # intervals with means
   plt <- use_df %>% ggplot(aes(y=mean, x=reorder(Team, desc(Team)), color=Team)) +
@@ -231,10 +238,11 @@ for (c in unique(conds_df$condition)) {
       caption=wrap_label("Dots represent the average score in past games for each team, and intervals represent the span of past scores for 95% of games.", char_before_wrap)
     ) +
     theme(
+      plot.title=element_text(size=title_size),
       plot.caption=element_text(size=caption_size, hjust=0)
     )
   fname <- paste("stimuli/intervals_w_means-", c,".svg", sep = "")
-  ggsave(file=fname, plot=plt, width=dims[1]/ppi, height=dims[2]/ppi)
+  ggsave(file=fname, plot=plt, width=dims[1], height=dims[2])
 
   # hops with means
   plt <- use_df %>% select(-one_of(c("quantiles"))) %>% unnest() %>%
@@ -253,11 +261,11 @@ for (c in unique(conds_df$condition)) {
       caption=wrap_label("Dots represent the average score in past games for each team, and lines represent past scores in individual games.", char_before_wrap)
     ) +
     theme(
-      # plot.title=element_text(size=16, hjust=0),
+      plot.title=element_text(size=title_size),
       plot.caption=element_text(size=caption_size, hjust=0)
     ) +
     transition_manual(draw_n)
-  hops <- animate(plt, fps=2.5, width=dims[1], height=dims[2])
+  hops <- animate(plt, fps=2.5, res=100, width=dims[1]*100, height=dims[2]*100)
   fname <- paste("stimuli/HOPs_w_means-", c,".gif", sep = "")
   anim_save(filename = fname, animation = hops)
 }

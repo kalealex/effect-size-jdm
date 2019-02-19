@@ -1,20 +1,6 @@
-# large aux files
 archived/
 stimuli/
 stimuli.zip
 presentations/
 .Rhistory
-.RHistory
-
-# in repeated-measures-experiment
-node_modules
-.DS_Store
-.cache
-__pycache__
-venv
-flask
-secret
-*.pyc
-config.py
-img
-db-init.js
+raw_data/
