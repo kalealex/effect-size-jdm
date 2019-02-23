@@ -4,4 +4,4 @@ stimuli.zip
 presentations/
 .Rhistory
 raw_data/
-.rds
+*.rds

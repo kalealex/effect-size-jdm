@@ -15,4 +15,4 @@ anonymous_df <- raw_df %>%
   mutate(workerId=anonymize(workerId))
 
 # save file
-write.csv(anonymous_df, file = "pilot-anonymous.csv")
+write.csv(anonymous_df, file = "pilot-anonymous.csv", row.names=FALSE)

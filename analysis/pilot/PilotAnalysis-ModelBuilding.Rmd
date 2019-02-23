@@ -45,7 +45,7 @@ head(responses_df)
 
 ```{r}
 # data used to create stimuli
-load("./stimuli/conds_df.Rda")
+load("./conds_df.Rda")
 ```
 
 
