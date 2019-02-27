@@ -10,9 +10,10 @@ knitr::opts_chunk$set(echo = TRUE)
 library(tidyverse)
 library(RColorBrewer)
 library(rstan)
-library(tidybayes)
 rstan_options(auto_write = TRUE)
 options(mc.cores = parallel::detectCores())
+library(tidybayes)
+library(brms)
 ```
 
 #Exploratory Visualization
@@ -36,7 +37,11 @@ responses_df <- responses_df %>%
     resp_time=respTime,
     trial_dur=trialDur
   ) %>%
-  mutate(trial_dur = ifelse(trial_dur < 0, 0, trial_dur)) # avoid negative trial durations from faulty reconstruction (only one case)
+  mutate(
+    trial_dur = ifelse(trial_dur < 0, 0, trial_dur), # avoid negative trial durations from faulty reconstruction (only one case)
+    cles = ifelse(cles == 0, 0.25, cles),            # avoid responses equal to zero
+    cles = ifelse(cles == 100, 99.75, cles)            # avoid responses equal to one-hundred
+  ) 
 
 head(responses_df)
 ```
@@ -327,7 +332,9 @@ stimuli_data_df$worker_id <- sort(rep(unique(responses_df$worker_id), each=(leng
 
 # calculate the baseline of relative mean difference heuristic)
 stimuli_data_df$max_abs_mean_diff <- max(abs(stimuli_data_df$mean_diff))
+```
 
+```{r}
 # create dataframe containing heuristic estimates
 heuristics_df <- stimuli_data_df %>% rowwise() %>% 
   mutate( # call heuristic functions
@@ -685,7 +692,15 @@ Include only the HOPs condition.
 # filter condition
 model_df_hops <- model_df %>% filter(condition=="HOPs")
 
-# TODO: create data list
+# create data list
+data_hops_one <- list(
+  n=length(model_df_hops$trial),                  # total observations (i.e., trials)
+  cles=model_df_hops$cles,                        # the worker's response on each trial
+  ground_truth=model_df_hops$ground_truth,        # the ground truth cles value on each trial
+  n_draws=50,                                     # number of draws displayed in the HOPs per trial
+  # draws=model_df_hops$draws_diff                  # multidimensional array of the difference between draws B - A shown in HOPs trials * draws
+  draws=do.call("rbind",model_df_hops$draws_diff) # trials * draws matrix of the difference between draws B - A shown in HOPs
+)
 ```
 
 ###Compile and Run the Model
@@ -698,12 +713,122 @@ stan_model = stan_model("stan/hops-only_one-heuristic.stan")
 ```
 
 ```{r}
-# fit model (TODO: post issue for compose_data not handling nested data)
-# m <- sampling(stan_model, data=compose_data(model_df), control=list(adapt_delta=0.99))
+# fit model
+m.hops.one_heuristic <- sampling(stan_model, data=data_hops_one, control=list(adapt_delta=0.99), chain=2, cores=2)
 ```
+
+Check diagnostics:
+
+- Trace plots
+
+```{r}
+# trace plots
+traceplot(m.hops.one_heuristic)
+```
+
+- Pairs plot. These look a little skewed, but that might be just because sigma is bounded.
+
+```{r}
+# pairs plot
+pairs(m.hops.one_heuristic, pars = c('p_heuristic', 'sigma'))
+```
+
+- Summary
+
+```{r}
+# model summary
+print(m.hops.one_heuristic)
+```
+
+The model has learned that users seem fairly evenly split between the outcome proportion heuristic and the ground truth when we only allow for those two strategies. The high variability of this estimate suggests that there is a lot of information which is not accounted for by this model (which we would expect since this binary choice of strategy probably does not represent the true data-generating process).
+
+<!-- - Posterior predictive distribution -->
+
+<!-- ```{r} -->
+<!-- # posterior predictive check -->
+<!-- m.hops.one_heuristic %>% -->
+<!--   spread_draws(p_heuristic, sigma) %>% -->
+<!--   ggplot(aes(x=p_heuristic)) + -->
+<!--   geom_density(fill = "black", size = 0) + -->
+<!--   scale_y_continuous(NULL, breaks = NULL) + -->
+<!--   labs(subtitle = "Posterior predictive distribution for CLES", -->
+<!--        p_heuristic = NULL) + -->
+<!--   theme(panel.grid = element_blank()) -->
+<!-- ``` -->
 
 
 ##Non-Hierarchical Model of the Probability of Multiple Heuristics in the HOPs Condition
+
+Let's step up the complexity of the model just a little bit by adding in the possibility of additional heuristics. Now, we'll consider as alternative heuristics: the ground truth, outcome proportion, outcome proportion for only the first ten trials, and an ensemble means/spread heuristic. 
+
+Still some important things are missing from this model. The model does not differentiate between workers and focuses on just one visualization condition. We will add in these additional considerations in later iterations.
+
+###Prepare Data List for Modeling in Stan
+
+```{r}
+# create data list
+data_hops_multi <- list(
+  n=length(model_df_hops$trial),                  # total observations (i.e., trials)
+  cles=model_df_hops$cles,                        # the worker's response on each trial
+  ground_truth=model_df_hops$ground_truth,        # the ground truth cles value on each trial
+  n_heuristic=4,                                  # the number of alternative heuristics we model
+  n_draws=50,                                     # number of draws displayed in the HOPs per trial
+  draws=do.call("rbind",model_df_hops$draws_diff) # trials * draws matrix of the difference between draws B - A shown in HOPs
+)
+```
+
+###Compile and Run the Model
+
+The model is in the file "stan/hops-only_multi-heuristic.stan". We'll compile the stan code, convert to a model object, and then fit the model.
+
+```{r echo=FALSE}
+# compile stan code and create model object
+stan_model = stan_model("stan/hops-only_multi-heuristic.stan")
+```
+
+```{r}
+# fit model
+m.hops.multi_heuristic <- sampling(stan_model, data=data_hops_multi, control=list(adapt_delta=0.99), chain=2, cores=2)
+```
+
+Check diagnostics:
+
+- Trace plots
+
+```{r}
+# trace plots
+traceplot(m.hops.multi_heuristic)
+```
+
+- Pairs plot. These look a little skewed again perhaps because sigma and p_heuristic are bounded. The strong correlation between mu_lo_heuristic and p_heuristic is expected since p_heuristic = softmax(mu_lo_heuristic).
+
+```{r}
+# pairs plot
+pairs(m.hops.multi_heuristic, pars = c('mu_lo_heuristic','sigma','p_heuristic'))
+```
+
+- Summary
+
+```{r}
+# model summary
+print(m.hops.multi_heuristic)
+```
+
+Again, the model seems to have learned a fairly even split between heuristics such that the mean of the posteriors for p_heuristic ~= 1 / n_heuristic. Note that these estimates are pretty uncertain.
+
+<!-- - Posterior predictive distribution -->
+
+<!-- ```{r} -->
+<!-- # posterior predictive check -->
+<!-- m.hops.multi_heuristic %>% -->
+<!--   spread_draws(p_heuristic, sigma) %>% -->
+<!--   ggplot(aes(x=p_heuristic)) + -->
+<!--   geom_density(fill = "black", size = 0) + -->
+<!--   scale_y_continuous(NULL, breaks = NULL) + -->
+<!--   labs(subtitle = "Posterior predictive distribution for CLES", -->
+<!--        p_heuristic = NULL) + -->
+<!--   theme(panel.grid = element_blank()) -->
+<!-- ``` -->
 
 
 ##Hierarchical Model of the Probability of Multiple Heuristics in the HOPs Condition
@@ -712,7 +837,264 @@ stan_model = stan_model("stan/hops-only_one-heuristic.stan")
 ##Hierarchical Model of the Probability of Multiple Heuristics for HOPs, Means Only, & Intervals with Means
 
 
-<!-- ##Linear Log Odds Model (Plan B) -->
+
+
+##Linear Log Odds Model (Plan B)
+
+To get a sense of what we can infer from the data, we fit a linear model of CLES judgments vs the ground truth in log odds units. This model follows from [related work](https://www.frontiersin.org/articles/10.3389/fnins.2012.00001/full) suggesting that the human perception of probability is encoded on a log odds scale. On this scale, the slope of a linear model represents the shape and severity of the function describing bias in probability perception. The greater the deviation of from a slope of 1 (i.e., ideal performance), the more biased the judgments of probability. Slopes less than one correspond to the kind of bias predicted by excessive attention to the mean. On the same log odds scale, the intercept is a crossover-point which should be proportional to the number of categories of possible outcomes among which probability is divided. In our case, the intercept should be about 0.5 since workers are judging the probability of team A vs team B winning a round of a simulated game.
+
+###Prepare Data for Modeling
+
+Convert response and ground truth units to log odds.
+
+```{r}
+# # convert p to log odds (use qlogis)
+# logit <- function(p) {
+#   return(log(p) / log(1 - p))
+# }
+# # convert log odds to p (use plogis)
+# inv_logit <- function(lo) {
+#   return(exp(lo) / (1 + exp(lo)))
+# }
+
+# apply logit function to cles judgments and ground truth
+model_df_llo <- model_df %>%
+  mutate(
+    # lo_cles=logit(cles / 100),
+    # lo_ground_truth=logit(ground_truth)
+    lo_cles=qlogis(cles / 100),
+    lo_ground_truth=qlogis(ground_truth)
+  )
+```
+
+###Create and Run the Model in BRMs
+
+We'll use the brms package for this model since it is relatively more orthodox than our models of the probability of alternative heuristics, and we do not really need to customize our likelihood function.
+
+####Distribution of CLES
+
+We start as simple as possible by just modeling the distribution of CLES on the log odds scale.
+
+Let's check that our priors seem reasonable.
+
+```{r}
+# prior predictive check
+n <- 1e4
+tibble(sample_mu    = rnorm(n, mean = 0, sd = 1),
+       sample_sigma = rnorm(n, mean = 0, sd = 1)) %>% 
+  mutate(lo_cles = rnorm(n, mean = sample_mu, sd = sample_sigma),
+         cles = plogis(lo_cles)) %>% 
+  ggplot(aes(x = cles)) +
+  geom_density(fill = "black", size = 0) +
+  scale_y_continuous(NULL, breaks = NULL) +
+  labs(subtitle = expression(paste("Prior predictive distribution for ", italic(h[i]))),
+       lo_cles = NULL) +
+  theme(panel.grid = element_blank())
+```
+
+Fit an intercept model.
+
+```{r}
+# starting as simple as possible: learn the distribution of lo_cles
+m.lo_cles <- brm(data = model_df_llo, family = gaussian,
+              lo_cles ~ 1,
+              prior = c(prior(normal(0, 1), class = Intercept),
+                        prior(normal(0, 1), class = sigma)),
+              iter = 3000, warmup = 500, chains = 2, cores = 2)
+```
+
+Check diagnostics:
+
+- Trace plots. The value of sigma seems pretty large.
+
+```{r}
+# trace plots
+plot(m.lo_cles)
+```
+
+- Pairs plot. These look great.
+
+```{r}
+# pairs plot
+pairs(m.lo_cles)
+```
+
+- Summary
+
+```{r}
+# model summary
+print(m.lo_cles)
+```
+
+- Posterior draws
+
+```{r}
+# get posterior draws
+post <- posterior_samples(m.lo_cles)
+
+# get summary stats on distribution of each parameter
+post %>% 
+  select(-lp__) %>% # drop log probability of posterior draws
+  gather(parameter) %>%
+  group_by(parameter) %>%
+  mean_qi(value)
+```
+
+- Posterior predictive distribution. This isn't working because exp(post_lo_cles) => inf.
+
+```{r}
+# posterior predictive check
+model_df_llo %>%
+  select(lo_ground_truth) %>% # not used
+  add_predicted_draws(m.lo_cles, prediction = "lo_cles", seed = 1234) %>% # get draws from fitted model
+  mutate(post_cles = plogis(lo_cles)) %>% # transform
+  ggplot(aes(x=post_cles)) +
+  geom_density(fill = "black", size = 0) +
+  scale_y_continuous(NULL, breaks = NULL) +
+  labs(subtitle = "Posterior predictive distribution for CLES",
+       post_cles = NULL) +
+  theme(panel.grid = element_blank())
+```
+
+####Linear Log Odds Model of CLES
+
+Now well add in a slope parameter. Hopefully, this will reduce the residual variance.
+
+Let's check that our priors seem reasonable.
+
+```{r}
+# prior predictive check
+n <- 1e4
+tibble(intercept    = rnorm(n, mean = 0, sd = 1),
+       slope        = rnorm(n, mean = 0, sd = 1),
+       sample_sigma = rnorm(n, mean = 0, sd = 1),
+       lo_ground_truth = list(qlogis(unique(stimuli_data_df$odds_of_victory)))) %>% 
+  unnest() %>%
+  mutate(lo_cles = rnorm(n * length(unique(stimuli_data_df$odds_of_victory)), mean = intercept + slope * lo_ground_truth, sd = sample_sigma),
+         cles = plogis(lo_cles)) %>% 
+  ggplot(aes(x = cles)) +
+  geom_density(fill = "black", size = 0) +
+  scale_y_continuous(NULL, breaks = NULL) +
+  labs(subtitle = expression(paste("Prior predictive distribution for ", italic(h[i]))),
+       lo_cles = NULL) +
+  theme(panel.grid = element_blank())
+```
+
+What we get using generic weakly informative priors seems reasonable given that we are sampling more at extreme levels of ground truth than values in the middle of the scale.
+
+Now, let's fit the LLO model.
+
+```{r}
+# linear log odds model: lo_cles ~ 1 + lo_ground_truth
+m.llo_cles <- brm(data = model_df_llo, family = gaussian,
+              lo_cles ~ 1 + lo_ground_truth,
+              prior = c(prior(normal(0, 1), class = Intercept),
+                        prior(normal(0, 1), class = b),
+                        prior(normal(0, 1), class = sigma)),
+              iter = 3000, warmup = 500, chains = 2, cores = 2)
+```
+
+Check diagnostics:
+
+- Trace plots
+
+```{r}
+# trace plots
+plot(m.llo_cles)
+```
+
+- Pairs plot. It looks like we might have an issue with multicolinearity because b_Intercept and b_lo_ground_truth are so highly correlated.
+
+```{r}
+# pairs plot
+pairs(m.llo_cles)
+```
+
+- Summary
+
+```{r}
+# model summary
+print(m.llo_cles)
+```
+
+- Posterior draws
+
+```{r}
+# get posterior draws
+post <- posterior_samples(m.llo_cles)
+
+# get summary stats on distribution of each parameter
+post %>% 
+  select(-lp__) %>% # drop log probability of posterior draws
+  gather(parameter) %>%
+  group_by(parameter) %>%
+  mean_qi(value)
+```
+
+- Posterior predictive distribution. 
+
+```{r}
+# posterior predictive check
+model_df_llo %>%
+  select(lo_ground_truth) %>%
+  add_predicted_draws(m.llo_cles, prediction = "lo_cles", seed = 1234) %>%
+  mutate(post_cles = plogis(lo_cles)) %>%
+  ggplot(aes(x=post_cles)) +
+  geom_density(fill = "black", size = 0) +
+  scale_y_continuous(NULL, breaks = NULL) +
+  labs(subtitle = "Posterior predictive distribution for CLES",
+       post_cles = NULL) +
+  theme(panel.grid = element_blank())
+
+# post %>% # It doesn't seem right that this is so asymmetrical.
+#   mutate( # add sampled values of lo_ground_truth to table
+#     lo_ground_truth = list(qlogis(unique(stimuli_data_df$odds_of_victory)))
+#   ) %>% 
+#   unnest() %>%
+#   mutate( # run posterior samples through model
+#     mu = b_Intercept + b_lo_ground_truth * lo_ground_truth,
+#     post_lo_cles = rnorm(mu, sigma),
+#     post_cles = plogis(post_lo_cles)
+#   ) %>%
+#   ggplot(aes(x=post_cles)) +
+#   geom_density(fill = "black", size = 0) +
+#   scale_y_continuous(NULL, breaks = NULL) +
+#   labs(subtitle = "Posterior predictive distribution for CLES",
+#        post_cles = NULL) +
+#   theme(panel.grid = element_blank())
+```
+
+How does the posterior predictive compare to the observed data? The posterior predictive seems too wide.
+
+```{r}
+# data density
+model_df_llo %>%
+  ggplot(aes(x=cles)) +
+  geom_density(fill = "black", size = 0) +
+  scale_y_continuous(NULL, breaks = NULL) +
+  labs(subtitle = "Data distribution for CLES",
+       cles = NULL) +
+  theme(panel.grid = element_blank())
+```
+
+
+Let's take a look at some of the estimated linear models.
+
+```{r}
+# plot estimated linear models against observed data
+model_df_llo %>%
+ggplot(aes(x = lo_ground_truth, y = lo_cles)) +
+  geom_abline(intercept = post[1:20, 1],
+              slope     = post[1:20, 2],
+              size = 1/3, alpha = .3) +
+  geom_point(shape = 1, size = 2, color = "royalblue") +
+  coord_cartesian(xlim = quantile(model_df_llo$lo_ground_truth, c(0, 1)),
+                  ylim = quantile(model_df_llo$lo_cles, c(0, 1))) +
+  theme_bw() +
+  theme(panel.grid = element_blank())
+```
+
+
 
 <!-- ```{r} -->
 <!-- # compile stan code to C++ -->

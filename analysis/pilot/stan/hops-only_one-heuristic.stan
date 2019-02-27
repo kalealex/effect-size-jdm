@@ -8,7 +8,6 @@ functions {
     // loop over draws because Stan does not allow vector argumentes to <
     vector[size(draws)] draws_less_than_zero;
     for (i in 1:size(draws)) {
-      // real curr_draw = to_array_1d(draws[i]);
       real curr_draw = draws[i]; // hack to cast vector[i] as a real
       draws_less_than_zero[i] = curr_draw < 0;
     }
@@ -18,10 +17,10 @@ functions {
 }
 data {
   int n;                    // total observations (i.e., trials)
-  vector[n] cles;           // the worker's response on each trial
-  vector[n] ground_truth;   // the ground truth cles value on each trial
+  vector<lower=0, upper=100>[n] cles;           // the worker's response on each trial
+  vector<lower=0, upper=1>[n] ground_truth;   // the ground truth cles value on each trial
   int n_draws;              // number of draws displayed in the HOPs per trial
-  real draws[n, n_draws]; // vector not working
+  real draws[n, n_draws];   // multidimensional array of the difference between draws B - A shown in HOPs trials * draws
 }
 transformed data {
   vector[n] lo_cles;        // cles in log odds units
@@ -32,14 +31,17 @@ parameters {
   real<lower=0> sigma;                // residual error
 }
 model {
+  // log probabilities for each trial
+  vector[n] lp_trial;
   // priors
   p_heuristic ~ beta(2, 2);   // => symmetric beta centered on 0.5: probability of outcome proportion heuristic, as opposed to ground truth
   sigma ~ normal(0, 1);       // => half-normal: residual error
   
-  // for each trial assign heuristic predictions and joint density of parameters given the data (prior * likelihood)
+  // for each trial, marginalize across heuristic predictions to find joint density of parameters given the data (prior * likelihood)
   for (i in 1:n) {
     // prior * likelihood (averaging across possible heuristics)
-    target += log(1 - p_heuristic) + normal_lpdf(lo_cles[i] | logit(ground_truth[i]), sigma);           // ground truth
-    target += log(p_heuristic) + normal_lpdf(lo_cles[i] | logit(outcome_proportion(draws[i])), sigma);  // outcome proportion heuristic
+    lp_trial[i] = log(1 - p_heuristic) + normal_lpdf(lo_cles[i] | logit(ground_truth[i]), sigma);           // ground truth
+    lp_trial[i] += log(p_heuristic) + normal_lpdf(lo_cles[i] | logit(outcome_proportion(draws[i])), sigma); // outcome proportion heuristic
   }
+  target += log_sum_exp(lp_trial);
 }

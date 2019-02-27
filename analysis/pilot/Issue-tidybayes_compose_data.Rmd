@@ -1,0 +1,57 @@
+---
+title: 'Issue: tidybayes compose_data'
+author: "Alex Kale"
+date: "2/23/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidybayes)
+```
+
+#Issue: compose_data throws an error for nested data
+
+When trying to prepare a dataframe with a nested column, the tidybayes function compose_data throws an error. I'm guessing this means that compose_data is not set up to handle nested data which would be read into multidimensional data types in Stan. For example, lists of length m nested inside each of n rows of a dataframe might feed into any of the following data structures.
+
+```
+# possible ways of declaring n * m data in Stan
+data {
+  matrix[n, m] x;
+  real[n, m] x;
+  vector[m] x[n];
+  row_vector[m] x[n];
+}
+```
+
+Here's an illustrative example with some fake data.
+
+Imagine an experiment where an observer is shown a set of dots arranged on a number line and asked to eyeball their mean. In this simple experiment, our independent variable is the position of each of our dots on each trial (i.e., two dimensions: trials * dots), and our responding variable is the participant's response on each trial (i.e., one dimension: trials). We can simulate responses as means with random noise added.
+
+```{r}
+# create fake data
+n_trials <- 100
+n_dots <- 50
+trial_mean <-c()
+dots <- c()
+resp <- c()
+for (i in 1:n_trials) {
+  trial_mean[i] <- runif(1, -5, 5)                  # the ground truth mean position for the dots on each trial
+  dots[i] <- list(trial_mean[i] + rnorm(n_dots, 0, 2)) # simulate a list of n_dots dot positions on each trial
+  resp[i] <- mean(x[[i]]) + rnorm(1, 0, 0.1)        # simulate noisy mean judgment on each trial
+}
+# turn into tibble
+df <- data_frame(trial_mean, dots, resp)
+```
+
+Now we call the tidybayes function compose_data to prepare the data for modeling in Stan.
+
+```{r}
+compose_data(df)
+```
+
+However, this throws the following error.
+
+`Error in is.list(val) : argument is of length zero`
+
+Should compose_data be able to handle nested data like this? Please let me know if you have any questions about this issue or the example provided.

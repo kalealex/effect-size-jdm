@@ -3,23 +3,37 @@
 */
 
 functions {
+  // helper function to guarantee that predictions are between 0 and 1
+  real est_in_bounds(real est_cles) {
+    // catch out-of-bounds probabilities by setting min and max return values
+    if (est_cles < 0.0025) {
+      return 0.0025;
+    } else if (est_cles > 0.9975) {
+      return 0.9975;
+    }
+    // otherwise, return heuristic estimate
+    return est_cles;
+  }
   // outcome proportion heuristic
-  real outcome_proportion(vector draws) {
-    return sum(draws < 0) / size(draws);
+  real outcome_proportion(real[] draws) {
+    // loop over draws because Stan does not allow vector argumentes to <
+    vector[size(draws)] draws_less_than_zero;
+    for (i in 1:size(draws)) {
+      real curr_draw = draws[i]; // hack to cast vector[i] as a real
+      draws_less_than_zero[i] = curr_draw < 0;
+    }
+    // heursitic estimate: proportion of draws where the the difference B - A is less than zero (i.e., past games when team A won)
+    return est_in_bounds(sum(draws_less_than_zero) / size(draws));
   }
   // # means to inform reliability, sd for baseline heuristic (both mean and sd inferred from draws through ensemble processing)
-  real means_first_then_uncertainty_hops(vector draws) {
+  real means_first_then_uncertainty_hops(real[] draws) {
     // ensemble statistics from draws
-    vector[size(draws)] mean_diff;
-    vector[size(draws)] outcome_diff_span;
-    vector[size(draws)] outcome_span;
-    mean_diff = mean(draws);
-    outcome_diff_span = max(draws) - min(draws);
-    outcome_span = sqrt((outcome_diff_span ^ 2) / 2); // avg span of outcomes for each team (what workers actually see)
-    // scaling factor for uncertainty information (change this to a parameter?)
-    real scale_uncertainty;
-    scale_uncertainty = 0.5; // rationale: how does mean_diff compare to the maximum distance of from any draw to the mean?
-    return 0.5 - 0.5 * mean_diff / (scale_uncertainty * outcome_span);
+    real mean_diff = mean(draws);
+    real outcome_span = sqrt(((max(draws) - min(draws)) ^ 2) / 2); // avg span of outcomes for each team (what workers actually see)
+    // scaling factor for uncertainty information (Change this to a parameter?)
+    real scale_uncertainty = 0.5;
+    // heuristic estimate: mean_difference as a portion of average outcome span for the two teams
+    return est_in_bounds(0.5 - 0.5 * mean_diff / (scale_uncertainty * outcome_span));
   }
 }
 data {
@@ -28,34 +42,33 @@ data {
   vector[n] ground_truth;   // the ground truth cles value on each trial
   int n_heuristic;          // number of alternative heuristics in the model
   int n_draws;              // number of draws displayed in the HOPs per trial
-  vector[n_draws] draws[n]; // an array of vectors of draws with one index per trial (more efficient than a matrix according to https://mc-stan.org/docs/2_18/stan-users-guide/indexing-efficiency-section.html)
+  real draws[n, n_draws];   // multidimensional array of the difference between draws B - A shown in HOPs trials * draws
 }
 transformed data {
-  vector[n] lo_cles; // cles in log odds units
+  vector[n] lo_cles;        // cles in log odds units
   lo_cles = logit(cles / 100);
 }
 parameters {
-  vector<lower=0, upper=1>[n_heuristic] p_heuristic; // probabilities of each heuristic
-  real<lower=0> sigma;                               // residual error
+  vector[n_heuristic] mu_lo_heuristic;  // mean log odds of each heuristic (to be transformed into probabilities)
+  real<lower=0> sigma;                  // residual error
+}
+transformed parameters {
+  simplex[n_heuristic] p_heuristic = softmax(mu_lo_heuristic);  // multinomial probabilities for each heuristic
 }
 model {
+  // log probabilities for each trial
+  vector[n] lp_trial;
   // priors
-  // need a prior for p_heuristic //
-  sigma ~ normal(0, 1);   // => half-normal
+  mu_lo_heuristic ~ normal(0, 1); // => normal (log odds units)
+  sigma ~ normal(0, 1);           // => half-normal
   
-  // 1) assign heuristic predictions and 2) likelihood of joint distribution of parameters given the data, both for each trial
-  vector[n_heuristic] mu_heuristic[n];      // array of heuristic predictions (means) on each trial
+  // for each trial, marginalize across heuristic predictions to find joint density of parameters given the data (prior * likelihood)
   for (i in 1:n) {
-    // heuristic submodels (run on predictors for the current trial)
-    mu_heuristic[i, 1] = ground_truth[i];
-    mu_heuristic[i, 2] = outcome_proportion(draws[i]);
-    mu_heuristic[i, 3] = outcome_proportion(draws[i, :10]); // first ten draws only (maybe learn first n as a parameter)
-    mu_heuristic[i, 4] = means_first_then_uncertainty_hops(draws[i]);
-    // transform heuristic predictions to log odds units
-    mu_heuristic = logit(mu_heuristic);
-    // likelihood (averaging across possible heuristics)
-    for (j in 1:n_heuristic) {
-      target += lp_heuristic[i, j] + normal_lpdf(lo_cles[i] | mu_heuristic[i, j], sigma);
-    }
+    // prior * likelihood (averaging across possible heuristics)
+    lp_trial[i] = log(p_heuristic[1]) + normal_lpdf(lo_cles[i] | logit(ground_truth[i]), sigma);                              // ground truth
+    lp_trial[i] += log(p_heuristic[2]) + normal_lpdf(lo_cles[i] | logit(outcome_proportion(draws[i])), sigma);                // outcome proportion heuristic
+    lp_trial[i] += log(p_heuristic[3]) + normal_lpdf(lo_cles[i] | logit(outcome_proportion(draws[i, :10])), sigma);           // outcome proportion heuristic for first ten draws (maybe learn first n as a parameter)
+    lp_trial[i] += log(p_heuristic[4]) + normal_lpdf(lo_cles[i] | logit(means_first_then_uncertainty_hops(draws[i])), sigma); // ensemble mean / spread
   }
+  target += log_sum_exp(lp_trial);
 }
