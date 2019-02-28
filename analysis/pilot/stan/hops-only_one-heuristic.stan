@@ -23,8 +23,7 @@ data {
   real draws[n, n_draws];   // multidimensional array of the difference between draws B - A shown in HOPs trials * draws
 }
 transformed data {
-  vector[n] lo_cles;        // cles in log odds units
-  lo_cles = logit(cles / 100);
+  vector[n] lo_cles = logit(cles / 100); // cles in log odds units
 }
 parameters {
   real<lower=0, upper=1> p_heuristic; // probability of outcome proportion heuristic, as opposed to ground truth
@@ -45,3 +44,11 @@ model {
   }
   target += log_sum_exp(lp_trial);
 }
+// generated quantities {
+//   vector[n] heuristic_est[2]; // estimates for each heuristic on each trial
+//   for (i in 1:n) {
+//     // calculate heuristic estimates
+//     heuristic_est[1, i] = ground_truth[i];
+//     heuristic_est[2, i] = outcome_proportion(draws[i]);
+//   }
+// }

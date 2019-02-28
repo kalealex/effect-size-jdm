@@ -723,7 +723,7 @@ Check diagnostics:
 
 ```{r}
 # trace plots
-traceplot(m.hops.one_heuristic)
+traceplot(m.hops.one_heuristic, pars = c('p_heuristic', 'sigma'))
 ```
 
 - Pairs plot. These look a little skewed, but that might be just because sigma is bounded.
@@ -747,12 +747,21 @@ The model has learned that users seem fairly evenly split between the outcome pr
 <!-- ```{r} -->
 <!-- # posterior predictive check -->
 <!-- m.hops.one_heuristic %>% -->
-<!--   spread_draws(p_heuristic, sigma) %>% -->
-<!--   ggplot(aes(x=p_heuristic)) + -->
-<!--   geom_density(fill = "black", size = 0) + -->
+<!--   spread_draws(p_heuristic, sigma, heuristic_est) %>% -->
+<!--   mutate( -->
+<!--     use_heuristic = rbernoulli(n(), p_heuristic), -->
+<!--     ly_rep = plogis(rnorm(heuristic_est[use_heuristic,], sigma)) -->
+<!--   ) %>% -->
+<!--   ggplot(aes(x=ground_truth, y=y_rep)) + -->
+<!--   geom_line() + -->
+<!--   geom_point(data=model_df_hops, aes(x=ground_truth, y=cles), shape = 1, size = 2, color = "royalblue", inherit.aes = FALSE) + -->
 <!--   scale_y_continuous(NULL, breaks = NULL) + -->
-<!--   labs(subtitle = "Posterior predictive distribution for CLES", -->
-<!--        p_heuristic = NULL) + -->
+<!--   labs( -->
+<!--     subtitle = "Posterior predictive distribution for CLES", -->
+<!--      ground_truth = NULL, -->
+<!--      y_rep = NULL, -->
+<!--      cles = NULL -->
+<!--   ) + -->
 <!--   theme(panel.grid = element_blank()) -->
 <!-- ``` -->
 
@@ -818,20 +827,217 @@ Again, the model seems to have learned a fairly even split between heuristics su
 
 <!-- - Posterior predictive distribution -->
 
-<!-- ```{r} -->
-<!-- # posterior predictive check -->
-<!-- m.hops.multi_heuristic %>% -->
-<!--   spread_draws(p_heuristic, sigma) %>% -->
-<!--   ggplot(aes(x=p_heuristic)) + -->
-<!--   geom_density(fill = "black", size = 0) + -->
-<!--   scale_y_continuous(NULL, breaks = NULL) + -->
-<!--   labs(subtitle = "Posterior predictive distribution for CLES", -->
-<!--        p_heuristic = NULL) + -->
-<!--   theme(panel.grid = element_blank()) -->
-<!-- ``` -->
-
 
 ##Hierarchical Model of the Probability of Multiple Heuristics in the HOPs Condition
+
+To make our model more realistic, we really need to account for the identities of different users so our model can account for individual differences in strategy. Now, we'll allow the set of probabilities for each heuristic to vary from worker-to-worker, and we will learn population level parameters which describe the global pattern of behavior across individuals.
+
+This model still focuses on just one visualization condition (HOPs).
+
+###Prepare Data List for Modeling in Stan
+
+```{r}
+# create data list
+data_hops_multi_hier <- list(
+  n=length(model_df_hops$trial),                         # total observations (i.e., trials)
+  cles=model_df_hops$cles,                               # the worker's response on each trial
+  ground_truth=model_df_hops$ground_truth,               # the ground truth cles value on each trial
+  n_worker=length(unique(model_df_hops$worker_id)),      # number of workers in the sample
+  worker=as.integer(as.factor(model_df_hops$worker_id)), # index for worker_id on each trial
+  n_heuristic=4,                                         # the number of alternative heuristics we model
+  heuristic=1:4,                                         # index for each heuristic
+  n_draws=50,                                            # number of draws displayed in the HOPs per trial
+  draws=do.call("rbind",model_df_hops$draws_diff)        # trials * draws matrix of the difference between draws B - A shown in HOPs
+)
+```
+
+###Compile and Run the Model
+
+The model is in the file "stan/hops-only_multi-heuristic.stan". We'll compile the stan code, convert to a model object, and then fit the model.
+
+```{r echo=FALSE}
+# compile stan code and create model object
+stan_model = stan_model("stan/hops-only_multi-heuristic-hier.stan")
+```
+
+```{r}
+# fit model
+m.hops.multi_heuristic_hier <- sampling(stan_model, data=data_hops_multi_hier, control=list(adapt_delta=0.99, max_treedepth=20), chain=2, cores=2)
+```
+
+Check diagnostics:
+
+- Trace plots
+
+```{r}
+# trace plots
+traceplot(m.hops.multi_heuristic_hier, pars = c('mu_lo_heuristic','sigma_lo_heuristic','sigma'))
+```
+
+- Pairs plot
+
+```{r}
+# pairs plot
+pairs(m.hops.multi_heuristic_hier, pars = c('mu_lo_heuristic','sigma_lo_heuristic','sigma'))
+```
+
+- Summary
+
+```{r}
+# model summary
+print(m.hops.multi_heuristic_hier)
+```
+
+Let's plot the population level estimates for the probability of each heuristic.
+
+```{r}
+# plot transformed posterior for probability of each heuristic
+m.hops.multi_heuristic_hier %>%
+  spread_draws(mu_lo_heuristic[heuristic], sigma_lo_heuristic) %>%
+  mutate(
+    lo_heuristic = rnorm(n(), mu_lo_heuristic, sigma_lo_heuristic) # TODO need to gather these into vectos and apply softmax function
+  ) %>%
+  ggplot(aes(x=ground_truth, y=y_rep)) +
+  geom_density(fill = "black", size = 0) +
+  scale_y_continuous(NULL, breaks = NULL) +
+  labs(
+    subtitle = "Posterior predictive distribution for CLES",
+     ground_truth = NULL,
+     y_rep = NULL,
+     cles = NULL
+  ) +
+  theme(panel.grid = element_blank())
+```
+
+<!-- - Posterior predictive distribution -->
+
+
+##Hierarchical Model for the Probility of Multiple Heuristics for Means Only
+
+Before we add all the visualization conditions into one model. Let's get this hierarchical model working for the other two visualization conditions in our pilot, starting with means only. This model is equivalent to the model in the previous section, but it posits a different set of alternative heuristics.
+
+###Prepare Data List for Modeling in Stan
+
+This step looks different than for HOPs since we need different information to calculate the heuristic estimates in this visualization condition.
+
+```{r}
+# filter vis condition
+model_df_means_only <- model_df %>% filter(condition=="means_only")
+
+# create data list
+data_means_only_multi_hier <- list(
+  n=length(model_df_means_only$trial),                         # total observations (i.e., trials)
+  cles=model_df_means_only$cles,                               # the worker's response on each trial
+  ground_truth=model_df_means_only$ground_truth,               # the ground truth cles value on each trial
+  n_worker=length(unique(model_df_means_only$worker_id)),      # number of workers in the sample
+  worker=as.integer(as.factor(model_df_means_only$worker_id)), # index for worker_id on each trial
+  n_heuristic=4                                                # the number of alternative heuristics we model
+  # TODO add necessary information to compute heuristic estimates
+)
+```
+
+###Compile and Run the Model
+
+The model is in the file "stan/means-only_multi-heuristic.stan". We'll compile the stan code, convert to a model object, and then fit the model.
+
+```{r echo=FALSE}
+# compile stan code and create model object
+stan_model = stan_model("stan/means-only_multi-heuristic.stan")
+```
+
+```{r}
+# fit model
+m.means_only.multi_heuristic_hier <- sampling(stan_model, data=data_means_only_multi_hier, control=list(adapt_delta=0.99, max_treedepth=20), chain=1, cores=2)
+```
+
+Check diagnostics:
+
+- Trace plots
+
+```{r}
+# trace plots
+traceplot(m.means_only.multi_heuristic_hier)
+```
+
+- Pairs plot
+
+```{r}
+# pairs plot
+pairs(m.means_only.multi_heuristic_hier, pars = c('mu_lo_heuristic','sigma_lo_heuristic','sigma','p_heuristic'))
+```
+
+- Summary
+
+```{r}
+# model summary
+print(m.means_only.multi_heuristic_hier)
+```
+
+<!-- - Posterior predictive distribution -->
+
+
+##Hierarchical Model for the Probility of Multiple Heuristics for Intervals with Means
+
+Next, let's get a hierarchical model working for the intervales with means condition. This model is equivalent to the model in the previous two sections, but it posits yet another set of alternative heuristics which are relevant to intervals with means.
+
+###Prepare Data List for Modeling in Stan
+
+This step looks different than for HOPs since we need different information to calculate the heuristic estimates in this visualization condition.
+
+```{r}
+# filter vis condition
+model_df_intervals_w_means <- model_df %>% filter(condition=="intervals_w_means")
+
+# create data list
+data_intervals_w_means_multi_hier <- list(
+  n=length(model_df_intervals_w_means$trial),                         # total observations (i.e., trials)
+  cles=model_df_intervals_w_means$cles,                               # the worker's response on each trial
+  ground_truth=model_df_intervals_w_means$ground_truth,               # the ground truth cles value on each trial
+  n_worker=length(unique(model_df_intervals_w_means$worker_id)),      # number of workers in the sample
+  worker=as.integer(as.factor(model_df_intervals_w_means$worker_id)), # index for worker_id on each trial
+  n_heuristic=4                                                # the number of alternative heuristics we model
+  # TODO add necessary information to compute heuristic estimates
+)
+```
+
+###Compile and Run the Model
+
+The model is in the file "stan/intervals-w-means-only_multi-heuristic.stan". We'll compile the stan code, convert to a model object, and then fit the model.
+
+```{r echo=FALSE}
+# compile stan code and create model object
+stan_model = stan_model("stan/intervals-w-means-only_multi-heuristic.stan")
+```
+
+```{r}
+# fit model
+m.intervals_w_means.multi_heuristic_hier <- sampling(stan_model, data=data_intervals_w_means_multi_hier, control=list(adapt_delta=0.99, max_treedepth=20), chain=1, cores=2)
+```
+
+Check diagnostics:
+
+- Trace plots
+
+```{r}
+# trace plots
+traceplot(m.intervals_w_means.multi_heuristic_hier)
+```
+
+- Pairs plot
+
+```{r}
+# pairs plot
+pairs(m.intervals_w_means.multi_heuristic_hier, pars = c('mu_lo_heuristic','sigma_lo_heuristic','sigma','p_heuristic'))
+```
+
+- Summary
+
+```{r}
+# model summary
+print(m.intervals_w_means.multi_heuristic_hier)
+```
+
+<!-- - Posterior predictive distribution -->
 
 
 ##Hierarchical Model of the Probability of Multiple Heuristics for HOPs, Means Only, & Intervals with Means
