@@ -825,8 +825,6 @@ print(m.hops.multi_heuristic)
 
 Again, the model seems to have learned a fairly even split between heuristics such that the mean of the posteriors for p_heuristic ~= 1 / n_heuristic. Note that these estimates are pretty uncertain.
 
-<!-- - Posterior predictive distribution -->
-
 
 ##Hierarchical Model of the Probability of Multiple Heuristics in the HOPs Condition
 
@@ -871,14 +869,14 @@ Check diagnostics:
 
 ```{r}
 # trace plots
-traceplot(m.hops.multi_heuristic_hier, pars = c('mu_lo_heuristic','sigma_lo_heuristic','sigma'))
+traceplot(m.hops.multi_heuristic_hier, pars = c('mu_lo_heuristic','sigma_scale','sigma_err'))
 ```
 
 - Pairs plot
 
 ```{r}
 # pairs plot
-pairs(m.hops.multi_heuristic_hier, pars = c('mu_lo_heuristic','sigma_lo_heuristic','sigma'))
+pairs(m.hops.multi_heuristic_hier, pars = c('mu_lo_heuristic','sigma_scale','sigma_err'))
 ```
 
 - Summary
@@ -891,22 +889,37 @@ print(m.hops.multi_heuristic_hier)
 Let's plot the population level estimates for the probability of each heuristic.
 
 ```{r}
-# plot transformed posterior for probability of each heuristic
+# plot transformed posterior predictions for probability of each heuristic
 m.hops.multi_heuristic_hier %>%
-  spread_draws(mu_lo_heuristic[heuristic], sigma_lo_heuristic) %>%
-  mutate(
-    lo_heuristic = rnorm(n(), mu_lo_heuristic, sigma_lo_heuristic) # TODO need to gather these into vectos and apply softmax function
-  ) %>%
-  ggplot(aes(x=ground_truth, y=y_rep)) +
-  geom_density(fill = "black", size = 0) +
-  scale_y_continuous(NULL, breaks = NULL) +
+  spread_draws(p_heuristic_hat[heuristic]) %>%
+  ggplot(aes(y=heuristic, x=p_heuristic_hat)) +
+  geom_halfeyeh() + 
   labs(
-    subtitle = "Posterior predictive distribution for CLES",
-     ground_truth = NULL,
-     y_rep = NULL,
-     cles = NULL
+    subtitle = "Posterior predictive distribution for the probability of each heuristic"
   ) +
   theme(panel.grid = element_blank())
+
+# # softmax function
+# softmax <- function(x) { 
+#   return(exp(x) / sum(exp(x)))
+# }
+
+# m.hops.multi_heuristic_hier %>%
+#   spread_draws(mu_lo_heuristic[heuristic], Sigma[heuristic, heuristic]) %>% # vector of means and covariance matrix in wide format (not working)
+#   # TODO need to gather these into vectors matricies
+#   mutate(
+#     lo_heuristic = rmvnorm(n(), mu_lo_heuristic, Sigma),
+#     p_heuristic = sofmax(lo_heuristic)
+#   ) %>%
+#   ggplot(aes(x=p_heuristic)) +
+#   geom_density(fill = "black", size = 0) +
+#   scale_y_continuous(NULL, breaks = NULL) +
+#   labs(
+#     subtitle = "Posterior predictive distribution for p_heuristic",
+#     p_heuristic = NULL
+#   ) +
+#   theme(panel.grid = element_blank()) +
+#   facet_grid(heuristic)
 ```
 
 <!-- - Posterior predictive distribution -->

@@ -51,7 +51,7 @@ transformed data {
   vector[n] lo_cles = logit(cles / 100); // cles in log odds units
 }
 parameters {
-  real<lower=0> sigma_scale;                            // scaling factor for non-centered parameterization of multivariate normal
+  vector<lower=0>[n_heuristic] sigma_scale;             // scaling factor for non-centered parameterization of multivariate normal
   real<lower=0> sigma_err;                              // residual error
   // hyperparameters
   vector[n_heuristic] mu_lo_heuristic;                  // population mean of log odds for each heuristic
@@ -65,7 +65,7 @@ transformed parameters {
   for (i in 1:n_worker) {
     vector[n_heuristic] lo_heuristic_worker; // mean log odds of each heuristic (for current worker)
     lo_heuristic_worker = mu_lo_heuristic + L * sigma_scale; // implies: lo_heuristic_worker ~ multi_normal(mu_lo_heuristic, Sigma)
-    p_heuristic[i, :] = softmax(to_vector(lo_heuristic_worker));
+    p_heuristic[i, :] = softmax(lo_heuristic_worker);
   }
 }
 model {
@@ -75,16 +75,21 @@ model {
   sigma_scale ~ std_normal(); // => half-normal 
   sigma_err ~ std_normal();   // => half-normal 
   // hyperpriors (log odds units)
-  mu_lo_heuristic ~ normal(0, 1);      // => normal
-  sigma_lo_heuristic ~ normal(0, 1);  // => half-normal 
+  mu_lo_heuristic ~ std_normal();     // => normal
+  Omega ~ lkj_corr(1);                // LKJ correlation matrix
+  sigma_lo_heuristic ~ std_normal();  // => half-normal 
   
   // for each trial, marginalize across heuristic predictions to find joint density of parameters given the data (prior * likelihood)
   for (i in 1:n) {
     // prior * likelihood (averaging across possible heuristics)
-    lp_trial[i] = log(p_heuristic[worker[i], 1]) + normal_lpdf(lo_cles[i] | logit(ground_truth[i]), sigma);                               // ground truth
-    lp_trial[i] += log(p_heuristic[worker[i], 2]) + normal_lpdf(lo_cles[i] | logit(outcome_proportion(draws[i])), sigma);                 // outcome proportion heuristic
-    lp_trial[i] += log(p_heuristic[worker[i], 3]) + normal_lpdf(lo_cles[i] | logit(outcome_proportion(draws[i, :10])), sigma);            // outcome proportion heuristic for first ten draws (maybe learn first n as a parameter)
-    lp_trial[i] += log(p_heuristic[worker[i], 4]) + normal_lpdf(lo_cles[i] | logit(means_first_then_uncertainty_hops(draws[i])), sigma);  // ensemble mean / spread
+    lp_trial[i] = log(p_heuristic[worker[i], 1]) + normal_lpdf(lo_cles[i] | logit(ground_truth[i]), sigma_err);                               // ground truth
+    lp_trial[i] += log(p_heuristic[worker[i], 2]) + normal_lpdf(lo_cles[i] | logit(outcome_proportion(draws[i])), sigma_err);                 // outcome proportion heuristic
+    lp_trial[i] += log(p_heuristic[worker[i], 3]) + normal_lpdf(lo_cles[i] | logit(outcome_proportion(draws[i, :10])), sigma_err);            // outcome proportion heuristic for first ten draws (maybe learn first n as a parameter)
+    lp_trial[i] += log(p_heuristic[worker[i], 4]) + normal_lpdf(lo_cles[i] | logit(means_first_then_uncertainty_hops(draws[i])), sigma_err);  // ensemble mean / spread
   }
   target += log_sum_exp(lp_trial);
+}
+generated quantities {
+  simplex[n_heuristic] mu_p_heuristic = softmax(mu_lo_heuristic);                    // posterior probilities for each heuristic
+  simplex[n_heuristic] p_heuristic_hat = softmax(mu_lo_heuristic + L * sigma_scale); // posterior predictions for probabilities of each heuristic
 }
