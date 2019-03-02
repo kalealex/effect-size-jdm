@@ -90,6 +90,6 @@ model {
   target += log_sum_exp(lp_trial);
 }
 generated quantities {
-  simplex[n_heuristic] mu_p_heuristic = softmax(mu_lo_heuristic);                    // posterior probilities for each heuristic
+  // simplex[n_heuristic] mu_p_heuristic = softmax(mu_lo_heuristic);                    // posterior probilities for each heuristic
   simplex[n_heuristic] p_heuristic_hat = softmax(mu_lo_heuristic + L * sigma_scale); // posterior predictions for probabilities of each heuristic
 }
