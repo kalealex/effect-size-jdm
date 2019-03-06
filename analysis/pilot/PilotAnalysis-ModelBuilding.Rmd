@@ -12,6 +12,7 @@ library(RColorBrewer)
 library(rstan)
 rstan_options(auto_write = TRUE)
 options(mc.cores = parallel::detectCores())
+library(modelr)
 library(tidybayes)
 library(brms)
 ```
@@ -657,7 +658,7 @@ combined_df %>%
 
 
 
-#Model Building
+#Building a Model of the Probability of Each Heuristic
 
 We start out with a simple non-hierarchical model for the probability of one heuristic vs ground truth in one visualization condition, HOPs. Then we model the probability of more than one alternative heuristic. Then we'll add hierarchy to that model. Finally, we'll add in the other visualization conditions.
 
@@ -869,14 +870,14 @@ Check diagnostics:
 
 ```{r}
 # trace plots
-traceplot(m.hops.multi_heuristic_hier, pars = c('mu_lo_heuristic','sigma_scale','sigma_err'))
+traceplot(m.hops.multi_heuristic_hier, pars = c('mu_lo_heuristic','Sigma','sigma_err'))
 ```
 
 - Pairs plot
 
 ```{r}
 # pairs plot
-pairs(m.hops.multi_heuristic_hier, pars = c('mu_lo_heuristic','sigma_scale','sigma_err'))
+pairs(m.hops.multi_heuristic_hier, pars = c('mu_lo_heuristic','sigma_err'))
 ```
 
 - Summary
@@ -891,35 +892,27 @@ Let's plot the population level estimates for the probability of each heuristic.
 ```{r}
 # plot transformed posterior predictions for probability of each heuristic
 m.hops.multi_heuristic_hier %>%
-  spread_draws(p_heuristic_hat[heuristic]) %>%
+  spread_draws(mu_p_heuristic[heuristic]) %>%
+  ggplot(aes(y=heuristic, x=mu_p_heuristic)) +
+  geom_halfeyeh() + 
+  labs(
+    subtitle = "Posterior estimate of the probability of each heuristic"
+  ) +
+  theme(panel.grid = element_blank())
+```
+
+Let's also check posterior predictive distributions for the probability of each heuristic aggregated across trials.
+
+```{r}
+# plot transformed posterior predictions for probability of each heuristic
+m.hops.multi_heuristic_hier %>%
+  spread_draws(p_heuristic_hat[1:n,heuristic]) %>%
   ggplot(aes(y=heuristic, x=p_heuristic_hat)) +
   geom_halfeyeh() + 
   labs(
     subtitle = "Posterior predictive distribution for the probability of each heuristic"
   ) +
   theme(panel.grid = element_blank())
-
-# # softmax function
-# softmax <- function(x) { 
-#   return(exp(x) / sum(exp(x)))
-# }
-
-# m.hops.multi_heuristic_hier %>%
-#   spread_draws(mu_lo_heuristic[heuristic], Sigma[heuristic, heuristic]) %>% # vector of means and covariance matrix in wide format (not working)
-#   # TODO need to gather these into vectors matricies
-#   mutate(
-#     lo_heuristic = rmvnorm(n(), mu_lo_heuristic, Sigma),
-#     p_heuristic = sofmax(lo_heuristic)
-#   ) %>%
-#   ggplot(aes(x=p_heuristic)) +
-#   geom_density(fill = "black", size = 0) +
-#   scale_y_continuous(NULL, breaks = NULL) +
-#   labs(
-#     subtitle = "Posterior predictive distribution for p_heuristic",
-#     p_heuristic = NULL
-#   ) +
-#   theme(panel.grid = element_blank()) +
-#   facet_grid(heuristic)
 ```
 
 It seems like this model is not finding that any one heuristic is more likely than the others overall. Let's check on the estimates for individual subjects.
@@ -943,13 +936,17 @@ At this point, we need to understand why p_heuristic is consistently roughly equ
 
 ###Simulate Fake Data
 
-Let's start by creating some fake data.
+Let's start by creating some fake data. We'll simulate 200 trials per worker to see if the model would work with a large amount of data.
 
 ```{r}
 # parameters to recover
 p_heuristic <- c(0.2, 0.4, 0.1, 0.3) # population probabilities of each heuristic
 Sigma <- matrix(c(1, .1, .1, .1, .1,  1, .1, .1, .1, .1, 1, .1, .1, .1, .1,  1), 4, 4) # covariance matrix
 sigma_err <- 1 # residual error in log odds units
+
+# number of trials per participant (should be a multiple of 20 data conditions)
+n_trials_per_worker <- 200
+n_trial_scalar <- n_trials_per_worker / 20
 
 # softmax function
 softmax <- function(x) {
@@ -973,8 +970,8 @@ heuristics_df_hops <- stimuli_data_df %>% rowwise() %>%
 fake_worker_params_df <- model_df_hops %>%
   select(worker_id) %>%
   distinct(worker_id) %>%
-  mutate(mu_lo_heuristic_worker = list(MASS::mvrnorm(1, qlogis(p_heuristic), Sigma))) %>% # intermediate calculation: draws from multivariate normal
   rowwise() %>%
+  mutate(mu_lo_heuristic_worker = list(MASS::mvrnorm(n(), qlogis(p_heuristic), Sigma))) %>% # intermediate calculation: draws from multivariate normal
   mutate(
     p_heuristic_worker = list(softmax(mu_lo_heuristic_worker)), # what we use to simulate observations for each worker
     mu_lo_heuristic_worker = NULL
@@ -983,13 +980,14 @@ fake_worker_params_df <- model_df_hops %>%
 # fake data
 fake_df_hops <- model_df_hops %>%
   left_join(fake_worker_params_df, by="worker_id") %>%
+  slice(rep(1:n(), each=n_trial_scalar)) %>%
   rowwise() %>%
   mutate(heuristic = sample(x=c("ground_truth", "outcome_proportion", "outcome_proportion_10", "ensemble_means_over_uncertainty"), size = n(), replace=TRUE, prob=p_heuristic_worker)) %>% # sample heuristic to use on each trial
   left_join(heuristics_df_hops, by=c("worker_id", "sd_diff", "ground_truth", "heuristic")) %>% # add heuristic estimates to model_df
   select(-cles) %>% # remove actual responses 
   mutate(
     lo_cles = qlogis(heuristic_est / 100) + rnorm(n(), 0, sigma_err), # likelihood function
-    cles = plogis(lo_cles) # simulated responses from known data generating process
+    cles = plogis(lo_cles) * 100 # simulated responses from known data generating process
   )
 ```
 
@@ -1030,14 +1028,14 @@ Check diagnostics:
 
 ```{r}
 # trace plots
-traceplot(m.fake.hops.multi_heuristic_hier, pars = c('mu_lo_heuristic','sigma_scale','sigma_err'))
+traceplot(m.fake.hops.multi_heuristic_hier, pars = c('mu_lo_heuristic','Sigma','sigma_err'))
 ```
 
 - Pairs plot
 
 ```{r}
 # pairs plot
-pairs(m.fake.hops.multi_heuristic_hier, pars = c('mu_lo_heuristic','sigma_scale','sigma_err'))
+pairs(m.fake.hops.multi_heuristic_hier, pars = c('mu_lo_heuristic','sigma_err'))
 ```
 
 - Summary
@@ -1047,12 +1045,26 @@ pairs(m.fake.hops.multi_heuristic_hier, pars = c('mu_lo_heuristic','sigma_scale'
 print(m.fake.hops.multi_heuristic_hier)
 ```
 
-How did we do at recovering the fake values for p_heuristic? Let's plot posterior predictive distributions to find out.
+How did we do at recovering the fake values for p_heuristic? Let's plot the population level estimates for the probability of each heuristic to find out.
 
 ```{r}
 # plot transformed posterior predictions for probability of each heuristic
 m.fake.hops.multi_heuristic_hier %>%
-  spread_draws(p_heuristic_hat[heuristic]) %>%
+  spread_draws(mu_p_heuristic[heuristic]) %>%
+  ggplot(aes(y=heuristic, x=mu_p_heuristic)) +
+  geom_halfeyeh() + 
+  labs(
+    subtitle = "Posterior estimate of the probability of each heuristic"
+  ) +
+  theme(panel.grid = element_blank())
+```
+
+Let's also check posterior predictive distributions for the probability of each heuristic aggregated across trials.
+
+```{r}
+# plot transformed posterior predictions for probability of each heuristic
+m.fake.hops.multi_heuristic_hier %>%
+  spread_draws(p_heuristic_hat[1:n,heuristic]) %>%
   ggplot(aes(y=heuristic, x=p_heuristic_hat)) +
   geom_halfeyeh() + 
   labs(
@@ -1066,7 +1078,7 @@ This does not look super promising. I think our issue might be that we have a mo
 
 ##Hierarchical Model for the Probility of Multiple Heuristics for Intervals with Means
 
-Maybe the issues we are having are unique to the HOPs condition, where the heuristics we've identified so far don't seem to describe user behavior.
+Maybe the issues we are having are unique to the HOPs condition, where the heuristics we've identified so far don't seem to describe user behavior. However, I doubt that the issue is the precision of the heuristics with regard to the true data generating process since we just tested the model with fake data generated from a process matching the heuristics from the HOPs condition.
 
 Next, let's build a hierarchical model for the intervales with means condition, where the heuristic estimates are similarly overlapping but also better matched with the empirical distribution of worker responses. This model is equivalent to the model in the previous section, but it posits a different set of alternative heuristics which are relevant to intervals with means.
 
@@ -1119,14 +1131,14 @@ Check diagnostics:
 
 ```{r}
 # trace plots
-traceplot(m.intervals_w_means.multi_heuristic_hier, pars = c('mu_lo_heuristic','sigma_scale','sigma_err'))
+traceplot(m.intervals_w_means.multi_heuristic_hier, pars = c('mu_lo_heuristic','Sigma','sigma_err'))
 ```
 
 - Pairs plot
 
 ```{r}
 # pairs plot
-pairs(m.intervals_w_means.multi_heuristic_hier, pars = c('mu_lo_heuristic','sigma_scale','sigma_err'))
+pairs(m.intervals_w_means.multi_heuristic_hier, pars = c('mu_lo_heuristic','sigma_err'))
 ```
 
 - Summary
@@ -1141,7 +1153,21 @@ Let's plot the population level estimates for the probability of each heuristic.
 ```{r}
 # plot transformed posterior predictions for probability of each heuristic
 m.intervals_w_means.multi_heuristic_hier %>%
-  spread_draws(p_heuristic_hat[heuristic]) %>%
+  spread_draws(mu_p_heuristic[heuristic]) %>%
+  ggplot(aes(y=heuristic, x=mu_p_heuristic)) +
+  geom_halfeyeh() + 
+  labs(
+    subtitle = "Posterior estimate of the probability of each heuristic"
+  ) +
+  theme(panel.grid = element_blank())
+```
+
+Let's also check posterior predictive distributions for the probability of each heuristic aggregated across trials.
+
+```{r}
+# plot transformed posterior predictions for probability of each heuristic
+m.intervals_w_means.multi_heuristic_hier %>%
+  spread_draws(p_heuristic_hat[1:n,heuristic]) %>%
   ggplot(aes(y=heuristic, x=p_heuristic_hat)) +
   geom_halfeyeh() + 
   labs(
@@ -1165,39 +1191,176 @@ m.intervals_w_means.multi_heuristic_hier %>%
   facet_wrap(. ~ worker)
 ```
 
-##Linear Log Odds Model (Plan B)
+
+##Running the Hierarchical Model for Fake Data Under Ideal Circumstances
+
+At this point, it seems very likely that the reason our model is not differentiating the probabilities of alternative heuristics has to do with the fact that the heuristic estimates are highly overlapping, making it difficult for the model to say which heuristic submodel is more likely to have produced a given data point. This should not be the case when heuristics are sufficiently different in the responses they predict.
+
+Let's see if the model works for a mixture of two very different distributions which should be separable when we have plenty of observations per participant.
+
+###Simulate Fake Data
+
+Let's start by creating some fake data with many trials per participant. We'll create the data as a mixture between the ground truth and a strategy of responding that CLES is 100% on every trial.
+
+```{r}
+# parameters to recover
+p_heuristic <- c(0.2, 0.8) # population probabilities of each heuristic
+Sigma <- matrix(c(1, .1, .1, 1), 2, 2) # covariance matrix
+sigma_err <- 1 # residual error in log odds units
+
+# number of trials per participant (should be a multiple of 20 data conditions)
+n_trials_per_worker <- 200
+n_trial_scalar <- n_trials_per_worker / 20
+
+# heuristic predictions on each trial: ground_truth vs guess_one
+heuristics_df_hops <- stimuli_data_df %>% rowwise() %>% 
+  mutate( # heuristic functions
+    ground_truth = odds_of_victory * 100,
+    guess_one = 99.75
+  ) %>% 
+  gather(heuristic, heuristic_est, ground_truth, guess_one) %>% # reshape
+  rename(ground_truth = odds_of_victory) %>%
+  select(worker_id, sd_diff, ground_truth, heuristic, heuristic_est)
+
+# calculate p_heuristic per worker (add hierarchy)
+fake_worker_params_df <- model_df_hops %>%
+  select(worker_id) %>%
+  distinct(worker_id) %>%
+  rowwise() %>%
+  mutate(mu_lo_heuristic_worker = list(MASS::mvrnorm(n(), qlogis(p_heuristic), Sigma))) %>% # intermediate calculation: draws from multivariate normal
+  mutate(
+    p_heuristic_worker = list(softmax(mu_lo_heuristic_worker)), # what we use to simulate observations for each worker
+    mu_lo_heuristic_worker = NULL
+  )
+
+# fake data
+fake_df_ideal <- model_df_hops %>%
+  left_join(fake_worker_params_df, by="worker_id") %>%
+  slice(rep(1:n(), each=n_trial_scalar)) %>%
+  rowwise() %>%
+  mutate(heuristic = sample(x=c("ground_truth", "guess_one"), size = n(), replace=TRUE, prob=p_heuristic_worker)) %>% # sample heuristic to use on each trial
+  left_join(heuristics_df_hops, by=c("worker_id", "sd_diff", "ground_truth", "heuristic")) %>% # add heuristic estimates to model_df
+  select(-cles) %>% # remove actual responses 
+  mutate(
+    lo_cles = qlogis(heuristic_est / 100) + rnorm(n(), 0, sigma_err), # likelihood function
+    cles = plogis(lo_cles) * 100 # simulated responses from known data generating process
+  )
+```
+
+Now, we prep this data for Stan.
+
+```{r}
+# create data list
+fakedata_ideal_multi_hier <- list(
+  n=length(fake_df_ideal$trial),                         # total observations (i.e., trials)
+  cles=fake_df_ideal$cles,                               # the worker's response on each trial
+  ground_truth=fake_df_ideal$ground_truth,               # the ground truth cles value on each trial
+  n_worker=length(unique(fake_df_ideal$worker_id)),      # number of workers in the sample
+  worker=as.integer(as.factor(fake_df_ideal$worker_id)), # index for worker_id on each trial
+  n_heuristic=2,                                         # the number of alternative heuristics we model
+  heuristic=1:2                                         # index for each heuristic
+)
+```
+
+###Fit the Model
+
+The model is in the file "stan/ideal_multi-heuristic-hier.stan". We'll compile the stan code, convert to a model object, and then fit the model.
+
+```{r echo=FALSE}
+# compile stan code and create model object
+stan_model = stan_model("stan/ideal_multi-heuristic-hier.stan")
+```
+
+```{r}
+# fit model
+m.fake.ideal.multi_heuristic_hier <- sampling(stan_model, data=fakedata_ideal_multi_hier, control=list(adapt_delta=0.99, max_treedepth=20), chain=2, cores=2)
+```
+
+Check diagnostics:
+
+- Trace plots
+
+```{r}
+# trace plots
+traceplot(m.fake.ideal.multi_heuristic_hier, pars = c('mu_lo_heuristic','Sigma','sigma_err'))
+```
+
+- Pairs plot
+
+```{r}
+# pairs plot
+pairs(m.fake.ideal.multi_heuristic_hier, pars = c('mu_lo_heuristic','sigma_err'))
+```
+
+- Summary
+
+```{r}
+# model summary
+print(m.fake.ideal.multi_heuristic_hier)
+```
+
+How did we do at recovering the fake values for p_heuristic? Let's plot the population level estimates for the probability of each heuristic to find out.
+
+```{r}
+# plot transformed posterior predictions for probability of each heuristic
+m.fake.ideal.multi_heuristic_hier %>%
+  spread_draws(mu_p_heuristic[heuristic]) %>%
+  ggplot(aes(y=heuristic, x=mu_p_heuristic)) +
+  geom_halfeyeh() + 
+  labs(
+    subtitle = "Posterior estimate of the probability of each heuristic"
+  ) +
+  theme(panel.grid = element_blank())
+```
+
+Let's also check posterior predictive distributions for the probability of each heuristic aggregated across trials.
+
+```{r}
+# plot transformed posterior predictions for probability of each heuristic
+m.fake.ideal.multi_heuristic_hier %>%
+  spread_draws(p_heuristic_hat[1:n,heuristic]) %>%
+  ggplot(aes(y=heuristic, x=p_heuristic_hat)) +
+  geom_halfeyeh() + 
+  labs(
+    subtitle = "Posterior predictive distribution for the probability of each heuristic"
+  ) +
+  theme(panel.grid = element_blank())
+```
+
+For reference let's look at the distribution of the simulated data.
+
+```{r}
+fake_df_ideal %>% ggplot(aes(x = qlogis(ground_truth), y = qlogis(cles / 100))) +
+  geom_point(alpha=0.2) +
+  labs(subtitle = "Simulated responses vs ground truth") +
+  theme(panel.grid = element_blank())
+```
+
+
+
+#Linear Log Odds Model (Plan B)
 
 To get a sense of what we can infer from the data, we fit a linear model of CLES judgments vs the ground truth in log odds units. This model follows from [related work](https://www.frontiersin.org/articles/10.3389/fnins.2012.00001/full) suggesting that the human perception of probability is encoded on a log odds scale. On this scale, the slope of a linear model represents the shape and severity of the function describing bias in probability perception. The greater the deviation of from a slope of 1 (i.e., ideal performance), the more biased the judgments of probability. Slopes less than one correspond to the kind of bias predicted by excessive attention to the mean. On the same log odds scale, the intercept is a crossover-point which should be proportional to the number of categories of possible outcomes among which probability is divided. In our case, the intercept should be about 0.5 since workers are judging the probability of team A vs team B winning a round of a simulated game.
 
-###Prepare Data for Modeling
+We'll use the brms package for this model since it is relatively more orthodox than our models of the probability of alternative heuristics, and we do not really need to customize our likelihood function.
+
+
+##Prepare Data for Modeling
 
 Convert response and ground truth units to log odds.
 
 ```{r}
-# # convert p to log odds (use qlogis)
-# logit <- function(p) {
-#   return(log(p) / log(1 - p))
-# }
-# # convert log odds to p (use plogis)
-# inv_logit <- function(lo) {
-#   return(exp(lo) / (1 + exp(lo)))
-# }
-
 # apply logit function to cles judgments and ground truth
 model_df_llo <- model_df %>%
   mutate(
-    # lo_cles=logit(cles / 100),
-    # lo_ground_truth=logit(ground_truth)
     lo_cles=qlogis(cles / 100),
-    lo_ground_truth=qlogis(ground_truth)
+    lo_ground_truth=qlogis(ground_truth),
+    sd_diff=as.factor(sd_diff)
   )
 ```
 
-###Create and Run the Model in BRMs
 
-We'll use the brms package for this model since it is relatively more orthodox than our models of the probability of alternative heuristics, and we do not really need to customize our likelihood function.
-
-####Distribution of CLES
+##Distribution of CLES
 
 We start as simple as possible by just modeling the distribution of CLES on the log odds scale.
 
@@ -1282,7 +1445,8 @@ model_df_llo %>%
   theme(panel.grid = element_blank())
 ```
 
-####Linear Log Odds Model of CLES
+
+##Linear Log Odds Model of CLES
 
 Now well add in a slope parameter. Hopefully, this will reduce the residual variance.
 
@@ -1343,21 +1507,7 @@ pairs(m.llo_cles)
 print(m.llo_cles)
 ```
 
-- Posterior draws
-
-```{r}
-# get posterior draws
-post <- posterior_samples(m.llo_cles)
-
-# get summary stats on distribution of each parameter
-post %>% 
-  select(-lp__) %>% # drop log probability of posterior draws
-  gather(parameter) %>%
-  group_by(parameter) %>%
-  mean_qi(value)
-```
-
-- Posterior predictive distribution. 
+Let's check out a posterior predictive distribution for CLES. 
 
 ```{r}
 # posterior predictive check
@@ -1371,26 +1521,9 @@ model_df_llo %>%
   labs(subtitle = "Posterior predictive distribution for CLES",
        post_cles = NULL) +
   theme(panel.grid = element_blank())
-
-# post %>% # It doesn't seem right that this is so asymmetrical.
-#   mutate( # add sampled values of lo_ground_truth to table
-#     lo_ground_truth = list(qlogis(unique(stimuli_data_df$odds_of_victory)))
-#   ) %>% 
-#   unnest() %>%
-#   mutate( # run posterior samples through model
-#     mu = b_Intercept + b_lo_ground_truth * lo_ground_truth,
-#     post_lo_cles = rnorm(mu, sigma),
-#     post_cles = plogis(post_lo_cles)
-#   ) %>%
-#   ggplot(aes(x=post_cles)) +
-#   geom_density(fill = "black", size = 0) +
-#   scale_y_continuous(NULL, breaks = NULL) +
-#   labs(subtitle = "Posterior predictive distribution for CLES",
-#        post_cles = NULL) +
-#   theme(panel.grid = element_blank())
 ```
 
-How does the posterior predictive compare to the observed data? The posterior predictive seems too wide.
+The posterior predictive distributions seems too wide. How does the posterior predictions compare to the observed data?
 
 ```{r}
 # data density
@@ -1403,13 +1536,18 @@ model_df_llo %>%
   theme(panel.grid = element_blank())
 ```
 
+This seems to suggest that the data generating process is a 50% inflated mixture.
 
 Let's take a look at some of the estimated linear models.
 
 ```{r}
+# get posterior samples
+post  <- posterior_samples(m.llo_cles)
+
 # plot estimated linear models against observed data
 model_df_llo %>%
 ggplot(aes(x = lo_ground_truth, y = lo_cles)) +
+  geom_abline(intercept = 0, slope = 1, size = 1, alpha = .3, color = "red", linetype = "dashed") + # ground truth
   geom_abline(intercept = post[1:20, 1],
               slope     = post[1:20, 2],
               size = 1/3, alpha = .3) +
@@ -1421,10 +1559,376 @@ ggplot(aes(x = lo_ground_truth, y = lo_cles)) +
 ```
 
 
+##Add Different Linear Models per Visualization Condition
 
-<!-- ```{r} -->
-<!-- # compile stan code to C++ -->
-<!-- stan_code = stanc("stan/linear-log-odds.stan") -->
-<!-- # fit model -->
-<!-- m = sampling(stan_code, data=compose_data(model_df), control=list(adapt_delta=0.99)) -->
-<!-- ``` -->
+In the LLO framework, what we really want to know about is the impact of visualization condition on the slopes of linear models in log odds space. Do some visualizations lead to more extreme patterns of bias than others? To test this, we'll add an interaction between visualization condition and the ground truth.
+
+```{r}
+# update the llo model of cles responses to include an interaction
+m.vis.llo_cles <- update(m.llo_cles, 
+                         # formula = lo_cles ~ 1 + lo_ground_truth + condition + lo_ground_truth:condition,
+                         formula = lo_cles ~ 1 + lo_ground_truth + lo_ground_truth:condition,
+                         newdata = model_df_llo)
+```
+
+Check diagnostics:
+
+- Trace plots
+
+```{r}
+# trace plots
+plot(m.vis.llo_cles)
+```
+
+- Pairs plot
+
+```{r}
+# pairs plot
+pairs(m.vis.llo_cles)
+```
+
+- Summary
+
+```{r}
+# model summary
+print(m.vis.llo_cles)
+```
+
+Let's check out a posterior predictive distribution for CLES. This should look more like a mixture with different slopes, but it still looks really wide.
+
+```{r}
+# posterior predictive check
+model_df_llo %>%
+  select(lo_ground_truth,condition) %>%
+  add_predicted_draws(m.vis.llo_cles, prediction = "lo_cles", seed = 1234) %>%
+  mutate(post_cles = plogis(lo_cles)) %>%
+  ggplot(aes(x=post_cles)) +
+  geom_density(fill = "black", size = 0) +
+  scale_y_continuous(NULL, breaks = NULL) +
+  labs(subtitle = "Posterior predictive distribution for CLES",
+       post_cles = NULL) +
+  theme(panel.grid = element_blank())
+```
+
+What do the posterior for the effect of each visualization condition look like?
+
+```{r}
+# use posterior samples to define distributions for the slope in each visualization condition
+posterior_samples(m.vis.llo_cles) %>%
+  transmute(slope_HOPs = b_lo_ground_truth,
+            slope_intervals_w_means = b_lo_ground_truth + `b_lo_ground_truth:conditionintervals_w_means`,
+            slope_means_only = b_lo_ground_truth + `b_lo_ground_truth:conditionmeans_only`) %>%
+  gather(key, value) %>%
+  ggplot(aes(x = value, group = key, color = key, fill = key)) +
+  geom_density(alpha = 0.3) +
+  scale_fill_brewer(type = "qual", palette = 1) +
+  scale_color_brewer(type = "qual", palette = 1) +
+  scale_x_continuous(expression(slope), expand = c(0, 0)) +
+  scale_y_continuous(NULL, breaks = NULL) +
+  labs(subtitle = "Posterior for slopes by visualization condition") +
+  theme(panel.grid = element_blank())
+```
+
+This suggests that users are more biased toward responses of 50% when the mean is visually salient.
+
+Let's take a look at some of the estimated linear models per visualization condition.
+
+```{r}
+# set up new dataframe for prediction
+nd <- tibble(lo_ground_truth = seq(from = quantile(model_df_llo$lo_ground_truth, 0), to = quantile(model_df_llo$lo_ground_truth, 1), length.out = 30) %>% 
+         rep(., times = 3),
+         condition = rep(unique(model_df_llo$condition), each = 30))
+
+# pass our new predictive dataframe through our fitted model
+fitd_m.vis.llo_cles <- fitted(m.vis.llo_cles, newdata = nd) %>%
+  as_tibble() %>%
+  bind_cols(nd)
+```
+
+```{r}
+# plot estimated linear models against observed data
+model_df_llo %>%
+  ggplot(aes(x = lo_ground_truth)) +
+  geom_abline(intercept = 0, slope = 1, size = 1, alpha = .3, color = "red", linetype = "dashed") + # ground truth
+  geom_ribbon(data = fitd_m.vis.llo_cles,
+              aes(ymin  = Q2.5, 
+                  ymax  = Q97.5,
+                  fill  = condition,
+                  group = condition),
+              alpha = .25) +
+  geom_line(data = fitd_m.vis.llo_cles,
+              aes(y     = Estimate, 
+                  color = condition,
+                  group = condition)) +
+  geom_point(aes(y = lo_cles, color = condition)) +
+    scale_fill_brewer(type = "qual", palette = 1) +
+  scale_color_brewer(type = "qual", palette = 1) +
+  coord_cartesian(xlim = quantile(model_df_llo$lo_ground_truth, c(0, 1)),
+                  ylim = quantile(model_df_llo$lo_cles, c(0, 1))) +
+  theme_bw() +
+  theme(panel.grid = element_blank()) +
+  facet_grid(. ~ condition)
+```
+
+This looks pretty promising, but let's see if we can parse some of the variability into error vs individual variability in slopes.
+
+
+##Add Hierarchy for Slopes
+
+In the LLO framework, what we really want to know about is the impact of visualization condition on the slopes of linear models in log odds space. Do some visualizations lead to more extreme patterns of bias than others? To test this, we'll add an interaction between visualization condition and the ground truth.
+
+```{r}
+# update the llo model of cles responses to include an interaction
+m.vis.wrkr.llo_cles <- update(m.llo_cles, 
+                         # formula = lo_cles ~ 1 + (lo_ground_truth|worker_id) + condition + lo_ground_truth:condition,
+                         formula = lo_cles ~ 1 + (lo_ground_truth|worker_id) + lo_ground_truth:condition,
+                         newdata = model_df_llo)
+```
+
+Check diagnostics:
+
+- Trace plots
+
+```{r}
+# trace plots
+plot(m.vis.wrkr.llo_cles)
+```
+
+- Pairs plot
+
+```{r}
+# pairs plot
+pairs(m.vis.wrkr.llo_cles)
+```
+
+- Summary
+
+```{r}
+# model summary
+print(m.vis.wrkr.llo_cles)
+```
+
+Let's check out a posterior predictive distribution for CLES. This distribution is looking narrower than in previous iterations of the model, which suggests that individual variation in slopes accounts for some (but not all) of the 50% responses.
+
+```{r}
+# posterior predictive check
+model_df_llo %>%
+  select(lo_ground_truth,condition,worker_id) %>%
+  add_predicted_draws(m.vis.wrkr.llo_cles, prediction = "lo_cles", seed = 1234) %>%
+  mutate(post_cles = plogis(lo_cles)) %>%
+  ggplot(aes(x=post_cles)) +
+  geom_density(fill = "black", size = 0) +
+  scale_y_continuous(NULL, breaks = NULL) +
+  labs(subtitle = "Posterior predictive distribution for CLES",
+       post_cles = NULL) +
+  theme(panel.grid = element_blank())
+```
+
+What do the posterior for the effect of each visualization condition look like?
+
+```{r}
+# use posterior samples to define distributions for the slope in each visualization condition
+posterior_samples(m.vis.wrkr.llo_cles) %>%
+  # transmute(slope_HOPs = `b_conditionHOPs:lo_ground_truth`,
+  #           slope_intervals_w_means = `b_conditionintervals_w_means:lo_ground_truth`,
+  #           slope_means_only = `b_conditionmeans_only:lo_ground_truth`) %>%
+  transmute(slope_HOPs = `b_lo_ground_truth:conditionHOPs`,
+            slope_intervals_w_means = `b_lo_ground_truth:conditionintervals_w_means`,
+            slope_means_only = `b_lo_ground_truth:conditionmeans_only`) %>%
+  gather(key, value) %>%
+  ggplot(aes(x = value, group = key, color = key, fill = key)) +
+  geom_density(alpha = 0.3) +
+  scale_fill_brewer(type = "qual", palette = 1) +
+  scale_color_brewer(type = "qual", palette = 1) +
+  scale_x_continuous(expression(slope), expand = c(0, 0)) +
+  scale_y_continuous(NULL, breaks = NULL) +
+  labs(subtitle = "Posterior for slopes by visualization condition") +
+  theme(panel.grid = element_blank())
+```
+
+The effect we saw earlier is still present.
+
+Let's take a look at some of the estimated linear models per visualization condition.
+
+```{r}
+# this time we'll adopt functions from the tidybayes package to make plotting posterior predictions easier
+model_df_llo %>%
+  group_by(condition,worker_id) %>%
+  data_grid(lo_ground_truth = seq_range(lo_ground_truth, n = 101)) %>%
+  add_predicted_draws(m.vis.wrkr.llo_cles) %>%
+  ggplot(aes(x = lo_ground_truth, y = lo_cles, color = condition, fill = condition)) +
+  geom_abline(intercept = 0, slope = 1, size = 1, alpha = .3, color = "red", linetype = "dashed") + # ground truth
+  stat_lineribbon(aes(y = .prediction), .width = c(.95, .80, .50), alpha = 1/4) +
+  geom_point(data = model_df_llo) +
+  scale_fill_brewer(type = "qual", palette = 1) +
+  scale_color_brewer(type = "qual", palette = 1) + 
+  coord_cartesian(xlim = quantile(model_df_llo$lo_ground_truth, c(0, 1)),
+                  ylim = quantile(model_df_llo$lo_cles, c(0, 1))) +
+  theme_bw() +
+  theme(panel.grid = element_blank()) + 
+  facet_grid(. ~ condition)
+```
+
+What does this look like in probability units?
+
+```{r}
+# this time we'll adopt functions from the tidybayes package to make plotting posterior predictions easier
+model_df_llo %>%
+  group_by(condition,worker_id) %>%
+  data_grid(lo_ground_truth = seq_range(lo_ground_truth, n = 101)) %>%
+  add_predicted_draws(m.vis.wrkr.llo_cles) %>%
+  ggplot(aes(x = plogis(lo_ground_truth), y = plogis(lo_cles), color = condition, fill = condition)) +
+  geom_abline(intercept = 0, slope = 1, size = 1, alpha = .3, color = "red", linetype = "dashed") + # ground truth
+  stat_lineribbon(aes(y = plogis(.prediction)), .width = c(.95, .80, .50), alpha = 1/4) +
+  geom_point(data = model_df_llo) +
+  scale_fill_brewer(type = "qual", palette = 1) +
+  scale_color_brewer(type = "qual", palette = 1) + 
+  coord_cartesian(xlim = quantile(plogis(model_df_llo$lo_ground_truth), c(0, 1)),
+                  ylim = quantile(plogis(model_df_llo$lo_cles), c(0, 1))) +
+  theme_bw() +
+  theme(panel.grid = element_blank()) + 
+  facet_grid(. ~ condition)
+```
+
+This is very promising, but there are areas of high posterior density in the interals_w_means and means_only conditions where there are no observations. Maybe adding the level of uncertainty shown in each plot to the model will improve the fit?
+
+
+##Add an Interaction Between the Level of Uncertainty in the Data and Slopes 
+
+```{r}
+# update the llo model of cles responses to include an interaction
+m.vis.sd.wrkr.llo_cles <- update(m.llo_cles, 
+                         formula = lo_cles ~ 1 + (lo_ground_truth|worker_id) + lo_ground_truth:condition:sd_diff,
+                         newdata = model_df_llo)
+```
+
+Check diagnostics:
+
+- Trace plots
+
+```{r}
+# trace plots
+plot(m.vis.sd.wrkr.llo_cles)
+```
+
+- Pairs plot
+
+```{r}
+# pairs plot
+pairs(m.vis.sd.wrkr.llo_cles)
+```
+
+- Summary
+
+```{r}
+# model summary
+print(m.vis.sd.wrkr.llo_cles)
+```
+
+Let's check out a posterior predictive distribution for CLES. This still looks too wide considering the number of 50% responses we see in the data.
+
+```{r}
+# posterior predictive check
+model_df_llo %>%
+  select(lo_ground_truth,condition,sd_diff,worker_id) %>%
+  add_predicted_draws(m.vis.sd.wrkr.llo_cles, prediction = "lo_cles", seed = 1234) %>%
+  mutate(post_cles = plogis(lo_cles)) %>%
+  ggplot(aes(x=post_cles)) +
+  geom_density(fill = "black", size = 0) +
+  scale_y_continuous(NULL, breaks = NULL) +
+  labs(subtitle = "Posterior predictive distribution for CLES",
+       post_cles = NULL) +
+  theme(panel.grid = element_blank())
+```
+
+What do the posterior for the effect of each visualization condition look like?
+
+```{r}
+# use posterior samples to define distributions for the slope in each visualization condition
+posterior_samples(m.vis.sd.wrkr.llo_cles) %>%
+  transmute(slope_HOPs = `b_lo_ground_truth:conditionHOPs:sd_diff1` + `b_lo_ground_truth:conditionHOPs:sd_diff5`,
+            slope_intervals_w_means = `b_lo_ground_truth:conditionintervals_w_means:sd_diff1` + `b_lo_ground_truth:conditionintervals_w_means:sd_diff5`,
+            slope_means_only = `b_lo_ground_truth:conditionmeans_only:sd_diff1` + `b_lo_ground_truth:conditionmeans_only:sd_diff5`) %>%
+  gather(key, value) %>%
+  ggplot(aes(x = value, group = key, color = key, fill = key)) +
+  geom_density(alpha = 0.3) +
+  scale_fill_brewer(type = "qual", palette = 1) +
+  scale_color_brewer(type = "qual", palette = 1) +
+  scale_x_continuous(expression(slope), expand = c(0, 0)) +
+  scale_y_continuous(NULL, breaks = NULL) +
+  labs(subtitle = "Posterior for slopes by visualization condition") +
+  theme(panel.grid = element_blank())
+```
+
+Let's take a look at some of the estimated linear models per visualization condition.
+
+```{r}
+# this time we'll adopt functions from the tidybayes package to make plotting posterior predictions easier
+model_df_llo %>%
+  group_by(condition,sd_diff,worker_id) %>%
+  data_grid(lo_ground_truth = seq_range(lo_ground_truth, n = 101)) %>%
+  add_predicted_draws(m.vis.sd.wrkr.llo_cles) %>%
+  ggplot(aes(x = lo_ground_truth, y = lo_cles, color = condition, fill = condition)) +
+  geom_abline(intercept = 0, slope = 1, size = 1, alpha = .3, color = "red", linetype = "dashed") + # ground truth
+  stat_lineribbon(aes(y = .prediction), .width = c(.95, .80, .50), alpha = 1/4) +
+  geom_point(data = model_df_llo) +
+  scale_fill_brewer(type = "qual", palette = 1) +
+  scale_color_brewer(type = "qual", palette = 1) + 
+  coord_cartesian(xlim = quantile(model_df_llo$lo_ground_truth, c(0, 1)),
+                  ylim = quantile(model_df_llo$lo_cles, c(0, 1))) +
+  theme_bw() +
+  theme(panel.grid = element_blank()) + 
+  facet_grid(. ~ condition)
+```
+
+What does this look like in probability units?
+
+```{r}
+model_df_llo %>%
+  group_by(condition,sd_diff,worker_id) %>%
+  data_grid(lo_ground_truth = seq_range(lo_ground_truth, n = 101)) %>%
+  add_predicted_draws(m.vis.sd.wrkr.llo_cles) %>%
+  ggplot(aes(x = plogis(lo_ground_truth), y = plogis(lo_cles), color = condition, fill = condition)) +
+  geom_abline(intercept = 0, slope = 1, size = 1, alpha = .3, color = "red", linetype = "dashed") + # ground truth
+  stat_lineribbon(aes(y = plogis(.prediction)), .width = c(.95, .80, .50), alpha = 1/4) +
+  geom_point(data = model_df_llo) +
+  scale_fill_brewer(type = "qual", palette = 1) +
+  scale_color_brewer(type = "qual", palette = 1) + 
+  coord_cartesian(xlim = quantile(plogis(model_df_llo$lo_ground_truth), c(0, 1)),
+                  ylim = quantile(plogis(model_df_llo$lo_cles), c(0, 1))) +
+  theme_bw() +
+  theme(panel.grid = element_blank()) + 
+  facet_grid(sd_diff ~ condition)
+```
+
+This adding an interaction for sd_diff doesn't really fix the problem that our posterior predictions have high density where there are few responses. However it does clarify that the differences between visualization conditions are more pronounced when sd_diff is low.
+
+
+#Use a Mixture to Model the Prevalence of Different Betting Strategies
+
+```{r}
+# prep data
+fake_df_llo_mix <- fake_df_ideal %>%
+  select(worker_id,sd_diff,ground_truth,condition,cles) %>%
+  mutate(
+    lo_cles=qlogis(cles / 100),
+    lo_ground_truth=qlogis(ground_truth),
+    sd_diff=as.factor(sd_diff)
+  )
+
+# fit the model
+m.fake.llo_mix <- brm(
+  bf(lo_cles ~ 1, mu1 ~ (lo_ground_truth|worker_id), mu2 ~ (1|worker_id), theta2 ~ 1), 
+    data = fake_df_llo_mix,
+    family = mixture(gaussian, gaussian), 
+    prior = c(
+      prior(normal(0, 1), class = Intercept, dpar = mu1),
+      prior(normal(0, 1), class=Intercept, dpar = mu2)
+    ), 
+    inits = 0, chains = 1, cores = 2
+  )
+```
+
+
+
+
