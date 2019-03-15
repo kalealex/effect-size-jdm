@@ -1,0 +1,746 @@
+---
+title: "PilotAnalysis-AttemptAtBuildingHeuristicsModel"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(RColorBrewer)
+library(rstan)
+rstan_options(auto_write = TRUE)
+options(mc.cores = parallel::detectCores())
+library(modelr)
+library(tidybayes)
+library(brms)
+```
+
+In this document, we attempt to build a complex mixture in Stan which is intended to measure the prevalence of a set of heuristics in each visualization condition based on user responses. This was our aspirational model, but it doesn't really work out because the mixture components cannot be differentiated.
+
+We start out with a simple non-hierarchical model for the probability of one heuristic vs ground truth in one visualization condition, HOPs. Then we model the probability of more than one alternative heuristic. Then we'll add hierarchy to that model. Finally, we'll add in the other visualization conditions.
+
+##Prepare Data
+
+We load worker responses from our pilot
+
+```{r}
+# read in data 
+responses_df <- read_csv("pilot-anonymous.csv")
+# rename to convert away from camel case
+responses_df <- responses_df %>%
+  rename(
+    ground_truth=groundTruth,
+    sd_diff=sdDiff,
+    worker_id=workerId,
+    start_time=startTime,
+    resp_time=respTime,
+    trial_dur=trialDur
+  ) %>%
+  mutate(
+    trial_dur = ifelse(trial_dur < 0, 0, trial_dur), # avoid negative trial durations from faulty reconstruction (only one case)
+    cles = ifelse(cles == 0, 0.25, cles),            # avoid responses equal to zero
+    cles = ifelse(cles == 100, 99.75, cles),         # avoid responses equal to one-hundred
+    bet = ifelse(bet == 1000, 999.75, bet)           # avoid responses equal to one-thousand
+  ) 
+
+head(responses_df)
+```
+
+We also load the data that was used to generate the stimuli that users saw in the pilot.
+
+```{r}
+# data used to create stimuli
+load("./conds_df.Rda")
+```
+
+Now, we'll also process this data to prepare it for modeling.
+
+```{r}
+# calcate the difference in draws for the heuristic functions
+draw_differences <- conds_df %>% select(condition, Team, draws) %>% 
+  spread(Team, draws) %>% 
+  unnest() %>% 
+  mutate(
+    draws_diff=B - A, 
+    A=NULL, 
+    B=NULL
+  ) %>% 
+  group_by(condition) %>% 
+  summarise(draws_diff = list(draws_diff[1:50]))
+
+# reformat data conditions df
+stimuli_data_df <- conds_df %>% 
+  filter(Team %in% "A") %>% # drop duplicate rows for two teams
+  left_join(draw_differences, by='condition') %>%
+  mutate( # drop unnecessary columns
+    condition=NULL,
+    Team=NULL, 
+    draws=NULL,
+    draw_n=NULL,
+    quantiles=NULL,
+    sample_n=NULL
+  )
+
+# repeat heuristics data frame for each worker 
+stimuli_data_df <- stimuli_data_df[rep(seq_len(nrow(stimuli_data_df)), times=length(unique(responses_df$worker_id))),]
+stimuli_data_df$worker_id <- sort(rep(unique(responses_df$worker_id), each=(length(unique(responses_df$ground_truth))) * length(unique(responses_df$sd_diff))))
+
+# calculate the baseline of relative mean difference heuristic)
+stimuli_data_df$max_abs_mean_diff <- max(abs(stimuli_data_df$mean_diff))
+```
+
+We need the data in a format where it is prepared for modeling in Stan. We will calculate the heuristic predictions as submodels in Stan, so we just need to get the stimuli-generating data and the worker response data in a single dataframe with one row per worker * trial.
+
+```{r}
+# create data frame for model by merging stimuli-generating data with responses
+model_df <- stimuli_data_df %>%
+  mutate( # create rounded version of ground_truth to merge on, leaving unrounded value stored in odds_of_victory
+    ground_truth=round(odds_of_victory, 3)
+  ) %>%
+  full_join(responses_df, by=c("worker_id", "sd_diff", "ground_truth")) %>%
+  rename( # rename ground_truth columns, so it is clear which is rounded and which should be used in the model
+    ground_truth_rounded=ground_truth,
+    ground_truth=odds_of_victory
+  )
+```
+
+
+##Non-Hierarchical Model of the Probability of the Outcome Proportion Heuristic vs Ground Truth in the HOPs Condition
+
+We start with the simplest possible version of the model we'd like to build. Basically, we are modeling the probability that a worker in the HOPs condition will use the outcome proportion heuristic vs the ground truth. This model does not differentiate between workers (no hierarchy, i.e., random effect of worker), focuses on one visualization condition, and ignores all but two possible heuristics. It is a first step toward a much more sophisticated model.
+
+###Prepare Data List for Modeling in Stan
+
+Include only the HOPs condition.
+
+```{r}
+# filter condition
+model_df_hops <- model_df %>% filter(condition=="HOPs")
+
+# create data list
+data_hops_one <- list(
+  n=length(model_df_hops$trial),                  # total observations (i.e., trials)
+  cles=model_df_hops$cles,                        # the worker's response on each trial
+  ground_truth=model_df_hops$ground_truth,        # the ground truth cles value on each trial
+  n_draws=50,                                     # number of draws displayed in the HOPs per trial
+  # draws=model_df_hops$draws_diff                  # multidimensional array of the difference between draws B - A shown in HOPs trials * draws
+  draws=do.call("rbind",model_df_hops$draws_diff) # trials * draws matrix of the difference between draws B - A shown in HOPs
+)
+```
+
+###Compile and Run the Model
+
+The model is in the file "stan/hops-only_one-heuristic.stan". We'll compile the stan code, convert to a model object, and then fit the model.
+
+```{r echo=FALSE}
+# compile stan code and create model object
+stan_model = stan_model("stan/hops-only_one-heuristic.stan")
+```
+
+```{r}
+# fit model
+m.hops.one_heuristic <- sampling(stan_model, data=data_hops_one, control=list(adapt_delta=0.99), chain=2, cores=2)
+```
+
+Check diagnostics:
+
+- Trace plots
+
+```{r}
+# trace plots
+traceplot(m.hops.one_heuristic, pars = c('p_heuristic', 'sigma'))
+```
+
+- Pairs plot. These look a little skewed, but that might be just because sigma is bounded.
+
+```{r}
+# pairs plot
+pairs(m.hops.one_heuristic, pars = c('p_heuristic', 'sigma'))
+```
+
+- Summary
+
+```{r}
+# model summary
+print(m.hops.one_heuristic)
+```
+
+The model has learned that users seem fairly evenly split between the outcome proportion heuristic and the ground truth when we only allow for those two strategies. The high variability of this estimate suggests that there is a lot of information which is not accounted for by this model (which we would expect since this binary choice of strategy probably does not represent the true data-generating process).
+
+
+##Non-Hierarchical Model of the Probability of Multiple Heuristics in the HOPs Condition
+
+Let's step up the complexity of the model just a little bit by adding in the possibility of additional heuristics. Now, we'll consider as alternative heuristics: the ground truth, outcome proportion, outcome proportion for only the first ten trials, and an ensemble means/spread heuristic. 
+
+Still some important things are missing from this model. The model does not differentiate between workers and focuses on just one visualization condition. We will add in these additional considerations in later iterations.
+
+###Prepare Data List for Modeling in Stan
+
+```{r}
+# create data list
+data_hops_multi <- list(
+  n=length(model_df_hops$trial),                  # total observations (i.e., trials)
+  cles=model_df_hops$cles,                        # the worker's response on each trial
+  ground_truth=model_df_hops$ground_truth,        # the ground truth cles value on each trial
+  n_heuristic=4,                                  # the number of alternative heuristics we model
+  n_draws=50,                                     # number of draws displayed in the HOPs per trial
+  draws=do.call("rbind",model_df_hops$draws_diff) # trials * draws matrix of the difference between draws B - A shown in HOPs
+)
+```
+
+###Compile and Run the Model
+
+The model is in the file "stan/hops-only_multi-heuristic.stan". We'll compile the stan code, convert to a model object, and then fit the model.
+
+```{r echo=FALSE}
+# compile stan code and create model object
+stan_model = stan_model("stan/hops-only_multi-heuristic.stan")
+```
+
+```{r}
+# fit model
+m.hops.multi_heuristic <- sampling(stan_model, data=data_hops_multi, control=list(adapt_delta=0.99), chain=2, cores=2)
+```
+
+Check diagnostics:
+
+- Trace plots
+
+```{r}
+# trace plots
+traceplot(m.hops.multi_heuristic)
+```
+
+- Pairs plot. These look a little skewed again perhaps because sigma and p_heuristic are bounded. The strong correlation between mu_lo_heuristic and p_heuristic is expected since p_heuristic = softmax(mu_lo_heuristic).
+
+```{r}
+# pairs plot
+pairs(m.hops.multi_heuristic, pars = c('mu_lo_heuristic','sigma','p_heuristic'))
+```
+
+- Summary
+
+```{r}
+# model summary
+print(m.hops.multi_heuristic)
+```
+
+Again, the model seems to have learned a fairly even split between heuristics such that the mean of the posteriors for p_heuristic ~= 1 / n_heuristic. Note that these estimates are pretty uncertain.
+
+
+##Hierarchical Model of the Probability of Multiple Heuristics in the HOPs Condition
+
+To make our model more realistic, we really need to account for the identities of different users so our model can account for individual differences in strategy. Now, we'll allow the set of probabilities for each heuristic to vary from worker-to-worker, and we will learn population level parameters which describe the global pattern of behavior across individuals.
+
+This model still focuses on just one visualization condition (HOPs).
+
+###Prepare Data List for Modeling in Stan
+
+```{r}
+# create data list
+data_hops_multi_hier <- list(
+  n=length(model_df_hops$trial),                         # total observations (i.e., trials)
+  cles=model_df_hops$cles,                               # the worker's response on each trial
+  ground_truth=model_df_hops$ground_truth,               # the ground truth cles value on each trial
+  n_worker=length(unique(model_df_hops$worker_id)),      # number of workers in the sample
+  worker=as.integer(as.factor(model_df_hops$worker_id)), # index for worker_id on each trial
+  n_heuristic=4,                                         # the number of alternative heuristics we model
+  heuristic=1:4,                                         # index for each heuristic
+  n_draws=50,                                            # number of draws displayed in the HOPs per trial
+  draws=do.call("rbind",model_df_hops$draws_diff)        # trials * draws matrix of the difference between draws B - A shown in HOPs
+)
+```
+
+###Compile and Run the Model
+
+The model is in the file "stan/hops-only_multi-heuristic-hier.stan". We'll compile the stan code, convert to a model object, and then fit the model.
+
+```{r echo=FALSE}
+# compile stan code and create model object
+stan_model = stan_model("stan/hops-only_multi-heuristic-hier.stan")
+```
+
+```{r}
+# fit model
+m.hops.multi_heuristic_hier <- sampling(stan_model, data=data_hops_multi_hier, control=list(adapt_delta=0.99, max_treedepth=20), chain=2, cores=2)
+```
+
+Check diagnostics:
+
+- Trace plots
+
+```{r}
+# trace plots
+traceplot(m.hops.multi_heuristic_hier, pars = c('mu_lo_heuristic','Sigma','sigma_err'))
+```
+
+- Pairs plot
+
+```{r}
+# pairs plot
+pairs(m.hops.multi_heuristic_hier, pars = c('mu_lo_heuristic','sigma_err'))
+```
+
+- Summary
+
+```{r}
+# model summary
+print(m.hops.multi_heuristic_hier)
+```
+
+Let's plot the population level estimates for the probability of each heuristic.
+
+```{r}
+# plot transformed posterior predictions for probability of each heuristic
+m.hops.multi_heuristic_hier %>%
+  spread_draws(mu_p_heuristic[heuristic]) %>%
+  ggplot(aes(y=heuristic, x=mu_p_heuristic)) +
+  geom_halfeyeh() + 
+  labs(
+    subtitle = "Posterior estimate of the probability of each heuristic"
+  ) +
+  theme(panel.grid = element_blank())
+```
+
+Let's also check posterior predictive distributions for the probability of each heuristic aggregated across trials.
+
+```{r}
+# plot transformed posterior predictions for probability of each heuristic
+m.hops.multi_heuristic_hier %>%
+  spread_draws(p_heuristic_hat[1:n,heuristic]) %>%
+  ggplot(aes(y=heuristic, x=p_heuristic_hat)) +
+  geom_halfeyeh() + 
+  labs(
+    subtitle = "Posterior predictive distribution for the probability of each heuristic"
+  ) +
+  theme(panel.grid = element_blank())
+```
+
+It seems like this model is not finding that any one heuristic is more likely than the others overall. Let's check on the estimates for individual subjects.
+
+```{r}
+# plot transformed posterior predictions for probability of each heuristic
+m.hops.multi_heuristic_hier %>%
+  spread_draws(p_heuristic[worker, heuristic]) %>%
+  ggplot(aes(y=heuristic, x=p_heuristic)) +
+  geom_halfeyeh() + 
+  labs(
+    subtitle = "Posterior distribution for the probability of each heuristic per worker"
+  ) +
+  theme(panel.grid = element_blank()) +
+  facet_wrap(. ~ worker)
+```
+
+##Running the Hierarchical Model for the HOPs Condition with Fake Data
+
+At this point, we need to understand why p_heuristic is consistently roughly equal to one divided by the number of strategies. One possible reason is that the estimates from our heuristics are too similar for the model to differentiate which pattern has produced the response on a given trial. A second possibility is that our heuristics are misspecified such that they do not account for user behavior and need to be reconsidered. We can differentiate these two possibilities by running our model with fake data. If the model is not successful in recovering fake p_heuristic values when we control the data generating process to match our heuristics, then we know our heuristics are not differentiable by the model. On the other hand, if the model is effective in recovering fake ground truth values for p_heuristic, we will know that the heuristics are differentiable but that they do not adequately capture the data generating process. 
+
+###Simulate Fake Data
+
+Let's start by creating some fake data. We'll simulate 200 trials per worker to see if the model would work with a large amount of data.
+
+```{r}
+# parameters to recover
+p_heuristic <- c(0.2, 0.4, 0.1, 0.3) # population probabilities of each heuristic
+Sigma <- matrix(c(1, .1, .1, .1, .1,  1, .1, .1, .1, .1, 1, .1, .1, .1, .1,  1), 4, 4) # covariance matrix
+sigma_err <- 1 # residual error in log odds units
+
+# number of trials per participant (should be a multiple of 20 data conditions)
+n_trials_per_worker <- 200
+n_trial_scalar <- n_trials_per_worker / 20
+
+# softmax function
+softmax <- function(x) {
+  return(exp(x) / sum(exp(x)))
+}
+
+# heuristic predictions for HOPs data on each trial
+heuristics_df_hops <- stimuli_data_df %>% rowwise() %>% 
+  mutate( # call heuristic functions
+    ground_truth = odds_of_victory * 100,
+    outcome_proportion = outcome_proportion(draws_diff),
+    outcome_proportion_10 = outcome_proportion(draws_diff[1:10]), # outcome proportion with only the first 10 draws
+    ensemble_means_over_uncertainty = means_first_then_uncertainty_hops(draws_diff)
+  ) %>% 
+  gather(heuristic, heuristic_est, ground_truth, outcome_proportion, outcome_proportion_10, ensemble_means_over_uncertainty) %>% # reshape
+  # mutate(ground_truth_rounded = round(odds_of_victory, 3)) %>% # for join
+  rename(ground_truth = odds_of_victory) %>%
+  select(worker_id, sd_diff, ground_truth, heuristic, heuristic_est)
+
+# calculate p_heuristic per worker (add hierarchy)
+fake_worker_params_df <- model_df_hops %>%
+  select(worker_id) %>%
+  distinct(worker_id) %>%
+  rowwise() %>%
+  mutate(mu_lo_heuristic_worker = list(MASS::mvrnorm(n(), qlogis(p_heuristic), Sigma))) %>% # intermediate calculation: draws from multivariate normal
+  mutate(
+    p_heuristic_worker = list(softmax(mu_lo_heuristic_worker)), # what we use to simulate observations for each worker
+    mu_lo_heuristic_worker = NULL
+  )
+
+# fake data
+fake_df_hops <- model_df_hops %>%
+  left_join(fake_worker_params_df, by="worker_id") %>%
+  slice(rep(1:n(), each=n_trial_scalar)) %>%
+  rowwise() %>%
+  mutate(heuristic = sample(x=c("ground_truth", "outcome_proportion", "outcome_proportion_10", "ensemble_means_over_uncertainty"), size = n(), replace=TRUE, prob=p_heuristic_worker)) %>% # sample heuristic to use on each trial
+  left_join(heuristics_df_hops, by=c("worker_id", "sd_diff", "ground_truth", "heuristic")) %>% # add heuristic estimates to model_df
+  select(-cles) %>% # remove actual responses 
+  mutate(
+    lo_cles = qlogis(heuristic_est / 100) + rnorm(n(), 0, sigma_err), # likelihood function
+    cles = plogis(lo_cles) * 100 # simulated responses from known data generating process
+  )
+```
+
+Now, we prep this data for Stan.
+
+```{r}
+# create data list
+fakedata_hops_multi_hier <- list(
+  n=length(model_df_hops$trial),                         # total observations (i.e., trials)
+  cles=model_df_hops$cles,                               # the worker's response on each trial
+  ground_truth=model_df_hops$ground_truth,               # the ground truth cles value on each trial
+  n_worker=length(unique(model_df_hops$worker_id)),      # number of workers in the sample
+  worker=as.integer(as.factor(model_df_hops$worker_id)), # index for worker_id on each trial
+  n_heuristic=4,                                         # the number of alternative heuristics we model
+  heuristic=1:4,                                         # index for each heuristic
+  n_draws=50,                                            # number of draws displayed in the HOPs per trial
+  draws=do.call("rbind",model_df_hops$draws_diff)        # trials * draws matrix of the difference between draws B - A shown in HOPs
+)
+```
+
+###Fit the Model
+
+The model is in the file "stan/hops-only_multi-heuristic-hier.stan". We'll compile the stan code, convert to a model object, and then fit the model.
+
+```{r echo=FALSE}
+# compile stan code and create model object
+stan_model = stan_model("stan/hops-only_multi-heuristic-hier.stan")
+```
+
+```{r}
+# fit model
+m.fake.hops.multi_heuristic_hier <- sampling(stan_model, data=fakedata_hops_multi_hier, control=list(adapt_delta=0.99, max_treedepth=20), chain=2, cores=2)
+```
+
+Check diagnostics:
+
+- Trace plots
+
+```{r}
+# trace plots
+traceplot(m.fake.hops.multi_heuristic_hier, pars = c('mu_lo_heuristic','Sigma','sigma_err'))
+```
+
+- Pairs plot
+
+```{r}
+# pairs plot
+pairs(m.fake.hops.multi_heuristic_hier, pars = c('mu_lo_heuristic','sigma_err'))
+```
+
+- Summary
+
+```{r}
+# model summary
+print(m.fake.hops.multi_heuristic_hier)
+```
+
+How did we do at recovering the fake values for p_heuristic? Let's plot the population level estimates for the probability of each heuristic to find out.
+
+```{r}
+# plot transformed posterior predictions for probability of each heuristic
+m.fake.hops.multi_heuristic_hier %>%
+  spread_draws(mu_p_heuristic[heuristic]) %>%
+  ggplot(aes(y=heuristic, x=mu_p_heuristic)) +
+  geom_halfeyeh() + 
+  labs(
+    subtitle = "Posterior estimate of the probability of each heuristic"
+  ) +
+  theme(panel.grid = element_blank())
+```
+
+Let's also check posterior predictive distributions for the probability of each heuristic aggregated across trials.
+
+```{r}
+# plot transformed posterior predictions for probability of each heuristic
+m.fake.hops.multi_heuristic_hier %>%
+  spread_draws(p_heuristic_hat[1:n,heuristic]) %>%
+  ggplot(aes(y=heuristic, x=p_heuristic_hat)) +
+  geom_halfeyeh() + 
+  labs(
+    subtitle = "Posterior predictive distribution for the probability of each heuristic"
+  ) +
+  theme(panel.grid = element_blank())
+```
+
+This does not look super promising. I think our issue might be that we have a model which is a mixture in which the component distributions are mostly overlapping, and we are trying to assign a weight to each component. Given the facts that some of the heuristic estimates (i.e., the components of our mixture) look quite similar and we have a relatively small amount of data, it is unsurprising that our ability to estimate the contribution of each component to the mixture is noisy. I'm guessing we will need more data, more precise heuristics, and perhaps better-inform priors in order for this approach to work.
+
+
+##Hierarchical Model for the Probility of Multiple Heuristics for Intervals with Means
+
+Maybe the issues we are having are unique to the HOPs condition, where the heuristics we've identified so far don't seem to describe user behavior. However, I doubt that the issue is the precision of the heuristics with regard to the true data generating process since we just tested the model with fake data generated from a process matching the heuristics from the HOPs condition.
+
+Next, let's build a hierarchical model for the intervales with means condition, where the heuristic estimates are similarly overlapping but also better matched with the empirical distribution of worker responses. This model is equivalent to the model in the previous section, but it posits a different set of alternative heuristics which are relevant to intervals with means.
+
+###Prepare Data List for Modeling in Stan
+
+This step looks different than for HOPs since we need different information to calculate the heuristic estimates in this visualization condition.
+
+```{r}
+# filter vis condition
+model_df_intervals_w_means <- model_df %>% filter(condition=="intervals_w_means")
+
+# calculate axis range for heuristics
+data_domain <- c(38, 62)
+axis_range <- data_domain[2] - data_domain[1]
+
+# create data list
+data_intervals_w_means_multi_hier <- list(
+  n=length(model_df_intervals_w_means$trial),                         # total observations (i.e., trials)
+  cles=model_df_intervals_w_means$cles,                               # the worker's response on each trial
+  ground_truth=model_df_intervals_w_means$ground_truth,               # the ground truth cles value on each trial
+  n_worker=length(unique(model_df_intervals_w_means$worker_id)),      # number of workers in the sample
+  worker=as.integer(as.factor(model_df_intervals_w_means$worker_id)), # index for worker_id on each trial
+  n_heuristic=6,                                                      # the number of alternative heuristics we model
+  heuristic=1:6,
+  # necessary information to compute heuristic estimates
+  mean_diff=model_df_intervals_w_means$mean_diff,
+  max_abs_mean_diff=unique(model_df_intervals_w_means$max_abs_mean_diff),
+  axis_range=axis_range,
+  sd_team=model_df_intervals_w_means$sd
+)
+```
+
+###Compile and Run the Model
+
+The model is in the file "stan/intervals-w-means-only_multi-heuristic-hier.stan". We'll compile the stan code, convert to a model object, and then fit the model.
+
+```{r echo=FALSE}
+# compile stan code and create model object
+stan_model = stan_model("stan/intervals-w-means-only_multi-heuristic-hier.stan")
+```
+
+```{r}
+# fit model
+m.intervals_w_means.multi_heuristic_hier <- sampling(stan_model, data=data_intervals_w_means_multi_hier, control=list(adapt_delta=0.99, max_treedepth=20), chain=2, cores=2)
+```
+
+Check diagnostics:
+
+- Trace plots
+
+```{r}
+# trace plots
+traceplot(m.intervals_w_means.multi_heuristic_hier, pars = c('mu_lo_heuristic','Sigma','sigma_err'))
+```
+
+- Pairs plot
+
+```{r}
+# pairs plot
+pairs(m.intervals_w_means.multi_heuristic_hier, pars = c('mu_lo_heuristic','sigma_err'))
+```
+
+- Summary
+
+```{r}
+# model summary
+print(m.intervals_w_means.multi_heuristic_hier)
+```
+
+Let's plot the population level estimates for the probability of each heuristic.
+
+```{r}
+# plot transformed posterior predictions for probability of each heuristic
+m.intervals_w_means.multi_heuristic_hier %>%
+  spread_draws(mu_p_heuristic[heuristic]) %>%
+  ggplot(aes(y=heuristic, x=mu_p_heuristic)) +
+  geom_halfeyeh() + 
+  labs(
+    subtitle = "Posterior estimate of the probability of each heuristic"
+  ) +
+  theme(panel.grid = element_blank())
+```
+
+Let's also check posterior predictive distributions for the probability of each heuristic aggregated across trials.
+
+```{r}
+# plot transformed posterior predictions for probability of each heuristic
+m.intervals_w_means.multi_heuristic_hier %>%
+  spread_draws(p_heuristic_hat[1:n,heuristic]) %>%
+  ggplot(aes(y=heuristic, x=p_heuristic_hat)) +
+  geom_halfeyeh() + 
+  labs(
+    subtitle = "Posterior predictive distribution for the probability of each heuristic"
+  ) +
+  theme(panel.grid = element_blank())
+```
+
+Again, it looks like our model is unable to differentiate the probability of each heuristic. Let's check on the estimates for individual subjects.
+
+```{r}
+# plot transformed posterior predictions for probability of each heuristic
+m.intervals_w_means.multi_heuristic_hier %>%
+  spread_draws(p_heuristic[worker, heuristic]) %>%
+  ggplot(aes(y=heuristic, x=p_heuristic)) +
+  geom_halfeyeh() + 
+  labs(
+    subtitle = "Posterior distribution for the probability of each heuristic per worker"
+  ) +
+  theme(panel.grid = element_blank()) +
+  facet_wrap(. ~ worker)
+```
+
+
+##Running the Hierarchical Model for Fake Data Under Ideal Circumstances
+
+At this point, it seems very likely that the reason our model is not differentiating the probabilities of alternative heuristics has to do with the fact that the heuristic estimates are highly overlapping, making it difficult for the model to say which heuristic submodel is more likely to have produced a given data point. This should not be the case when heuristics are sufficiently different in the responses they predict.
+
+Let's see if the model works for a mixture of two very different distributions which should be separable when we have plenty of observations per participant.
+
+###Simulate Fake Data
+
+Let's start by creating some fake data with many trials per participant. We'll create the data as a mixture between the ground truth and a strategy of responding that CLES is 100% on every trial.
+
+```{r}
+# parameters to recover
+p_heuristic <- c(0.2, 0.8) # population probabilities of each heuristic
+Sigma <- matrix(c(1, .1, .1, 1), 2, 2) # covariance matrix
+sigma_err <- 1 # residual error in log odds units
+
+# number of trials per participant (should be a multiple of 20 data conditions)
+n_trials_per_worker <- 200
+n_trial_scalar <- n_trials_per_worker / 20
+
+# softmax function
+softmax <- function(x) {
+  return(exp(x) / sum(exp(x)))
+}
+
+# heuristic predictions on each trial: ground_truth vs guess_one
+heuristics_df_hops <- stimuli_data_df %>% rowwise() %>% 
+  mutate( # heuristic functions
+    ground_truth = odds_of_victory * 100,
+    guess_one = 99.75
+  ) %>% 
+  gather(heuristic, heuristic_est, ground_truth, guess_one) %>% # reshape
+  rename(ground_truth = odds_of_victory) %>%
+  select(worker_id, sd_diff, ground_truth, heuristic, heuristic_est)
+
+# calculate p_heuristic per worker (add hierarchy)
+fake_worker_params_df <- model_df %>%
+  select(worker_id) %>%
+  distinct(worker_id) %>%
+  rowwise() %>%
+  mutate(p_heuristic_worker = list(p_heuristic)) # no hierarchy for p_heuristic values
+  # mutate(mu_lo_heuristic_worker = list(MASS::mvrnorm(n(), qlogis(p_heuristic), Sigma))) %>% # intermediate calculation: draws from multivariate normal
+  # mutate(
+  #   p_heuristic_worker = list(softmax(mu_lo_heuristic_worker)), # what we use to simulate observations for each worker
+  #   mu_lo_heuristic_worker = NULL
+  # )
+
+# fake data
+fake_df_ideal <- model_df %>%
+  left_join(fake_worker_params_df, by="worker_id") %>%
+  slice(rep(1:n(), each=n_trial_scalar)) %>%
+  rowwise() %>%
+  mutate(heuristic = sample(x=c("ground_truth", "guess_one"), size = n(), replace=TRUE, prob=p_heuristic_worker)) %>% # sample heuristic to use on each trial
+  left_join(heuristics_df_hops, by=c("worker_id", "sd_diff", "ground_truth", "heuristic")) %>% # add heuristic estimates to model_df
+  select(-cles) %>% # remove actual responses 
+  mutate(
+    lo_cles = qlogis(heuristic_est / 100) + rnorm(n(), 0, sigma_err), # likelihood function
+    cles = plogis(lo_cles) * 100 # simulated responses from known data generating process
+  )
+```
+
+Now, we prep this data for Stan.
+
+```{r}
+# create data list
+fakedata_ideal_multi_hier <- list(
+  n=length(fake_df_ideal$trial),                         # total observations (i.e., trials)
+  cles=fake_df_ideal$cles,                               # the worker's response on each trial
+  ground_truth=fake_df_ideal$ground_truth,               # the ground truth cles value on each trial
+  n_worker=length(unique(fake_df_ideal$worker_id)),      # number of workers in the sample
+  worker=as.integer(as.factor(fake_df_ideal$worker_id)), # index for worker_id on each trial
+  n_heuristic=2,                                         # the number of alternative heuristics we model
+  heuristic=1:2                                         # index for each heuristic
+)
+```
+
+###Fit the Model
+
+The model is in the file "stan/ideal_multi-heuristic-hier.stan". We'll compile the stan code, convert to a model object, and then fit the model.
+
+```{r echo=FALSE}
+# compile stan code and create model object
+stan_model = stan_model("stan/ideal_multi-heuristic-hier.stan")
+```
+
+```{r}
+# fit model
+m.fake.ideal.multi_heuristic_hier <- sampling(stan_model, data=fakedata_ideal_multi_hier, control=list(adapt_delta=0.99, max_treedepth=20), chain=2, cores=2)
+```
+
+Check diagnostics:
+
+- Trace plots
+
+```{r}
+# trace plots
+traceplot(m.fake.ideal.multi_heuristic_hier, pars = c('mu_lo_heuristic','Sigma','sigma_err'))
+```
+
+- Pairs plot
+
+```{r}
+# pairs plot
+pairs(m.fake.ideal.multi_heuristic_hier, pars = c('mu_lo_heuristic','sigma_err'))
+```
+
+- Summary
+
+```{r}
+# model summary
+print(m.fake.ideal.multi_heuristic_hier)
+```
+
+How did we do at recovering the fake values for p_heuristic? Let's plot the population level estimates for the probability of each heuristic to find out.
+
+```{r}
+# plot transformed posterior predictions for probability of each heuristic
+m.fake.ideal.multi_heuristic_hier %>%
+  spread_draws(mu_p_heuristic[heuristic]) %>%
+  ggplot(aes(y=heuristic, x=mu_p_heuristic)) +
+  geom_halfeyeh() + 
+  labs(
+    subtitle = "Posterior estimate of the probability of each heuristic"
+  ) +
+  theme(panel.grid = element_blank())
+```
+
+Let's also check posterior predictive distributions for the probability of each heuristic aggregated across trials.
+
+```{r}
+# plot transformed posterior predictions for probability of each heuristic
+m.fake.ideal.multi_heuristic_hier %>%
+  spread_draws(p_heuristic_hat[1:n,heuristic]) %>%
+  ggplot(aes(y=heuristic, x=p_heuristic_hat)) +
+  geom_halfeyeh() + 
+  labs(
+    subtitle = "Posterior predictive distribution for the probability of each heuristic"
+  ) +
+  theme(panel.grid = element_blank())
+```
+
+For reference let's look at the distribution of the simulated data.
+
+```{r}
+fake_df_ideal %>% ggplot(aes(x = qlogis(ground_truth), y = qlogis(cles / 100))) +
+  geom_point(alpha=0.2) +
+  labs(subtitle = "Simulated responses vs ground truth") +
+  theme(panel.grid = element_blank())
+```
+
+Even for the simulated data this approach doesn't seem to be working. Maybe there's something wrong with our model in Stan; maybe this approach is overly complicated. Regardless, we've learned a lot through this exploration. From here we move on to our Plan B: a linear log odds model for CLES responses.

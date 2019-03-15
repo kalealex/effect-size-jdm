@@ -1,0 +1,657 @@
+---
+title: "PilotAnalysis-ExploratoryVisualization"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(RColorBrewer)
+library(rstan)
+rstan_options(auto_write = TRUE)
+options(mc.cores = parallel::detectCores())
+library(modelr)
+library(tidybayes)
+library(brms)
+```
+
+
+This document is intended to give an overview of the response distributions from our pilot.
+
+##Data
+
+###Load Worker Responses from Pilot
+
+```{r}
+# read in data 
+responses_df <- read_csv("pilot-anonymous.csv")
+# rename to convert away from camel case
+responses_df <- responses_df %>%
+  rename(
+    ground_truth=groundTruth,
+    sd_diff=sdDiff,
+    worker_id=workerId,
+    start_time=startTime,
+    resp_time=respTime,
+    trial_dur=trialDur
+  ) %>%
+  mutate(
+    trial_dur = ifelse(trial_dur < 0, 0, trial_dur), # avoid negative trial durations from faulty reconstruction (only one case)
+    cles = ifelse(cles == 0, 0.25, cles),            # avoid responses equal to zero
+    cles = ifelse(cles == 100, 99.75, cles),         # avoid responses equal to one-hundred
+    bet = ifelse(bet == 1000, 999.75, bet)           # avoid responses equal to one-thousand
+  ) 
+
+head(responses_df)
+```
+
+###Load Stimuli-Generating Data
+
+```{r}
+# data used to create stimuli
+load("./conds_df.Rda")
+```
+
+
+##Response Distributions
+
+###CLES Judgments
+
+As we would expect based on the ubiquitous linear log odds representation of probability, CLES judgments tend to be biased toward 50% relative to the ground truth. This is not so much the case for HOPs, howeverm responses are highly variable.
+
+```{r}
+for (cond in unique(responses_df$condition)) {
+  plt <- responses_df %>% filter(condition == cond) %>%
+    ggplot(aes(x=cles)) +
+    geom_vline(aes(xintercept=ground_truth*100, linetype="Ground Truth"), color="red") +
+    scale_linetype_manual(name="Line", values = c(2,1), guide=guide_legend(override.aes=list(color=c("red")))) +
+    geom_histogram(aes(y=..density..), binwidth=5) +
+    # geom_density(fill = "#ff4d4d", alpha = 0.2) +
+    theme_bw() +
+    labs(
+      caption=cond,
+      x = "CLES Responses",
+      y = "Frequency"
+    ) +
+    facet_grid(sd_diff ~ ground_truth)
+  print(plt)
+}
+```
+
+###Bet Amounts
+
+Bet amounts seem more sensitive to probability information when sd_diff is high, making uncertainty more visually salient. However, bet amounts are highly variable across the board.
+
+```{r}
+for (cond in unique(responses_df$condition)) {
+  plt <- responses_df %>% filter(condition == cond) %>%
+    ggplot(aes(x=bet)) +
+    geom_vline(aes(xintercept=ground_truth*1000, linetype="Optimal Bet"), color="red") +
+    scale_linetype_manual(name="Line", values = c(2,1), guide=guide_legend(override.aes=list(color=c("red")))) +
+    geom_histogram(aes(y=..density..), binwidth=50) +
+    # geom_density(fill = "#ff4d4d", alpha = 0.2) +
+    theme_bw() +
+    labs(
+      caption=cond,
+      x = "Bet Amount",
+      y = "Frequency"
+    ) +
+    facet_grid(sd_diff ~ ground_truth)
+  print(plt)
+}
+```
+
+###CLES Judgments vs Bet Amounts
+
+Under an ideal betting strategy, bet amounts should be 10 times the CLES value perceived by the participant. We can see that for intervals_w_means and means_only---visualizations where the mean is emphasized---bet amounts are too high for CLES responses above 50% and too low for CLES responses below 50%. In other words, bet amount is too sensitive to perceived probability of winning. Contrast this with HOPs, where we see the same pattern to a lesser extent and bet amount looks more like a noisy linear function of the CLES response.
+
+```{r}
+for (cond in unique(responses_df$condition)) {
+  plt <- responses_df %>% filter(condition == cond) %>%
+    ggplot(aes(x=cles, y=bet)) +
+    geom_abline(intercept=0, slope=10, color="red", linetype="dashed") +
+    # scale_linetype_manual(name="Line", values = c(2,1), guide=guide_legend(override.aes=list(color=c("red")))) +
+    geom_point(alpha=0.3) +
+    theme_bw() +
+    labs(
+        caption=cond,
+        x = "CLES Judgment",
+        y = "Bet Amount"
+    ) +
+    facet_grid(sd_diff ~ ground_truth)
+  print(plt)
+}
+```
+
+###Relationships with Trial Duration
+
+We want to know when, if at all, spending more time on a response results in improved performance.
+
+####Trial Duration vs CLES Judgments
+
+Trial duration seems mostly unrelated to CLES judgments except for in the case of HOPs, where responses seem to cluster closer to the ground truth on longer trial durations.
+
+```{r}
+for (cond in unique(responses_df$condition)) {
+  plt <- responses_df %>% filter(condition == cond) %>%
+    ggplot(aes(x=trial_dur, y=cles)) +
+    geom_hline(aes(yintercept=ground_truth*100, linetype="Ground Truth"), color="red") +
+    scale_linetype_manual(name="Line", values = c(2,1), guide=guide_legend(override.aes=list(color=c("red")))) +
+    geom_point(alpha=0.3) +
+    theme_bw() +
+    labs(
+        caption=cond,
+        x = "Trial Duration (sec)",
+        y = "CLES Judgment"
+    ) +
+    facet_grid(sd_diff ~ ground_truth)
+  print(plt)
+}
+```
+
+####Trial Duration vs Bet Amounts
+
+Similar to what we see above with CLES judgments, trial duration seems mostly unrelated to bet amounts except for in the case of HOPs, where responses seem to cluster closer to the optimal bet on longer trial durations.
+
+```{r}
+for (cond in unique(responses_df$condition)) {
+  plt <- responses_df %>% filter(condition == cond) %>%
+    ggplot(aes(x=trial_dur, y=bet)) +
+    geom_hline(aes(yintercept=ground_truth*1000, linetype="Optimal Bet"), color="red") +
+    scale_linetype_manual(name="Line", values = c(2,1), guide=guide_legend(override.aes=list(color=c("red")))) +
+    geom_point(alpha=0.3) +
+    theme_bw() +
+    labs(
+        caption=cond,
+        x = "Trial Duration (sec)",
+        y = "Bet Amount"
+    ) +
+    facet_grid(sd_diff ~ ground_truth)
+  print(plt)
+}
+```
+
+
+##Responses and Ground Truth vs Heuristic Predictions
+
+### Create Heuristic Functions
+
+The following functions describe the CLES responses predicted by possible heuristics for reading the visualizations in our pilot.
+
+```{r}
+# axis range for modeling
+data_domain <- c(38, 62)
+axis_range <- data_domain[2] - data_domain[1]
+
+# relative mean difference heuristic
+relative_mean_difference <- function(mean_diff, max_abs_mean_diff) {
+  return(50 - 50 * mean_diff / max_abs_mean_diff)
+}
+
+# mean difference relative to axis range
+mean_difference_vs_axis <- function(mean_diff) {
+  return(50 - 50 * mean_diff / axis_range)
+}
+
+# means first, then uncertainty heuristic
+means_first_then_uncertainty_intervals <- function(mean_diff, sd_team) {
+  interval_length <- qnorm(0.975)*sd_team - qnorm(0.025)*sd_team 
+  return(50 - 50 * mean_diff / interval_length / 2) # assuming that the two intervals are the same length, so we don't need to take their average
+}
+
+# interval overlap relative to interval length
+interval_overlap <- function(mean_diff, sd_team) {
+  interval_length <- qnorm(0.975)*sd_team - qnorm(0.025)*sd_team # baseline for relative judgment (assuming that the two intervals are the same length, so we don't need to take their average)
+  mean_teamA <- - mean_diff / 2 # relative to center
+  mean_teamB <- mean_diff / 2 # relative to center
+  # calculation depends on which mean is larger
+  if(mean_teamA > mean_teamB) {
+    interval_overlap <- (mean_teamB + interval_length / 2) - (mean_teamA - interval_length / 2) # upper bound of lower dist minus lower bound of higher dist
+    return(100 - 50 * interval_overlap / interval_length) 
+  } else { # mean_teamA < mean_teamB
+    interval_overlap <- (mean_teamA + interval_length / 2) - (mean_teamB - interval_length / 2) # upper bound of lower dist minus lower bound of higher dist
+    return( 50 * interval_overlap / interval_length)
+  }
+}
+
+# interval overlap relative to axis range
+interval_overlap_vs_axis <- function(mean_diff, sd_team) {
+  interval_length <- qnorm(0.975)*sd_team - qnorm(0.025)*sd_team # baseline for relative judgment (assuming that the two intervals are the same length, so we don't need to take their average)
+  mean_teamA <- - mean_diff / 2 # relative to center
+  mean_teamB <- mean_diff / 2 # relative to center
+  # calculation depends on which mean is larger
+  if(mean_teamA > mean_teamB) {
+    interval_overlap <- (mean_teamB + interval_length / 2) - (mean_teamA - interval_length / 2) # upper bound of lower dist minus lower bound of higher dist
+    return(100 - 50 * interval_overlap / axis_range) 
+  } else { # mean_teamA < mean_teamB
+    interval_overlap <- (mean_teamA + interval_length / 2) - (mean_teamB - interval_length / 2) # upper bound of lower dist minus lower bound of higher dist
+    return( 50 * interval_overlap / axis_range)
+  }
+}
+
+# outcome proportion heuristic
+outcome_proportion <- function(draws) {
+  return(100 * sum(draws < 0) / length(draws))
+}
+
+# means over sd from HOPs heuristic
+means_first_then_uncertainty_hops <- function(draws) {
+  # get summary statistics from differences between draws
+  mean_diff <- mean(draws)
+  outcome_diff_span <- max(draws) - min(draws)
+  outcome_span <- sqrt((outcome_diff_span ^ 2) / 2)
+  return(50 - 50 * mean_diff / outcome_span / 2)
+}
+
+# need a consistent color scale for these heuristics
+heuristics <- as.factor(c("ground_truth", 
+                          "rel_mean_diff_est", "mean_diff_vs_axis_est", 
+                          "means_first_then_uncertainty_intervals_est", "interval_overlap_est", "interval_overlap_vs_axis_est", 
+                          "outcome_proportion_est",  "outcome_proportion_10_est", "means_first_then_uncertainty_hops_est"))
+# hColors <- brewer.pal(length(heuristics), "Set1")
+hColors <- c("#E31A1C",                         # from ColorBrewer 12-class Paired palette
+              "#B2DF8A", "#FDBF6F",
+              "#6A3D9A", "#1F78B4", "#33A02C", 
+              "#CAB2D6", "#B15928", "#A6CEE3"
+              )
+names(hColors) <- levels(heuristics)
+colScale <- scale_colour_manual(values = hColors)
+```
+
+###Create Optimal Betting Functions
+
+These functions define the optimal betting strategy. However, for any given CLES value, the optimal bet is $1000 coins * Pr(A > B)$.
+
+```{r}
+# set range of possible bets based on given budget and minimum bet
+budget <- 1000
+min_bet <- 1
+possible_bets <- seq(from=min_bet, to=budget, by=1)
+
+# create a tiered capital gains tax
+tax_winnings <- function(winnings) {
+  tiers <- append(seq(0, 2000, by = 500), Inf)
+  rates <- seq(0, .5, by = .1)
+  taxed_winnings <- sum(diff(c(0, pmin(winnings, tiers))) * (1-rates))
+  return(taxed_winnings)
+}
+
+# set cost of not betting
+loss_rate <- 0.25
+
+# find the optimal bet based on the expected value of bet amounts given some CLES value
+optimal_bet <- function(p_superiority_A) {
+  # hack to catch p == 0
+  if (p_superiority_A == 0) {
+    p_superiority_A <- 0.001
+  }
+  # calculate utility over as set of possible bets at the given odds
+  utility <- seq(from=-1, to=0, length.out = length(possible_bets))
+  for (i in 1:length(possible_bets)) {
+    utility[i] <- (1 - loss_rate)*(budget - possible_bets[i]) + p_superiority_A * tax_winnings(possible_bets[i] / p_superiority_A) # payoff proportional to risk
+  }
+  # determine the bet with the maximum expected utility
+  return(possible_bets[which(utility==max(utility))])
+}
+```
+
+###Apply Prediction Functions to Data Conditions Merge With Response Data 
+
+This section of code combines the responses and stimuli-generating data into one visualization that we can use to analyze the prevalence of different heuristics.
+
+```{r}
+# calcate the difference in draws for the heuristic functions
+draw_differences <- conds_df %>% select(condition, Team, draws) %>% 
+  spread(Team, draws) %>% 
+  unnest() %>% 
+  mutate(
+    draws_diff=B - A, 
+    A=NULL, 
+    B=NULL
+  ) %>% 
+  group_by(condition) %>% 
+  summarise(draws_diff = list(draws_diff[1:50]))
+
+# reformat data conditions df
+stimuli_data_df <- conds_df %>% 
+  filter(Team %in% "A") %>% # drop duplicate rows for two teams
+  left_join(draw_differences, by='condition') %>%
+  mutate( # drop unnecessary columns
+    condition=NULL,
+    Team=NULL, 
+    draws=NULL,
+    draw_n=NULL,
+    quantiles=NULL,
+    sample_n=NULL
+  )
+
+# repeat heuristics data frame for each worker 
+stimuli_data_df <- stimuli_data_df[rep(seq_len(nrow(stimuli_data_df)), times=length(unique(responses_df$worker_id))),]
+stimuli_data_df$worker_id <- sort(rep(unique(responses_df$worker_id), each=(length(unique(responses_df$ground_truth))) * length(unique(responses_df$sd_diff))))
+
+# calculate the baseline of relative mean difference heuristic)
+stimuli_data_df$max_abs_mean_diff <- max(abs(stimuli_data_df$mean_diff))
+```
+
+```{r}
+# create dataframe containing heuristic estimates
+heuristics_df <- stimuli_data_df %>% rowwise() %>% 
+  mutate( # call heuristic functions
+    ground_truth = odds_of_victory * 100,
+    rel_mean_diff_est = relative_mean_difference(mean_diff, max_abs_mean_diff),
+    mean_diff_vs_axis_est = mean_difference_vs_axis(mean_diff),
+    means_first_then_uncertainty_intervals_est = means_first_then_uncertainty_intervals(mean_diff, sd),
+    interval_overlap_est = interval_overlap(mean_diff, sd),
+    interval_overlap_vs_axis_est = interval_overlap_vs_axis(mean_diff, sd),
+    outcome_proportion_est = outcome_proportion(draws_diff),
+    outcome_proportion_10_est = outcome_proportion(draws_diff[1:10]), # outcome proportion with only the first 10 draws
+    means_first_then_uncertainty_hops_est = means_first_then_uncertainty_hops(draws_diff)
+  ) %>% 
+  gather(heuristic, est_cles, ground_truth, rel_mean_diff_est, mean_diff_vs_axis_est, means_first_then_uncertainty_intervals_est, interval_overlap_est, interval_overlap_vs_axis_est, outcome_proportion_est, outcome_proportion_10_est, means_first_then_uncertainty_hops_est) %>% # reshape
+  rowwise() %>%
+  mutate(est_bet = optimal_bet(est_cles / 100)) %>% # apply optimal bet function (if multiple optimal bets, take the lower to avoid error)
+  rename(ground_truth = odds_of_victory) %>%
+  arrange(worker_id, sd_diff, ground_truth, heuristic) # use same order for both data frames
+
+# extend responses df to repeat for each heuristic
+combined_df <- responses_df[rep(seq_len(nrow(responses_df)), each=length(unique(heuristics_df$heuristic))),]
+combined_df$heuristic <- rep(rep(unique(heuristics_df$heuristic), times=(length(unique(responses_df$ground_truth))) * length(unique(responses_df$sd_diff))), times=length(unique(responses_df$worker_id)))
+
+# merge response data with heuristics data
+combined_df <- combined_df %>% 
+  arrange(worker_id, sd_diff, ground_truth, heuristic) %>% # use same order for both data frames
+  bind_cols(heuristics_df) # hack because merge and join not working
+  # left_join(heuristics_df, by=c('worker_id','ground_truth', 'sd_diff','heuristic'))
+  # merge(heuristics_df, on=c('worker_id','ground_truth', 'sd_diff','heuristic'), all=TRUE)
+
+# check the binding
+if (!all(combined_df$worker_id == combined_df$worker_id1) || !all(combined_df$heuristic == combined_df$heuristic1) || 
+    !all(combined_df$sd_diff == combined_df$sd_diff1) || !all(combined_df$ground_truth == round(combined_df$ground_truth1, 3))) {
+  print("Warning: something went horribly wrong!")
+}
+```
+
+### Plot Responses Against Heuristics
+
+These visualizations allow us to check responses from individual workers against the predictions of the set of heuristics which are relevant to each visualization condition.
+
+#### CLES Judgments
+
+Through visual inspection of the plots below, I tallied up the apparent strategy for each worker in each level of sd_diff. Since visualization condition is a between subjects manipulation, no individual worker is contributing more than two strategy codes.
+
+In the HOPs condition, workers seem to be using an outcome_proportion heuristic for only the first 10 draws about half of the time. The other half of the time, I cannot distinguish their strategy (a.k.a., ambiguous strategy) or they are using a means_first heuristic where they estimate the mean difference from the draws to inform their reliability judgment and then compare that to the average span of draws for each of the two teams. Only one worker seemed to actually be counting the proportion of all draws shown where $A > B$. Switching strategies depending on sd_diff was uncommon. When workers seem to have switched strategies, they appeared to be using a means_first heuristic or an ambiguous strategy at low levels of uncertainty and then switching to an outcome_proportion heuristics when sd_diff was high.
+
+In the means_only condition, workers seems to be using a mean_diff_vs_axis heuristic more than half the time. However, we also see many workers guessing CLES values near 50% regardless of the stimulus condition, a pattern which is indistinguishable from the mean_diff_vs_axis heuristic at low levels of sd_diff. Only a couple workers seem to be basing their sense of what makes an effect reliable on the relative mean difference (compared to the maximum mean difference shown), rather than the range of the x_axis.
+
+In the intervals_w_means condition, workers seem to switch strategies the most, with the exception of a couple workers who seemed to consistently rely on the interval_overlap and relative_mean_difference heuristics. Similar the means_only condition a subset of workers seem to guess CLES values near 50% regardless of the stimulus condition, a pattern which is indistinguishable from the mean_diff_vs_axis heuristic at low levels of sd_diff. Although my coding scheme did not account for changing stratgies depending on the ground truth, it seems like this may be happening for some participants in this condition. Specifically, there are a few participants who overestimate small probabilities more than they underestimate large probabilities.
+
+```{r}
+# plot predictions w/ participant responses
+for (worker in unique(combined_df$worker_id)) {
+  # filter on worker
+  worker_data <- combined_df %>% filter(worker_id == worker)
+  # title <- cat("Heuristic Predictions vs Ground Truth w/", worker, "Estimates of CLES")
+
+  # filter heuristics based on condition (between subjects)
+  if (worker_data$condition[1] %in% "HOPs") {
+    plt <- worker_data %>% filter(heuristic %in% c("ground_truth", "means_first_then_uncertainty_hops_est", "outcome_proportion_est",  "outcome_proportion_10_est")) %>%
+      ggplot(aes(x=ground_truth, y=est_cles, color=heuristic)) +
+      geom_line() +
+      geom_point(aes(x=ground_truth, y=cles), inherit.aes=FALSE, show.legend=FALSE) +
+      colScale +
+      theme_bw() +
+      labs(
+          x = "Ground Truth Pr(A > B)",
+          y = "Estimated Pr(A > B)"
+      ) +
+      facet_grid(sd_diff ~ condition)
+    print(plt)
+  } else if (worker_data$condition[1] %in% "means_only") {
+    plt <- worker_data %>% filter(heuristic %in% c("ground_truth", "rel_mean_diff_est", "mean_diff_vs_axis_est")) %>%
+      ggplot(aes(x=ground_truth, y=est_cles, color=heuristic)) +
+      geom_line() +
+      geom_point(aes(x=ground_truth, y=cles), inherit.aes=FALSE, show.legend=FALSE) +
+      colScale +
+      theme_bw() +
+      labs(
+          x = "Ground Truth Pr(A > B)",
+          y = "Estimated Pr(A > B)"
+      ) +
+      facet_grid(sd_diff ~ condition)
+    print(plt)
+  } else { # intervals
+    plt <- worker_data %>% filter(heuristic %in% c("ground_truth", "rel_mean_diff_est", "mean_diff_vs_axis_est", "means_first_then_uncertainty_intervals_est", "interval_overlap_est", "interval_overlap_vs_axis_est")) %>%
+      ggplot(aes(x=ground_truth, y=est_cles, color=heuristic)) +
+      geom_line() +
+      geom_point(aes(x=ground_truth, y=cles), inherit.aes=FALSE, show.legend=FALSE) +
+      colScale +
+      theme_bw() +
+      labs(
+          caption=worker,
+          x = "Ground Truth Pr(A > B)",
+          y = "Estimated Pr(A > B)"
+      ) +
+      facet_grid(sd_diff ~ condition)
+    print(plt)
+  }
+}
+
+# heuristics_df %>% ggplot(aes(x=odds_of_victory, y=est_cles, color=heuristic)) +
+#   geom_line() +
+#   geom_point(data=responses_df, aes(x=groundTruth, y=cles, alpha=0.3), inherit.aes=FALSE, show.legend=FALSE) +
+#   colScale +
+#   theme_bw() +
+#   labs(title = "Heuristic Predictions vs Ground Truth w/ Worker Estimates of CLES",
+#       x = "Ground Truth Pr(A > B)",
+#       y = "Estimated Pr(A > B)"
+#   ) +
+#   facet_grid(sd_diff ~ condition)
+```
+
+#### Bet Amounts
+
+Since the betting data is noisier than the CLES judgments, I did not tally strategies for these responses. By visual inspection of the plots below, my sense is that many participants tend to bet amounts either near 0, near 500, or near 1000 coins. Workers who make consistent bets despite varying probability of victory seem to break out of their pattern most often when odds are extreme (e.g., opting to bet more when they are sure they will win or bet less when they are sure they will lose). Some workers seem to employ more of an optimal betting strategy, mostly workers in the HOPs and intervals_w_means conditions, especially when sd_diff is large. For most workers, bets seem to show a curvelinear relationship with the ground truth rather than the optimal linear relationship. This brings to mind the possibility that a linear log odds model would account for betting behavior.
+
+```{r}
+# plot predictions w/ participant responses
+for (worker in unique(combined_df$worker_id)) {
+  # filter on worker
+  worker_data <- combined_df %>% filter(worker_id == worker)
+  # title <- cat("Heuristic Predictions vs Ground Truth w/", worker, "Estimates of CLES")
+
+  # filter heuristics based on condition (between subjects)
+  if (worker_data$condition[1] %in% "HOPs") {
+    plt <- worker_data %>% filter(heuristic %in% c("ground_truth", "means_first_then_uncertainty_hops_est", "outcome_proportion_est",  "outcome_proportion_10_est")) %>%
+      ggplot(aes(x=ground_truth, y=est_bet, color=heuristic)) +
+      geom_line() +
+      geom_point(aes(x=ground_truth, y=bet), inherit.aes=FALSE, show.legend=FALSE) +
+      colScale +
+      theme_bw() +
+      labs(
+          x = "Ground Truth Pr(A > B)",
+          y = "Bet Amount"
+      ) +
+      facet_grid(sd_diff ~ condition)
+    print(plt)
+  } else if (worker_data$condition[1] %in% "means_only") {
+    plt <- worker_data %>% filter(heuristic %in% c("ground_truth", "rel_mean_diff_est", "mean_diff_vs_axis_est")) %>%
+      ggplot(aes(x=ground_truth, y=est_bet, color=heuristic)) +
+      geom_line() +
+      geom_point(aes(x=ground_truth, y=bet), inherit.aes=FALSE, show.legend=FALSE) +
+      colScale +
+      theme_bw() +
+      labs(
+          x = "Ground Truth Pr(A > B)",
+          y = "Bet Amount"
+      ) +
+      facet_grid(sd_diff ~ condition)
+    print(plt)
+  } else { # intervals
+    plt <- worker_data %>% filter(heuristic %in% c("ground_truth", "rel_mean_diff_est", "mean_diff_vs_axis_est", "means_first_then_uncertainty_intervals_est", "interval_overlap_est", "interval_overlap_vs_axis_est")) %>%
+      ggplot(aes(x=ground_truth, y=est_bet, color=heuristic)) +
+      geom_line() +
+      geom_point(aes(x=ground_truth, y=bet), inherit.aes=FALSE, show.legend=FALSE) +
+      colScale +
+      theme_bw() +
+      labs(
+          x = "Ground Truth Pr(A > B)",
+          y = "Bet Amount"
+      ) +
+      facet_grid(sd_diff ~ condition)
+    print(plt)
+  }
+}
+
+# heuristics_df %>% ggplot(aes(x=odds_of_victory, y=est_bet, color=heuristic)) +
+#   geom_line() +
+#   geom_point(data=responses_df, aes(x=groundTruth, y=bet, alpha=0.3), inherit.aes=FALSE, show.legend=FALSE) +
+#   colScale +
+#   theme_bw() +
+#   labs(title = "Heuristic Predictions vs Ground Truth w/ Worker Bets",
+#       x = "Ground Truth Pr(A > B)",
+#       y = "Estimated Bet Amount"
+#   ) +
+#   facet_grid(sd_diff ~ condition)
+```
+
+
+##Error Analysis
+
+In this section, we look for patterns of interest in response errors.
+
+```{r}
+# calculate error and absolute error, add to df
+combined_df <- combined_df %>% 
+  mutate(
+    err_cles = est_cles - cles,
+    abs_err_cles = abs(err_cles),
+    err_bet = est_bet - bet,
+    abs_err_bet = abs(err_bet)
+  )
+```
+
+###Mean Error Per Visualization Condition
+
+Collapsing across data conditions is a little reductive, but it is probably important to look at the overall pattern of absolute errors across visualization conditions.
+
+On average, errors in CLES judgments are smallest in the HOPs condition.
+
+```{r}
+# avg absolute error per condition
+combined_df %>% 
+  filter(heuristic %in% "ground_truth") %>%
+  group_by(condition) %>%
+  summarise(avg_abs_err_cles = mean(abs_err_cles)) %>%
+  ggplot(aes(x=condition, y=avg_abs_err_cles, fill=condition)) +
+    geom_bar(stat="identity") +
+    theme_bw() +
+    labs(title = "Average Absolute Error Relative to Ground Truth",
+        x = "Visualization Condition",
+        y = "Average Absolute Error"
+    )
+```
+
+On average, errors in bet amounts seem relatively similar across visualization conditions.
+
+```{r}
+# avg absolute error per condition
+combined_df %>% 
+  filter(heuristic %in% "ground_truth") %>%
+  group_by(condition) %>%
+  summarise(avg_abs_err_bet = mean(abs_err_bet)) %>%
+  ggplot(aes(x=condition, y=avg_abs_err_bet, fill=condition)) +
+    geom_bar(stat="identity") +
+    theme_bw() +
+    labs(title = "Average Absolute Error Relative to Optimal Bet",
+        x = "Visualization Condition",
+        y = "Average Absolute Error"
+    )
+```
+
+###Mean Error vs Ground Truth
+
+Looking at the average signed errors in CLES estimates by condition, we can see that HOPs lead to less biased CLES judgments for extreme probabilities. 
+
+```{r}
+# error by ground truth, per condition
+combined_df %>%
+  filter(heuristic %in% "ground_truth") %>%
+  group_by(sd_diff, ground_truth, condition) %>%
+  summarise(avg_err_cles = mean(err_cles)) %>%
+  ggplot(aes(x=ground_truth, y=avg_err_cles, color=condition)) +
+    geom_line() +
+    theme_bw() +
+    labs(title = "Average Error Relative to Ground Truth",
+        x = "Ground Truth Pr(A > B)",
+        y = "Average Error"
+    ) +
+    facet_grid(sd_diff ~ .)
+```
+
+The average signed errors in bet amounts by condition show a more complex pattern. Note that there is a general bias toward betting too much except when the probability of winning is below 25%. This bias seems absent in the intervals_w_means condition when sd_diff is low, and this bias seems most consistent in the HOPs condition. However, it is hard to know whether these patterns are robust.
+
+```{r}
+# error by ground truth, per condition
+combined_df %>%
+  filter(heuristic %in% "ground_truth") %>%
+  group_by(sd_diff, ground_truth, condition) %>%
+  summarise(avg_err_bet = mean(err_bet)) %>%
+  ggplot(aes(x=ground_truth, y=avg_err_bet, color=condition)) +
+    geom_line() +
+    theme_bw() +
+    labs(title = "Average Error Relative to Optimal Bet",
+        x = "Ground Truth Pr(A > B)",
+        y = "Average Error"
+    ) +
+    facet_grid(sd_diff ~ .)
+```
+
+####Check Bias Depending on Winner of Game
+
+We want to know whether the probable winner of the game (i.e., whether ground truth CLES is greater than or less than 50%) has an impact on responses. This would show up as an asymmetry between errors depending on the winner of the game.
+
+The chart of average signed errors for CLES judgments below shows such an asymmetry for the HOPs condition especially. In particular, HOPs seem less biased than other conditions, particularly when the ground truth CLES is less than 50%. However, it is hard to tell whether this relationship is robust.
+
+```{r}
+# reflect error where Pr(A > B) < 0.5 onto range between 0.5 and 1
+combined_df %>%
+  filter(heuristic %in% "ground_truth") %>%
+  mutate(
+    ground_truth_50_100 = ifelse(ground_truth < 0.5, 1 - ground_truth, ground_truth),
+    winner = ifelse(outcome == "True", "A", "B")
+  ) %>%
+  group_by(sd_diff, ground_truth_50_100, condition, winner) %>%
+  summarise(avg_err_cles = mean(err_cles)) %>%
+  ggplot(aes(x=ground_truth_50_100, y=avg_err_cles, color=condition)) +
+    geom_line(aes(linetype=winner)) +
+    theme_bw() +
+    labs(title = "Average Error in CLES Judgments Relative to Probability of Superiority for Winner",
+        x = "Ground Truth Pr(Win)",
+        y = "Average Error"
+    ) +
+    facet_grid(sd_diff ~ .)
+```
+
+As we've seen with other metrics, bet amounts show a more complex pattern. Again, we can see that HOPs seem to promote betting too much when the ground truth CLES is close to 50%. It is hard to tell whether the minor asymmetries in this plot are meaningful.
+
+```{r}
+# reflect error where Pr(A > B) < 0.5 onto range between 0.5 and 1
+combined_df %>%
+  filter(heuristic %in% "ground_truth") %>%
+  mutate(
+    ground_truth_50_100 = ifelse(ground_truth < 0.5, 1 - ground_truth, ground_truth),
+    winner = ifelse(outcome == "True", "A", "B")
+  ) %>%
+  group_by(sd_diff, ground_truth_50_100, condition, winner) %>%
+  summarise(avg_err_bet = mean(err_bet)) %>%
+  ggplot(aes(x=ground_truth_50_100, y=avg_err_bet, color=condition)) +
+    geom_line(aes(linetype=winner)) +
+    theme_bw() +
+    labs(title = "Average Error in Bet Amounts Relative to Probability of Superiority for Winner",
+        x = "Ground Truth Pr(Win)",
+        y = "Average Error"
+    ) +
+    facet_grid(sd_diff ~ .)
+```
+
+
