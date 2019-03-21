@@ -1,5 +1,5 @@
 ---
-title: "PilotAnalysis-ExploratoryVisualization"
+title: "Pilot Analysis: Exploratory Visualization"
 output: html_document
 ---
 
