@@ -1,0 +1,104 @@
+---
+title: "Pilot 2"
+author: "Alex Kale"
+date: "5/14/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(gganimate)
+library(RColorBrewer)
+```
+
+
+##Recap of Pilot 1
+
+In pilot 1 we asked participants to view distributions of past scores for two teams competing in a game and judge the probability that Team A would score higher than Team B in a future game (a.k.a., probability of superiority or common language effect size). We then asked them to bet between 1 and 1000 coins that team A would win. We structured the payoff so that the utility-optimal bet was a linear function of the probability that Team A would win. Each participant comlpeted 20 trials at different combinations of effect size and standard deviation of scores using one of three visualizations: means and intervals, means only, or HOPs.
+
+We found that user judgments of probability of superiority were substantially more biased toward 50% in the conditions that emphasized the mean. However, the results of the betting task were less conclusive. Bets seemed to cluster around 1, 500, and 1000 coins suggesting that participants did not use the full granularity of the betting scale. We tried categorizing bets as low, medium, and high but still were unable to make much of the results. One possible reason for this is that the betting data were very noisy, perhaps becasue the payoff scheme of the task required participants to trade off a tiered tax on winnings from their bet vs a constant tax on the amount they did not bet. Even though there are real world financial decisions that resemble these incentives, it is highly unlikely that users were able to form an intuition about what their decision rule should be.
+
+
+##Pilot 2
+
+In pilot two, we keep the probability of superiority judgment that worked well in pilot 1, but we change the incentivized decision task. 
+
+###Inspiration for New Betting Task
+
+We draw inspiration from Joslyn's road salting paradigm where participants must decide whether to spend money to salt the roads based on weather forecasts about the probability of freezing temperatures. The key aspect of this study that we find compelling is that participants are deciding whether to make an intervention by trading off the cost of intervention with the cost and probability of potential damages. However, this task is slightly simplified relative to real world situations where people make decisions based on effect size information. First, in Josyln's task applying salt to the road guarantees the prevention of damage entirely, whereas in most situations intervention will only reduce either the probability or the severity of potential damages. Second, in Joslyn's task participants should always intervene if probabilities of freezing temperatures exceed 17%, whereas in real world situations stakes are dynamic and decisions may be subject to non-linear distortions in the perception of probability. Third, Joslyn's paradigm only examines incentivized decisions which are framed as potential losses, whereas real world siturations are sometimes framed as potential gains. Also, the use of the familiar context of weather introduces biases which may not generalize such as the tendency to mistake confidence intervals on forecasts for daily low and high temperatures. In our new task, we aim for a similarly intuitive incentivized decision about interventions, but we also modify the scenario and payoff scheme to make it more realistic and representative of the types of situations in which people make decisions based on effect size information.
+
+###New Betting Task: Scenario and Payoff Scheme
+
+In our new task, users play the role of an owner of a mid-sized manufacturing business that makes widgets. They are presented with scenarios in which they must make a decision about whether to continue to user their existing machinery or to pay for a new machine based on the probability of gaining or losing a contract. 
+
+In the gain framing trails, users are told they will *pick up a new contract* worth \$X if they produce more than a certain *number of widgets* next year, but they can improve their chances of getting that contract if they pay \$C for a new machine. The optimal decision rule in this case maximizes expected gains.
+$$X * p(contract|\sim machine) < X * p(contract|machine) - C$$
+If we assume a constant ratio between the value of the contract and the cost of intervention $K = \frac{X}{C}$, this can be expressed as in terms of the difference in probability of gaining the contract with and without a new machine.
+$$p(contract|\sim machine) + \frac{1}{K} < p(contract|machine)$$
+The decision rule can also be expressed in terms of the risk ratio of getting the contract with vs without intervention.
+$$1 + \frac{1}{K * p(contract|\sim machine)} < \frac{p(contract|machine)}{p(contract|\sim machine)}$$
+
+The loss framing trails are similarly set up. Users are told they will *lose an existing contract* worth \$X if they produce more than a certain *number of defective widgets* next year, but they can improve their chances of keeping that contract if they pay \$C for a new machine. The optimal decision rule in this case minimizes expected losses.
+$$X * p(\sim contract|\sim machine) > X * p(\sim contract|machine) + C$$
+Again, if we assume a constant ratio between the value of the contract and the cost of intervention $K = \frac{X}{C}$, this can be expressed as in terms of the difference in probability of losing the contract with and without a new machine.
+$$p(\sim contract|\sim machine) - \frac{1}{K} > p(\sim contract|machine)$$
+The decision rule can also be expressed in terms of the risk ratio of losing the contract with vs without intervention.
+$$1 - \frac{1}{K * p(\sim contract|\sim machine)} > \frac{p(\sim contract|machine)}{p(\sim contract|\sim machine)}$$
+
+Each trial, users will receive feedback based on their decision and a simulated outcome regarding the contract in question. We will tally the dollar value of contracts gained/kept minus the cost of interventions across trials, and users will receive a proportional amount as a bonus through MTurk. 
+
+###Visualization Conditions
+
+Users will be shown distributions of the number of widgets or defective widgets produced in past years by both their current equipent and the new machine they might want to buy. Number of widgets will be visualized as *means only, means with intervals, densities, quantile dotplots, and HOPs*. These conditions will help us test the impact of the salience of the mean as well as discrete vs continuous presentations of effect size on probability of superiority judgments and incentivized decisions about intervention.
+
+We might also manipulate how data is processed before it is visualized to test different ways of presenting effect size. In addition to showing historical distributions of numbers of widgets and defective widgets for each machine, we could also show single distributions of the difference between the number of widgets produced by the two machines or even a the ratio of the number of widgets produced by the two machines. In the single distribution conditions we would use supplementary text to describe the average widget production with the current machine as a baseline. These manipulations would test whether showing a single derived measure is actually more helpful to users than just showing two distributions. We will need to think about situations in which this comparison should be considered representative.
+
+###Data Conditions
+
+
+
+##Copy
+
+Here's how we will frame the task for participants within the experimental interface.
+
+###Instructions Page
+
+In this HIT, you will use charts to inform bets on...
+
+###Practice
+
+Here's an example of...
+
+_<insert svg or gif depending on visualization condition>_
+
+Q1.
+
+_<text entry>_
+
+Q2. 
+
+_<radio buttons>_
+
+###Task Page
+
+####Task
+
+_Trial n out of N_
+
+The chart below shows... Use this chart to answer the questions below.
+
+_<insert svg or gif>_
+
+Q1.
+
+_<text entry>_
+
+Q2. 
+
+_<radio buttons>_
+
+####Betting Prompt
+
+_(This should be displayed somewhere on the task screen as a reminder.)_
+
