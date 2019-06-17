@@ -56,6 +56,101 @@ We might also manipulate how data is processed before it is visualized to test d
 
 ###Data Conditions
 
+We manipulate the probability of the new machine producing more widgets than the old machine (p_superiority), sampling at linear intervals in logodds units. When p_superiority is greater than 0.5, the decision task is framed as a gain scenario where the user needs to manufacture at least 500 million widgets next year to get a new contract. When p_superiority is less than 0.5, the decision task is framed as a loss scenario where the user needs to manufacture no more than 75 defective widgets per million next year to keep an existing contract.
+
+We also manipulate the baseline probability of gaining/keeping the contract with the old machine. We sample two levels of this baseline probability: 0.5 where the old machine is as likely as a coin flip to result in the contract, and 0.15 where the old machine is fairly unlikely to result in the contract. These values are chosen in part to guantee an equal number of trials where intervention is and is not the correct decision at a single level of K.
+
+We control the proportion of the value of the contract over the cost of the new machine (K) setting it equal to 2.1. This is the only value for which there are an equal number of trials where users should vs shouldn't intervene at each level of baseline x gain/loss framing. 
+
+As stated above, we set the threshold for gaining the new contract 500 million widgets and the threshold for keeping the old contract at 75 defective widgets per million.
+
+We control the standard deviation of the distribution of the difference in widgets between the two machines (sd_diff) by setting it to 15. In the gain framing this is 15 million widgets. In the loss framing, this is 15 defective widgets per million. Since the value of sd_diff is relative to the threshold for gaining/keeping the contract, we can think of this variable as constant across trials.
+
+We derive the mean difference in the number of widgets produced by the new minus the old machine (mean_diff) from sd_diff and p_superiority. We derive the standard deviation of the number of widgets produced by the machines from year to year (sd) from sd_diff, variance sum law, and the assumption that the machines have equal and independent variances. We derive the mean number of widgets produced by each machine (mean) from the threshold for gaining/keeping the contract, the sd of widgets for each machine, and the mean_diff between the number of widgets for the new minus the old machine. We derive the probability of gaining/keeping the contract from the threshold, mean, and sd.
+
+```{r}
+# linear sampling of log odds for ground truth probability of superiority for the new machine
+logodds <- seq(log(0.025/(1-0.025)), log(0.975/(1-0.975)), length.out = 8) 
+p_superiority <- 1 / (1 + exp(-logodds))
+
+# baseline probability of gaining/keeping a contract with the old machine 
+baseline <- c(.5, .15)
+# baseline <- c(.65, .5, .35)
+
+# ratio (K) of value of contract (X) over cost of intervention (C) 
+K <- c(2.1)
+# K <- seq(1.5, 5, .1)
+
+# initialize data conditions dataframe
+conds_df <- data.frame(
+  "p_superiority" = rep(p_superiority, length(baseline) * length(K)),
+  "baseline" = rep(sort(rep(baseline, length(p_superiority))), length(K)),
+  "K" = sort(rep(K, length(p_superiority) * length(baseline))))
+
+# label gain vs loss framing trials based on p_superiority and add contract thresholds
+conds_df <- conds_df %>% 
+  mutate(frame = if_else(p_superiority > .5, "gain", "loss"),
+                         threshold = if_else(frame=="gain", 
+                                             500, # million widgets required to gain contract
+                                             75)) # defective widgets per million required to keep contract
+
+# add columns for the mean and standard deviation of the difference in the number of widgets produced by the new vs old machine
+# depending on the gain vs loss frame, these values represent millions of widgets vs defective widgets per million
+conds_df <- conds_df %>%
+  mutate(sd_diff = 15, # std(new - old)
+         mean_diff = sd_diff * qnorm(p_superiority)) # mean(new - old)
+
+# double the length of the dataframe to add information per machine, creating a stimulus dataframe with a row per distribution to visualize
+stim_df <- map_df(seq_len(2), ~conds_df)
+stim_df$machine <- sort(rep(c("new", "old"), length(stim_df$p_superiority)/2))
+
+# add columns for the mean and standard deviation of widgets for each machine and the probability of gaining/keeping the contract
+stim_df <- stim_df %>%
+  mutate(sd = sqrt(stim_df$sd_diff ^ 2 / 2), # assume equal and independent variances in the number of widgets produced by each machine
+        mean = if_else(machine=="old", 
+                       if_else(frame=="gain", # old machine is at baseline
+                               threshold - sd * qnorm(1 - baseline), 
+                               threshold - sd * qnorm(baseline)), 
+                       if_else(frame=="gain", # new machine is at difference from baseline
+                               threshold - sd * qnorm(1 - baseline) + mean_diff, 
+                               threshold - sd * qnorm(baseline) + mean_diff)),
+        p_contract = if_else(frame=="gain", # probability of exceeding threshold to gain/keep contract
+                              1 - pnorm((threshold - mean)/sd),
+                              pnorm((threshold - mean)/sd)))
+
+# spread values per machine across columns to get back to a conditions dataframe one row per trial
+conds_df <- stim_df %>% # explanation: https://kieranhealy.org/blog/archives/2018/11/06/spreading-multiple-values/
+  gather(variable, value, -(p_superiority:machine)) %>%
+  unite(temp, machine, variable) %>%
+  spread(temp, value)
+```
+
+This results in an experimental design where the probability of gaining/keeping the contract for the new machine increases monotonically with p_superiority. This means that users should intervene only at extreme values of p_superiority. Even though the decision rule is not defined in terms of p_superiority, users can user effect size as a proxy for the decision task.
+
+```{r echo=FALSE}
+stim_df %>% ggplot(aes(x = p_superiority, y = p_contract, color = machine)) +
+  geom_line() +
+  theme_bw() +
+  facet_grid(. ~ baseline)
+```
+
+We want to check that we have an equal number of trials where intervening is and is not the optimal choice. We also want to make sure that this balance is maintained across all levels of baseline x K x framing.
+
+```{r}
+# determine whether or not intervention is utility optimal on each trial
+conds_df <- conds_df %>%
+  mutate(should_intervene = if_else(frame=="gain",
+                                    (old_p_contract + 1 / K) < new_p_contract, # gain framing decision rule
+                                    ((1 - old_p_contract) - 1 / K) > (1 - new_p_contract))) # loss framing decision rule
+
+conds_df %>%
+  group_by(baseline, K, frame) %>%
+  summarise(intervene = sum(should_intervene), n_trials = n())
+```
+
+Although it would be interesting to look at other values of K this would complicate and unbalance the the design of the study. Similarly, it would be interesting to study higher values of baseline such as 0.65 (i.e., Clinton's predicted chance of winning in 2016), where the old machine seems more sure to result in a contract. However, it turns out the intervention is not optimal when the baseline is much above 0.5 unless the intervention costs far less than the value of the contract. This would require different baselines to be tested at different levels of K, which would make it hard to disentangle the effects of baseline vs K. 
+
+I'm thinking we can uses more extreme values of baseline and K as attention checks. For example, if the baseline probability of gaining/keeping the contract with the old machine is very high, the user should obviously not intervene. If the K is extremely high such that the intervention costs very little relative to the value of the contract, the users should obviously intervene. If users fail in these obvious cases, then we will know that they are not paying attention or do not understand the task. However, for the purpose of the experimental manipulations, I think we should focus on cases were the choice to intervene is more of a toss up in terms of the incentive structure of the situation, and the decision ultimately comes down to the effect size of the intervention (i.e., how much better is the new machine).
 
 
 ##Copy
