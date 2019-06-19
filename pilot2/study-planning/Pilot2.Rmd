@@ -197,3 +197,9 @@ _<radio buttons>_
 
 _(This should be displayed somewhere on the task screen as a reminder.)_
 
+
+```{r}
+intervene ~ binomial(1, p)
+p ~ probit_link(baseline + vis + vis:p_contract + trial:p_contract)
+```
+
