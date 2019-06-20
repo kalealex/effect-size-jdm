@@ -151,7 +151,8 @@ for (c in unique(conds_df$condition)) {
       theme(
         plot.title = element_text(size = title_size),
         plot.caption = element_text(size = caption_size, hjust = 0)) +
-      geom_vline(xintercept = 500, color = "gray", linetype = "longdash") # contract threshold
+      geom_vline(xintercept = 500, color = "gray", linetype = "longdash") + # contract threshold
+      annotate("text", x = 502, y = 2.4, label = "Above this threshold,\nyou gain the contract.", color = "gray", hjust = 0, vjust = 0)
     fname <- paste("stimuli/means_only-", c,".svg", sep = "")
     ggsave(file = fname, plot = plt, width = dims[1], height = dims[2])
     
@@ -170,7 +171,8 @@ for (c in unique(conds_df$condition)) {
       theme(
         plot.title = element_text(size = title_size),
         plot.caption = element_text(size = caption_size, hjust = 0)) +
-      geom_vline(xintercept = 500, color = "gray", linetype = "longdash") # contract threshold
+      geom_hline(yintercept = 500, color = "gray", linetype = "longdash") + # contract threshold
+      annotate("text", y = 502, x = 2.4, label = "Above this threshold,\nyou gain the contract.", color = "gray", hjust = 0, vjust = 0)
     fname <- paste("stimuli/intervals_only-", c,".svg", sep = "")
     ggsave(file = fname, plot = plt, width = dims[1], height = dims[2])
   
@@ -191,7 +193,8 @@ for (c in unique(conds_df$condition)) {
       theme(
         plot.title = element_text(size = title_size),
         plot.caption = element_text(size = caption_size, hjust = 0)) +
-      geom_vline(xintercept = 500, color = "gray", linetype = "longdash") + # contract threshold
+      geom_hline(yintercept = 500, color = "gray", linetype = "longdash") + # contract threshold
+      annotate("text", y = 502, x = 2.4, label = "Above this threshold,\nyou gain the contract.", color = "gray", hjust=0, vjust=0) +
       transition_manual(draw_n)
     hops <- animate(plt, fps = 2.5, res = 100, width = dims[1]*100, height = dims[2]*100)
     fname <- paste("stimuli/HOPs-", c, ".gif", sep = "")
@@ -200,42 +203,46 @@ for (c in unique(conds_df$condition)) {
     # quantile dotplots
     plt <- use_df %>% select(-one_of(c("draws", "draw_n"))) %>% unnest() %>%
       ggplot(aes(x = quantiles, fill = Machine)) +
-      geom_dotplot(binwidth = 7.5, binaxis = "x", dotsize = 0.80, stackratio = 1.20) +
+      geom_dotplot(binwidth = 4, binaxis = "x", dotsize = .9, stackratio = 1.35) +
       theme_bw() +
       scale_fill_brewer(palette = "Set1") +
+      facet_grid(Machine ~ .) +
       xlim(data_domain_gain[1], data_domain_gain[2]) +
+      ylim(0, .075)
       labs(
         title = "Millions of Widgets Produced in Previous Years",
         x = "Number of Widgets Produced in Previous Years (in Millions)",
         y = "Proportion of Widgets Produced",
         caption = wrap_label("Each dot represents 5% of the number widgets produced (in millions) by each machine in previous years.", char_before_wrap)) +
-      # facet_grid(Machine ~ .) +
       theme(
         strip.background = element_blank(),
         strip.text.x = element_blank(),
         plot.title = element_text(size = title_size),
         plot.caption = element_text(size = caption_size, hjust = 0)) +
-      geom_vline(xintercept = 500, color = "gray", linetype = "longdash") # contract threshold
+      geom_vline(xintercept = 500, color = "gray", linetype = "longdash") + # contract threshold
+      annotate("text", x = 502, y = .05, label = "Above this threshold,\nyou gain the contract.", color = "gray", hjust=0, vjust=0)
     fname <- paste("stimuli/QDPs-", c, ".svg", sep = "")
     ggsave(file = fname, plot = plt, width = dims[1], height = dims[2])
   
     # densities
     plt <- use_df %>% select(-one_of(c("draws", "draw_n"))) %>% unnest() %>%
-      ggplot(aes(x = quantiles, color = Machine)) +
+      ggplot(aes(x = quantiles, fill = Machine)) +
       geom_density() +
       theme_bw() +
-      colScale +
+      scale_fill_brewer(palette = "Set1") +
+      facet_grid(Machine ~ .) +
       xlim(data_domain_gain[1], data_domain_gain[2]) +
+      ylim(0, .075) +
       labs(
         title = "Millions of Widgets Produced in Previous Years",
         x = "Number of Widgets Produced in Previous Years (in Millions)",
         y = "Proportion of Widgets Produced",
         caption = wrap_label("The height of the line represents the proportion of the number widgets produced (in millions) by each machine in previous years.", char_before_wrap)) +
-      # facet_grid(Machine ~ .) +
       theme(
         plot.title = element_text(size = title_size),
         plot.caption = element_text(size = caption_size, hjust = 0)) +
-      geom_vline(xintercept = 500, color = "gray", linetype = "longdash") # contract threshold
+      geom_vline(xintercept = 500, color = "gray", linetype = "longdash") + # contract threshold
+      annotate("text", x = 502, y = .05, label = "Above this threshold,\nyou gain the contract.", color = "gray", hjust=0, vjust=0)
     fname <- paste("stimuli/densities-", c, ".svg", sep = "")
     ggsave(file = fname, plot = plt, width = dims[1], height = dims[2])
   
@@ -255,7 +262,8 @@ for (c in unique(conds_df$condition)) {
       theme(
         plot.title = element_text(size = title_size),
         plot.caption = element_text(size = caption_size, hjust = 0)) +
-      geom_vline(xintercept = 500, color = "gray", linetype = "longdash") # contract threshold
+      geom_hline(yintercept = 500, color = "gray", linetype = "longdash") + # contract threshold
+      annotate("text", y = 502, x = 2.4, label = "Above this threshold,\nyou gain the contract.", color = "gray", hjust=0, vjust=0)
     fname <- paste("stimuli/intervals_w_means-", c, ".svg", sep = "")
     ggsave(file = fname, plot = plt, width = dims[1], height = dims[2])
   
@@ -277,7 +285,8 @@ for (c in unique(conds_df$condition)) {
       theme(
         plot.title = element_text(size = title_size),
         plot.caption = element_text(size = caption_size, hjust = 0)) +
-      geom_vline(xintercept = 500, color = "gray", linetype = "longdash") + # contract threshold
+      geom_hline(yintercept = 500, color = "gray", linetype = "longdash") + # contract threshold
+      annotate("text", y = 502, x = 2.4, label = "Above this threshold,\nyou gain the contract.", color = "gray", hjust=0, vjust=0) +
       transition_manual(draw_n)
     hops <- animate(plt, fps = 2.5, res = 100, width = dims[1]*100, height = dims[2]*100)
     fname <- paste("stimuli/HOPs_w_means-", c, ".gif", sep = "")
@@ -298,7 +307,8 @@ for (c in unique(conds_df$condition)) {
       theme(
         plot.title = element_text(size = title_size),
         plot.caption = element_text(size = caption_size, hjust = 0)) +
-      geom_vline(xintercept = 75, color = "gray", linetype = "longdash") # contract threshold
+      geom_vline(xintercept = 75, color = "gray", linetype = "longdash") + # contract threshold
+      annotate("text", x = 49, y = 2.4, label = "Below this threshold,\nyou lose the contract.", color = "gray", hjust=0, vjust=0)
     fname <- paste("stimuli/means_only-", c,".svg", sep = "")
     ggsave(file = fname, plot = plt, width = dims[1], height = dims[2])
     
@@ -317,8 +327,9 @@ for (c in unique(conds_df$condition)) {
       theme(
         plot.title = element_text(size = title_size),
         plot.caption = element_text(size = caption_size, hjust = 0)) +
-      geom_vline(xintercept = 75, color = "gray", linetype = "longdash") # contract threshold
-    fname <- paste("stimuli/intervals_only-", c,".svg", sep = "")
+      geom_hline(yintercept = 75, color = "gray", linetype = "longdash") + # contract threshold
+      annotate("text", y = 49, x = 2.4, label = "Below this threshold,\nyou lose the contract.", color = "gray", hjust=0, vjust=0)
+    fname <- paste("stimuli/intervals_only-", c, ".svg", sep = "")
     ggsave(file = fname, plot = plt, width = dims[1], height = dims[2])
   
     # hops
@@ -338,7 +349,8 @@ for (c in unique(conds_df$condition)) {
       theme(
         plot.title = element_text(size = title_size),
         plot.caption = element_text(size = caption_size, hjust = 0)) +
-      geom_vline(xintercept = 75, color = "gray", linetype = "longdash") + # contract threshold
+      geom_hline(yintercept = 75, color = "gray", linetype = "longdash") + # contract threshold
+      annotate("text", y = 49, x = 2.4, label = "Below this threshold,\nyou lose the contract.", color = "gray", hjust=0, vjust=0) +
       transition_manual(draw_n)
     hops <- animate(plt, fps = 2.5, res = 100, width = dims[1]*100, height = dims[2]*100)
     fname <- paste("stimuli/HOPs-", c, ".gif", sep = "")
@@ -347,42 +359,46 @@ for (c in unique(conds_df$condition)) {
     # quantile dotplots
     plt <- use_df %>% select(-one_of(c("draws", "draw_n"))) %>% unnest() %>%
       ggplot(aes(x = quantiles, fill = Machine)) +
-      geom_dotplot(binwidth = 7.5, binaxis = "x", dotsize = 0.8, stackratio = 1.20) +
+      geom_dotplot(binwidth = 4, binaxis = "x", dotsize = .9, stackratio = 1.35) +
       theme_bw() +
       scale_fill_brewer(palette = "Set1") +
+      facet_grid(Machine ~ .) +
       xlim(data_domain_loss[1], data_domain_loss[2]) +
+      ylim(0, .075) +
       labs(
         title = "Defective Widgets per Million Produced in Previous Years",
         x = "Number of Defective Widgets per Million Produced in Previous Years",
-        y = "Proportion of Defective Widgets Produced",
+        y = "Proportion of Widgets Produced",
         caption = wrap_label("Each dot represents 5% of the defective widgets per million produced by each machine in previous years.", char_before_wrap)) +
-      # facet_grid(Machine ~ .) +
       theme(
         strip.background = element_blank(),
         strip.text.x = element_blank(),
         plot.title = element_text(size = title_size),
         plot.caption = element_text(size = caption_size, hjust = 0)) +
-      geom_vline(xintercept = 75, color = "gray", linetype = "longdash") # contract threshold
+      geom_vline(xintercept = 75, color = "gray", linetype = "longdash") + # contract threshold
+      annotate("text", x = 49, y = .05, label = "Below this threshold,\nyou lose the contract.", color = "gray", hjust=0, vjust=0)
     fname <- paste("stimuli/QDPs-", c, ".svg", sep = "")
     ggsave(file = fname, plot = plt, width = dims[1], height = dims[2])
   
     # densities
     plt <- use_df %>% select(-one_of(c("draws", "draw_n"))) %>% unnest() %>%
-      ggplot(aes(x = quantiles, color = Machine)) +
+      ggplot(aes(x = quantiles, fill = Machine)) +
       geom_density() +
       theme_bw() +
-      colScale +
+      scale_fill_brewer(palette = "Set1") +
+      facet_grid(Machine ~ .) +
       xlim(data_domain_loss[1], data_domain_loss[2]) +
+      ylim(0, .075) +
       labs(
         title = "Defective Widgets per Million Produced in Previous Years",
         x = "Number of Defective Widgets per Million Produced in Previous Years",
         y = "Proportion of Defective Widgets Produced",
         caption = wrap_label("The height of the line represents the proportion of the defective widgets per million produced by each machine in previous years.", char_before_wrap)) +
-      # facet_grid(Machine ~ .) +
       theme(
         plot.title = element_text(size = title_size),
         plot.caption = element_text(size = caption_size, hjust = 0)) +
-      geom_vline(xintercept = 75, color = "gray", linetype = "longdash") # contract threshold
+      geom_vline(xintercept = 75, color = "gray", linetype = "longdash") + # contract threshold
+      annotate("text", x = 49, y = .05, label = "Below this threshold,\nyou lose the contract.", color = "gray", hjust=0, vjust=0)
     fname <- paste("stimuli/densities-", c, ".svg", sep = "")
     ggsave(file = fname, plot = plt, width = dims[1], height = dims[2])
   
@@ -402,7 +418,8 @@ for (c in unique(conds_df$condition)) {
       theme(
         plot.title = element_text(size = title_size),
         plot.caption = element_text(size = caption_size, hjust = 0)) +
-      geom_vline(xintercept = 75, color = "gray", linetype = "longdash") # contract threshold
+      geom_hline(yintercept = 75, color = "gray", linetype = "longdash") + # contract threshold
+      annotate("text", y = 49, x = 2.4, label = "Below this threshold,\nyou lose the contract.", color = "gray", hjust=0, vjust=0)
     fname <- paste("stimuli/intervals_w_means-", c, ".svg", sep = "")
     ggsave(file = fname, plot = plt, width = dims[1], height = dims[2])
   
@@ -424,7 +441,8 @@ for (c in unique(conds_df$condition)) {
       theme(
         plot.title = element_text(size = title_size),
         plot.caption = element_text(size = caption_size, hjust = 0)) +
-      geom_vline(xintercept = 75, color = "gray", linetype = "longdash") + # contract threshold
+      geom_hline(yintercept = 75, color = "gray", linetype = "longdash") + # contract threshold
+      annotate("text", y = 49, x = 2.4, label = "Below this threshold,\nyou lose the contract.", color = "gray", hjust=0, vjust=0) +
       transition_manual(draw_n)
     hops <- animate(plt, fps = 2.5, res = 100, width = dims[1]*100, height = dims[2]*100)
     fname <- paste("stimuli/HOPs_w_means-", c, ".gif", sep = "")
@@ -457,31 +475,5 @@ use_df %>% ggplot(aes(y = mean_diff, x = "Difference Between Machines (New - Old
       geom_text(aes(y = 500 - old_mean, x = 1, label = "Above this threshold,\nyou gain the contract."), color = "gray", hjust=0, vjust=0, nudge_x = .4, nudge_y = 2)
 ```
 
-```{r}
-# quantile dotplots with opaque dots
-use_df %>% select(-one_of(c("draws", "draw_n"))) %>% unnest() %>%
-      ggplot(aes(x = quantiles, y = "Proportion of Widgets Produced", fill = Machine)) +
-      geom_dotplot(alpha = 0.75, binwidth = 7.5, binaxis = "x", dotsize = 0.90, stackratio = 1.10) +
-      theme_bw() +
-      colScale +
-      xlim(data_domain_gain[1], data_domain_gain[2]) +
-      labs(
-        title = "Millions of Widgets Produced in Previous Years",
-        x = "Number of Widgets Produced in Previous Years (in Millions)",
-        y = NULL,
-        caption = wrap_label("Each dot represents 5% of the number widgets produced (in millions) by each machine in previous years.", char_before_wrap)) +
-      # facet_grid(Machine ~ .) +
-      theme(
-        strip.background = element_blank(),
-        strip.text.x = element_blank(),
-        plot.title = element_text(size = title_size),
-        plot.caption = element_text(size = caption_size, hjust = 0)) +
-      geom_vline(xintercept = 500, color = "gray", linetype = "longdash") + # contract threshold
-      geom_text(aes(x = 500, y = 1, label = "Above this threshold,\nyou gain the contract."), color = "gray", hjust=0, vjust=0, nudge_x = 2, nudge_y = .4) +
-      facet_grid(Machine ~ .)
-```
 
-```{r}
-
-```
 
