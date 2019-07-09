@@ -20,20 +20,24 @@ This file contains code to generate stimuli for our effect size judgment and dec
 
 ```{r}
 # linear sampling of log odds for ground truth probability of superiority for the new machine
-logodds <- seq(log(0.025/(1-0.025)), log(0.975/(1-0.975)), length.out = 8) 
+logodds <- seq(log(0.025/(1-0.025)), log(0.975/(1-0.975)), length.out = 24) 
 p_sup <- 1 / (1 + exp(-logodds))
 
 # baseline probability of gaining/keeping a contract with the old machine 
-base <- c(.5, .15)
-
-# ratio (K) of value of contract (X) over cost of intervention (C) 
-K <- c(2.1)
+base <- c(.15, .5, .85)
 
 # initialize data conditions dataframe
 conds_df <- data.frame(
-  "p_superiority" = rep(p_sup, length(base) * length(K)),
-  "baseline" = rep(sort(rep(base, length(p_sup))), length(K)),
-  "K" = sort(rep(K, length(p_sup) * length(base))))
+  "p_superiority" = rep(p_sup, length(base)),
+  "baseline" = sort(rep(base, length(p_sup))))
+  
+# ratio (K) of value of contract (X) over cost of intervention (C)
+conds_df <- conds_df %>%
+  mutate(K = if_else(baseline == .15, # set K (cost of new machine in millions) contingent on baseline,
+                     1.8,             # so there are an equal number of trials where participants should vs shouldn't intervene
+                     if_else(baseline == .5,
+                             2.25,
+                             6.85))) # where baseline == .85
 
 # label gain vs loss framing trials based on p_superiority and add contract thresholds
 conds_df <- conds_df %>% 
@@ -110,9 +114,6 @@ wrap_label <- function(label, char_width) {
 
 
 ```{r}
-# select number of draws for HOPs conditions
-n_draws_hops <- 50
-
 # select limits for x-axis
 data_domain_gain <- c(445, 565)
 data_domain_loss <- c(0, 135)
@@ -122,14 +123,22 @@ dims_pix <- c(770, 462) # pixel dimensions
 ppi <- 75 # assume 75 ppi for the avg monitor
 dims <- dims_pix / ppi # dimensions in inches
 
+# HOPs frame rate
+frame_rate <- 2.5 
+# select number of draws for HOPs conditions
+n_draws_hops <- 50
+
 # geom sizes
 means_size <- 3
 HOPs_size <- 10
 HOPs_mean_size_factor <- 1.5
 interval_mean_size_factor <- 1.85
-title_size <- 18
-caption_size <- 14
-char_before_wrap <- 105
+
+# text formating
+title_size <- 20
+label_size <- 14 
+caption_size <- 16
+char_before_wrap <- 90
 
 # cycle through rows in the table of data conditions
 for (c in unique(conds_df$condition)) {
@@ -144,15 +153,17 @@ for (c in unique(conds_df$condition)) {
       colScale +
       xlim(data_domain_gain[1], data_domain_gain[2]) +
       labs(
-        title = "Millions of Widgets Produced in Previous Years",
-        x = "Average Number of Widgets Produced in Previous Years (in Millions)",
+        title = "Millions of Widgets Produced Per Year",
+        x = "Average Number of Widgets Produced (in Millions)",
         y = NULL,
-        caption = wrap_label("Dots represent the average number of widgets produced (in millions) by each machine in previous years.", char_before_wrap)) +
+        caption = wrap_label("Dots represent the average number of widgets that could be produced (in millions) by each machine in a given year.", char_before_wrap)) +
       theme(
+        axis.title = element_text(size=label_size),
+        axis.text.y = element_blank(),
         plot.title = element_text(size = title_size),
-        plot.caption = element_text(size = caption_size, hjust = 0)) +
-      geom_vline(xintercept = 500, color = "gray", linetype = "longdash") + # contract threshold
-      annotate("text", x = 502, y = 2.4, label = "Above this threshold,\nyou gain the contract.", color = "gray", hjust = 0, vjust = 0)
+        plot.caption = element_text(size = caption_size, hjust = 0, vjust = -1)) +
+      geom_vline(xintercept = 500, linetype = "longdash") + # contract threshold
+      annotate("text", x = 502, y = 2.4, label = "Above this threshold,\nyou gain the contract.", hjust = 0, vjust = 0)
     fname <- paste("stimuli/means_only-", c,".svg", sep = "")
     ggsave(file = fname, plot = plt, width = dims[1], height = dims[2])
     
@@ -164,15 +175,17 @@ for (c in unique(conds_df$condition)) {
       colScale +
       ylim(data_domain_gain[1], data_domain_gain[2]) +
       labs(
-        title = "Millions of Widgets Produced in Previous Years",
+        title = "Millions of Widgets Produced Per Year",
         x = NULL,
-        y = "Range Containing Number of Widgets Produced in 95% of Previous Years (in Millions)",
-        caption = wrap_label("Intervals represent the span of widgets produced (in millions) by each machine in 95% of previous years.", char_before_wrap)) +
+        y = "Range of Widgets Produced (in Millions)",
+        caption = wrap_label("Intervals contain 95% of the possible numbers of widgets that could be produced (in millions) by each machine in a given year.", char_before_wrap)) +
       theme(
+        axis.title = element_text(size=label_size),
+        axis.text.y = element_blank(),
         plot.title = element_text(size = title_size),
-        plot.caption = element_text(size = caption_size, hjust = 0)) +
-      geom_hline(yintercept = 500, color = "gray", linetype = "longdash") + # contract threshold
-      annotate("text", y = 502, x = 2.4, label = "Above this threshold,\nyou gain the contract.", color = "gray", hjust = 0, vjust = 0)
+        plot.caption = element_text(size = caption_size, hjust = 0, vjust = -1)) +
+      geom_hline(yintercept = 500, linetype = "longdash") + # contract threshold
+      annotate("text", y = 502, x = 2.4, label = "Above this threshold,\nyou gain the contract.", hjust = 0, vjust = 0)
     fname <- paste("stimuli/intervals_only-", c,".svg", sep = "")
     ggsave(file = fname, plot = plt, width = dims[1], height = dims[2])
   
@@ -186,17 +199,19 @@ for (c in unique(conds_df$condition)) {
       colScale +
       ylim(data_domain_gain[1], data_domain_gain[2]) +
       labs(
-        title = "Millions of Widgets Produced in Previous Years",
-        y = "Number of Widgets Produced in Previous Years (in Millions)",
+        title = "Millions of Widgets Produced Per Year",
+        y = "Number of Widgets Produced (in Millions)",
         x = NULL,
-        caption = wrap_label("Lines represent the number of widgets produced (in millions) by each machine in individual previous years.", char_before_wrap)) +
+        caption = wrap_label("Lines represent the number of widgets that could be produced (in millions) by each machine in a given year.", char_before_wrap)) +
       theme(
+        axis.title = element_text(size=label_size),
+        axis.text.y = element_blank(),
         plot.title = element_text(size = title_size),
-        plot.caption = element_text(size = caption_size, hjust = 0)) +
-      geom_hline(yintercept = 500, color = "gray", linetype = "longdash") + # contract threshold
-      annotate("text", y = 502, x = 2.4, label = "Above this threshold,\nyou gain the contract.", color = "gray", hjust=0, vjust=0) +
+        plot.caption = element_text(size = caption_size, hjust = 0, vjust = -1)) +
+      geom_hline(yintercept = 500, linetype = "longdash") + # contract threshold
+      annotate("text", y = 502, x = 2.4, label = "Above this threshold,\nyou gain the contract.", hjust = 0, vjust = 0) +
       transition_manual(draw_n)
-    hops <- animate(plt, fps = 2.5, res = 100, width = dims[1]*100, height = dims[2]*100)
+    hops <- animate(plt, fps = 2.5, nframes = 10 * frame_rate, res = 100, width = dims[1]*100, height = dims[2]*100)
     fname <- paste("stimuli/HOPs-", c, ".gif", sep = "")
     anim_save(filename = fname, animation = hops)
   
@@ -208,19 +223,21 @@ for (c in unique(conds_df$condition)) {
       scale_fill_brewer(palette = "Set1") +
       facet_grid(Machine ~ .) +
       xlim(data_domain_gain[1], data_domain_gain[2]) +
-      ylim(0, .075)
+      ylim(0, .075) +
       labs(
         title = "Millions of Widgets Produced in Previous Years",
-        x = "Number of Widgets Produced in Previous Years (in Millions)",
-        y = "Proportion of Widgets Produced",
-        caption = wrap_label("Each dot represents 5% of the number widgets produced (in millions) by each machine in previous years.", char_before_wrap)) +
+        x = "Number of Widgets Produced (in Millions)",
+        y = "Possibility of Production",
+        caption = wrap_label("Each dot represents 5% of the possible numbers of widgets that could be produced (in millions) by each machine a given year.", char_before_wrap)) +
       theme(
         strip.background = element_blank(),
         strip.text.x = element_blank(),
+        axis.title = element_text(size=label_size),
+        axis.text.y = element_blank(),
         plot.title = element_text(size = title_size),
-        plot.caption = element_text(size = caption_size, hjust = 0)) +
-      geom_vline(xintercept = 500, color = "gray", linetype = "longdash") + # contract threshold
-      annotate("text", x = 502, y = .05, label = "Above this threshold,\nyou gain the contract.", color = "gray", hjust=0, vjust=0)
+        plot.caption = element_text(size = caption_size, hjust = 0, vjust = -1)) +
+      geom_vline(xintercept = 500, linetype = "longdash") + # contract threshold
+      annotate("text", x = 502, y = .05, label = "Above this threshold,\nyou gain the contract.", hjust = 0, vjust = 0)
     fname <- paste("stimuli/QDPs-", c, ".svg", sep = "")
     ggsave(file = fname, plot = plt, width = dims[1], height = dims[2])
   
@@ -235,14 +252,16 @@ for (c in unique(conds_df$condition)) {
       ylim(0, .075) +
       labs(
         title = "Millions of Widgets Produced in Previous Years",
-        x = "Number of Widgets Produced in Previous Years (in Millions)",
-        y = "Proportion of Widgets Produced",
-        caption = wrap_label("The height of the line represents the proportion of the number widgets produced (in millions) by each machine in previous years.", char_before_wrap)) +
+        x = "Number of Widgets Produced (in Millions)",
+        y = "Possibility of Production",
+        caption = wrap_label("The height of the shape represents the possibility of numbers of widgets that could be produced (in millions) by each machine in a given year.", char_before_wrap)) +
       theme(
+        axis.title = element_text(size=label_size),
+        axis.text.y = element_blank(),
         plot.title = element_text(size = title_size),
-        plot.caption = element_text(size = caption_size, hjust = 0)) +
-      geom_vline(xintercept = 500, color = "gray", linetype = "longdash") + # contract threshold
-      annotate("text", x = 502, y = .05, label = "Above this threshold,\nyou gain the contract.", color = "gray", hjust=0, vjust=0)
+        plot.caption = element_text(size = caption_size, hjust = 0, vjust = -1)) +
+      geom_vline(xintercept = 500, linetype = "longdash") + # contract threshold
+      annotate("text", x = 502, y = .05, label = "Above this threshold,\nyou gain the contract.", hjust = 0, vjust = 0)
     fname <- paste("stimuli/densities-", c, ".svg", sep = "")
     ggsave(file = fname, plot = plt, width = dims[1], height = dims[2])
   
@@ -256,14 +275,16 @@ for (c in unique(conds_df$condition)) {
       ylim(data_domain_gain[1], data_domain_gain[2]) +
       labs(
         title="Millions of Widgets Produced in Previous Years",
-        y = "Number of Widgets Produced in Previous Years (in Millions)",
+        y = "Number of Widgets Produced (in Millions)",
         x = NULL,
-        caption = wrap_label("Dots represent the average number of widgets produced (in millions) by each machine in previous years, and intervals represent the span of widgets produced in 95% of previous years.", char_before_wrap)) +
+        caption = wrap_label("Dots represent the average number of widgets that could be produced (in millions) by each machine in a given year, and intervals contain 95% of the possible numbers of widgets that could be produced (in millions) in a given year.", char_before_wrap)) +
       theme(
+        axis.title = element_text(size=label_size),
+        axis.text.y = element_blank(),
         plot.title = element_text(size = title_size),
-        plot.caption = element_text(size = caption_size, hjust = 0)) +
+        plot.caption = element_text(size = caption_size, hjust = 0, vjust = -1)) +
       geom_hline(yintercept = 500, color = "gray", linetype = "longdash") + # contract threshold
-      annotate("text", y = 502, x = 2.4, label = "Above this threshold,\nyou gain the contract.", color = "gray", hjust=0, vjust=0)
+      annotate("text", y = 502, x = 2.4, label = "Above this threshold,\nyou gain the contract.", hjust = 0, vjust = 0)
     fname <- paste("stimuli/intervals_w_means-", c, ".svg", sep = "")
     ggsave(file = fname, plot = plt, width = dims[1], height = dims[2])
   
@@ -279,16 +300,18 @@ for (c in unique(conds_df$condition)) {
       ylim(data_domain_gain[1], data_domain_gain[2]) +
       labs(
         title = "Millions of Widgets Produced in Previous Years",
-        y = "Number of Widgets Produced in Previous Years (in Millions)",
+        y = "Number of Widgets Produced (in Millions)",
         x = NULL,
-        caption = wrap_label("Dots represent the average number of widgets produced (in millions) by each machine in previous years, and lines represent widgets produced in individual previous years.", char_before_wrap)) +
+        caption = wrap_label("Dots represent the average number of widgets that could be produced (in millions) by each machine in a given year, and lines represent the number of widgets that could produced (in millions) in a given year.", char_before_wrap)) +
       theme(
+        axis.title = element_text(size=label_size),
+        axis.text.y = element_blank(),
         plot.title = element_text(size = title_size),
-        plot.caption = element_text(size = caption_size, hjust = 0)) +
+        plot.caption = element_text(size = caption_size, hjust = 0, vjust = -1)) +
       geom_hline(yintercept = 500, color = "gray", linetype = "longdash") + # contract threshold
-      annotate("text", y = 502, x = 2.4, label = "Above this threshold,\nyou gain the contract.", color = "gray", hjust=0, vjust=0) +
+      annotate("text", y = 502, x = 2.4, label = "Above this threshold,\nyou gain the contract.", hjust = 0, vjust = 0) +
       transition_manual(draw_n)
-    hops <- animate(plt, fps = 2.5, res = 100, width = dims[1]*100, height = dims[2]*100)
+    hops <- animate(plt, fps = 2.5, nframes = 10 * frame_rate, res = 100, width = dims[1]*100, height = dims[2]*100)
     fname <- paste("stimuli/HOPs_w_means-", c, ".gif", sep = "")
     anim_save(filename = fname, animation = hops)
     
@@ -301,14 +324,16 @@ for (c in unique(conds_df$condition)) {
       xlim(data_domain_loss[1], data_domain_loss[2]) +
       labs(
         title = "Defective Widgets per Million Produced in Previous Years",
-        x = "Average Number of Defective Widgets per Million Produced in Previous Years",
+        x = "Average Number of Defective Widgets per Million Produced",
         y = NULL,
-        caption = wrap_label("Dots represent the average number of defective widgets per million produced by each machine in previous years.", char_before_wrap)) +
+        caption = wrap_label("Dots represent the average number of defective widgets per million that could be produced by each machine in a given year.", char_before_wrap)) +
       theme(
+        axis.title = element_text(size=label_size),
+        axis.text.y = element_blank(),
         plot.title = element_text(size = title_size),
-        plot.caption = element_text(size = caption_size, hjust = 0)) +
-      geom_vline(xintercept = 75, color = "gray", linetype = "longdash") + # contract threshold
-      annotate("text", x = 49, y = 2.4, label = "Below this threshold,\nyou lose the contract.", color = "gray", hjust=0, vjust=0)
+        plot.caption = element_text(size = caption_size, hjust = 0, vjust = -1)) +
+      geom_vline(xintercept = 75, linetype = "longdash") + # contract threshold
+      annotate("text", x = 49, y = 2.4, label = "Below this threshold,\nyou lose the contract.", hjust = 0, vjust = 0)
     fname <- paste("stimuli/means_only-", c,".svg", sep = "")
     ggsave(file = fname, plot = plt, width = dims[1], height = dims[2])
     
@@ -322,13 +347,15 @@ for (c in unique(conds_df$condition)) {
       labs(
         title = "Defective Widgets per Million Produced in Previous Years",
         x = NULL,
-        y = "Range Containing Number of Defective Widgets per Million Produced in 95% of Previous Years",
-        caption = wrap_label("Intervals represent the span of defective widgets per million produced by each machine in 95% of previous years.", char_before_wrap)) +
+        y = "Range of Defective Widgets per Million Produced",
+        caption = wrap_label("Intervals contain 95% of the possible numbers of defective widgets per million that could be produced by each machine in a given year.", char_before_wrap)) +
       theme(
+        axis.title = element_text(size=label_size),
+        axis.text.y = element_blank(),
         plot.title = element_text(size = title_size),
-        plot.caption = element_text(size = caption_size, hjust = 0)) +
-      geom_hline(yintercept = 75, color = "gray", linetype = "longdash") + # contract threshold
-      annotate("text", y = 49, x = 2.4, label = "Below this threshold,\nyou lose the contract.", color = "gray", hjust=0, vjust=0)
+        plot.caption = element_text(size = caption_size, hjust = 0, vjust = -1)) +
+      geom_hline(yintercept = 75, linetype = "longdash") + # contract threshold
+      annotate("text", y = 49, x = 2.4, label = "Below this threshold,\nyou lose the contract.", hjust = 0, vjust = 0)
     fname <- paste("stimuli/intervals_only-", c, ".svg", sep = "")
     ggsave(file = fname, plot = plt, width = dims[1], height = dims[2])
   
@@ -343,16 +370,18 @@ for (c in unique(conds_df$condition)) {
       ylim(data_domain_loss[1], data_domain_loss[2]) +
       labs(
         title = "Defective Widgets per Million Produced in Previous Years",
-        y = "Number of Defective Widgets per Million Produced in Previous Years",
+        y = "Number of Defective Widgets per Million Produced",
         x = NULL,
-        caption = wrap_label("Lines represent the number of defective widgets per million produced by each machine in individual previous years.", char_before_wrap)) +
+        caption = wrap_label("Lines represent the number of defective widgets per million that could be produced by each machine in a given year.", char_before_wrap)) +
       theme(
+        axis.title = element_text(size=label_size),
+        axis.text.y = element_blank(),
         plot.title = element_text(size = title_size),
-        plot.caption = element_text(size = caption_size, hjust = 0)) +
-      geom_hline(yintercept = 75, color = "gray", linetype = "longdash") + # contract threshold
-      annotate("text", y = 49, x = 2.4, label = "Below this threshold,\nyou lose the contract.", color = "gray", hjust=0, vjust=0) +
+        plot.caption = element_text(size = caption_size, hjust = 0, vjust = -1)) +
+      geom_hline(yintercept = 75, linetype = "longdash") + # contract threshold
+      annotate("text", y = 49, x = 2.4, label = "Below this threshold,\nyou lose the contract.", hjust = 0, vjust = 0) +
       transition_manual(draw_n)
-    hops <- animate(plt, fps = 2.5, res = 100, width = dims[1]*100, height = dims[2]*100)
+    hops <- animate(plt, fps = 2.5, nframes = 10 * frame_rate, res = 100, width = dims[1]*100, height = dims[2]*100)
     fname <- paste("stimuli/HOPs-", c, ".gif", sep = "")
     anim_save(filename = fname, animation = hops)
   
@@ -367,16 +396,18 @@ for (c in unique(conds_df$condition)) {
       ylim(0, .075) +
       labs(
         title = "Defective Widgets per Million Produced in Previous Years",
-        x = "Number of Defective Widgets per Million Produced in Previous Years",
-        y = "Proportion of Widgets Produced",
-        caption = wrap_label("Each dot represents 5% of the defective widgets per million produced by each machine in previous years.", char_before_wrap)) +
+        x = "Number of Defective Widgets per Million Produced",
+        y = "Possibility of Production",
+        caption = wrap_label("Each dot represents 5% of the possible numbers of defective widgets per million that could be produced by each machine in a given year.", char_before_wrap)) +
       theme(
         strip.background = element_blank(),
         strip.text.x = element_blank(),
+        axis.title = element_text(size=label_size),
+        axis.text.y = element_blank(),
         plot.title = element_text(size = title_size),
-        plot.caption = element_text(size = caption_size, hjust = 0)) +
-      geom_vline(xintercept = 75, color = "gray", linetype = "longdash") + # contract threshold
-      annotate("text", x = 49, y = .05, label = "Below this threshold,\nyou lose the contract.", color = "gray", hjust=0, vjust=0)
+        plot.caption = element_text(size = caption_size, hjust = 0, vjust = -1)) +
+      geom_vline(xintercept = 75, linetype = "longdash") + # contract threshold
+      annotate("text", x = 49, y = .05, label = "Below this threshold,\nyou lose the contract.", hjust = 0, vjust = 0)
     fname <- paste("stimuli/QDPs-", c, ".svg", sep = "")
     ggsave(file = fname, plot = plt, width = dims[1], height = dims[2])
   
@@ -391,14 +422,16 @@ for (c in unique(conds_df$condition)) {
       ylim(0, .075) +
       labs(
         title = "Defective Widgets per Million Produced in Previous Years",
-        x = "Number of Defective Widgets per Million Produced in Previous Years",
-        y = "Proportion of Defective Widgets Produced",
-        caption = wrap_label("The height of the line represents the proportion of the defective widgets per million produced by each machine in previous years.", char_before_wrap)) +
+        x = "Number of Defective Widgets per Million Produced",
+        y = "Possibility of Production",
+        caption = wrap_label("The height of the shape represents the possibility of numbers of defective widgets per million that could be produced by each machine in a given year.", char_before_wrap)) +
       theme(
+        axis.title = element_text(size=label_size),
+        axis.text.y = element_blank(),
         plot.title = element_text(size = title_size),
-        plot.caption = element_text(size = caption_size, hjust = 0)) +
-      geom_vline(xintercept = 75, color = "gray", linetype = "longdash") + # contract threshold
-      annotate("text", x = 49, y = .05, label = "Below this threshold,\nyou lose the contract.", color = "gray", hjust=0, vjust=0)
+        plot.caption = element_text(size = caption_size, hjust = 0, vjust = -1)) +
+      geom_vline(xintercept = 75, linetype = "longdash") + # contract threshold
+      annotate("text", x = 49, y = .05, label = "Below this threshold,\nyou lose the contract.", hjust = 0, vjust = 0)
     fname <- paste("stimuli/densities-", c, ".svg", sep = "")
     ggsave(file = fname, plot = plt, width = dims[1], height = dims[2])
   
@@ -412,14 +445,16 @@ for (c in unique(conds_df$condition)) {
       ylim(data_domain_loss[1], data_domain_loss[2]) +
       labs(
         title = "Defective Widgets per Million Produced in Previous Years",
-        y = "Number of Defective Widgets per Million Produced in Previous Years",
+        y = "Number of Defective Widgets per Million Produced",
         x = NULL,
-        caption = wrap_label("Dots represent the average number of defective widgets per million produced by each machine in previous years, and intervals represent the span of defective widgets per million produced in 95% of previous years.", char_before_wrap)) +
+        caption = wrap_label("Dots represent the average number of defective widgets per million that could be produced by each machine in a given year, and intervals contain 95% of the possible numbers of defective widgets per million that could be produced in a given year.", char_before_wrap)) +
       theme(
+        axis.title = element_text(size=label_size),
+        axis.text.y = element_blank(),
         plot.title = element_text(size = title_size),
-        plot.caption = element_text(size = caption_size, hjust = 0)) +
-      geom_hline(yintercept = 75, color = "gray", linetype = "longdash") + # contract threshold
-      annotate("text", y = 49, x = 2.4, label = "Below this threshold,\nyou lose the contract.", color = "gray", hjust=0, vjust=0)
+        plot.caption = element_text(size = caption_size, hjust = 0, vjust = -1)) +
+      geom_hline(yintercept = 75, linetype = "longdash") + # contract threshold
+      annotate("text", y = 49, x = 2.4, label = "Below this threshold,\nyou lose the contract.", hjust = 0, vjust = 0)
     fname <- paste("stimuli/intervals_w_means-", c, ".svg", sep = "")
     ggsave(file = fname, plot = plt, width = dims[1], height = dims[2])
   
@@ -435,45 +470,56 @@ for (c in unique(conds_df$condition)) {
       ylim(data_domain_loss[1], data_domain_loss[2]) +
       labs(
         title = "Defective Widgets per Million Produced in Previous Years",
-        y = "Number of Defective Widgets per Million Produced in Previous Years",
+        y = "Number of Defective Widgets per Million Produced",
         x = NULL,
-        caption = wrap_label("Dots represent the average number of defective widgets per million produced by each machine in previous years, and lines represent defective widgets per million produced in individual previous years.", char_before_wrap)) +
+        caption = wrap_label("Dots represent the average number of defective widgets per million that could be produced by each machine in a given year, and lines represent number of defective widgets per million that could be produced in a given year.", char_before_wrap)) +
       theme(
+        axis.title = element_text(size=label_size),
+        axis.text.y = element_blank(),
         plot.title = element_text(size = title_size),
-        plot.caption = element_text(size = caption_size, hjust = 0)) +
-      geom_hline(yintercept = 75, color = "gray", linetype = "longdash") + # contract threshold
-      annotate("text", y = 49, x = 2.4, label = "Below this threshold,\nyou lose the contract.", color = "gray", hjust=0, vjust=0) +
+        plot.caption = element_text(size = caption_size, hjust = 0, vjust = -1)) +
+      geom_hline(yintercept = 75, linetype = "longdash") + # contract threshold
+      annotate("text", y = 49, x = 2.4, label = "Below this threshold,\nyou lose the contract.", hjust = 0, vjust = 0) +
       transition_manual(draw_n)
-    hops <- animate(plt, fps = 2.5, res = 100, width = dims[1]*100, height = dims[2]*100)
+    hops <- animate(plt, fps = 2.5, nframes = 10 * frame_rate, res = 100, width = dims[1]*100, height = dims[2]*100)
     fname <- paste("stimuli/HOPs_w_means-", c, ".gif", sep = "")
     anim_save(filename = fname, animation = hops)
   }
 }
 ```
 
-```{r}
-# get the mean for the old machine
-old_mean <- use_df$mean[use_df$Machine=="Old"]
+<!-- ```{r} -->
+<!-- # get the mean for the old machine -->
+<!-- old_mean <- use_df$mean[use_df$Machine=="Old"] -->
 
-# difference distribution
-use_df %>% ggplot(aes(y = mean_diff, x = "Difference Between Machines (New - Old)")) +
-      geom_pointrange(aes(ymin = mean_diff + qnorm(0.025) * sd_diff, ymax = mean_diff + qnorm(0.975) * sd_diff), show.legend = FALSE, fatten = means_size * interval_mean_size_factor) +
-      # geom_line(aes(y = mean_diff - 1000)) + geom_point(aes(y = mean_diff - 1000)) + # hack to get legend symbols oriented properly
-      coord_flip() +
-      theme_bw() +
-      # colScale +
-      ylim(data_domain_gain[1] - old_mean, data_domain_gain[2] - old_mean) +
-      labs(
-        title="Difference Between New and Old Machines: Millions of Widgets Produced in Previous Years",
-        y = "Number of Widgets Produced in Previous Years (in Millions)",
-        x = NULL,
-        caption = wrap_label("Dots represent the average difference in the number of widgets produced (in millions) by each machine in previous years, and intervals represent the span of widgets produced in 95% of previous years.", char_before_wrap)) +
-      theme(
-        plot.title = element_text(size = title_size),
-        plot.caption = element_text(size = caption_size, hjust = 0)) +
-      geom_hline(yintercept = (500 - old_mean), color = "gray", linetype = "longdash") + # contract threshold
-      geom_text(aes(y = 500 - old_mean, x = 1, label = "Above this threshold,\nyou gain the contract."), color = "gray", hjust=0, vjust=0, nudge_x = .4, nudge_y = 2)
+<!-- # difference distribution -->
+<!-- use_df %>% ggplot(aes(y = mean_diff, x = "Difference Between Machines (New - Old)")) + -->
+<!--       geom_pointrange(aes(ymin = mean_diff + qnorm(0.025) * sd_diff, ymax = mean_diff + qnorm(0.975) * sd_diff), show.legend = FALSE, fatten = means_size * interval_mean_size_factor) + -->
+<!--       # geom_line(aes(y = mean_diff - 1000)) + geom_point(aes(y = mean_diff - 1000)) + # hack to get legend symbols oriented properly -->
+<!--       coord_flip() + -->
+<!--       theme_bw() + -->
+<!--       # colScale + -->
+<!--       ylim(data_domain_gain[1] - old_mean, data_domain_gain[2] - old_mean) + -->
+<!--       labs( -->
+<!--         title="Difference Between New and Old Machines: Millions of Widgets Produced in Previous Years", -->
+<!--         y = "Number of Widgets Produced (in Millions)", -->
+<!--         x = NULL, -->
+<!--         caption = wrap_label("Dots represent the average difference in the number of widgets produced (in millions) by each machine in previous years, and intervals represent the span of widgets produced in 95% of previous years.", char_before_wrap)) + -->
+<!--       theme( -->
+<!--         plot.title = element_text(size = title_size), -->
+<!--         plot.caption = element_text(size = caption_size, hjust = 0)) + -->
+<!--       geom_hline(yintercept = (500 - old_mean), color = "gray", linetype = "longdash") + # contract threshold -->
+<!--       geom_text(aes(y = 500 - old_mean, x = 1, label = "Above this threshold,\nyou gain the contract."), color = "gray", hjust=0, vjust=0, nudge_x = .4, nudge_y = 2) -->
+<!-- ``` -->
+
+##Practice Trials
+
+```{r}
+# data condtions
+
 ```
 
+```{r}
+# create practice trial stimuli (same as above)
 
-
+```

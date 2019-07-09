@@ -70,22 +70,33 @@ We derive the mean difference in the number of widgets produced by the new minus
 
 ```{r}
 # linear sampling of log odds for ground truth probability of superiority for the new machine
-logodds <- seq(log(0.025/(1-0.025)), log(0.975/(1-0.975)), length.out = 8) 
+logodds <- seq(log(0.025/(1-0.025)), log(0.975/(1-0.975)), length.out = 24) # 8
 p_superiority <- 1 / (1 + exp(-logodds))
 
 # baseline probability of gaining/keeping a contract with the old machine 
-baseline <- c(.5, .15)
-# baseline <- c(.65, .5, .35)
+baseline <- c(.15, .5, .85) # c(.15, .5)
 
-# ratio (K) of value of contract (X) over cost of intervention (C) 
-K <- c(2.1)
-# K <- seq(1.5, 5, .1)
+# # ratio (K) of value of contract (X) over cost of intervention (C) 
+# K <- seq(1.5, 7, .1) # c(2.1)
+# 
+# # initialize data conditions dataframe
+# conds_df <- data.frame(
+#   "p_superiority" = rep(p_superiority, length(baseline) * length(K)),
+#   "baseline" = rep(sort(rep(baseline, length(p_superiority))), length(K)),
+#   "K" = sort(rep(K, length(p_superiority) * length(baseline))))
 
 # initialize data conditions dataframe
 conds_df <- data.frame(
-  "p_superiority" = rep(p_superiority, length(baseline) * length(K)),
-  "baseline" = rep(sort(rep(baseline, length(p_superiority))), length(K)),
-  "K" = sort(rep(K, length(p_superiority) * length(baseline))))
+  "p_superiority" = rep(p_superiority, length(baseline)),
+  "baseline" = sort(rep(baseline, length(p_superiority))))
+
+# ratio (K) of value of contract (X) over cost of intervention (C)
+conds_df <- conds_df %>%
+  mutate(K = if_else(baseline == .15, # set K (cost of new machine in millions) contingent on baseline,
+                     1.8,             # so there are an equal number of trials where participants should vs shouldn't intervene
+                     if_else(baseline == .5,
+                             2.25,
+                             6.85))) # where baseline == .85
 
 # label gain vs loss framing trials based on p_superiority and add contract thresholds
 conds_df <- conds_df %>% 
