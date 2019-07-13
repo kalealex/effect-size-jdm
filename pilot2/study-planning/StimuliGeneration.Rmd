@@ -39,6 +39,14 @@ conds_df <- conds_df %>%
                              2.25,
                              6.85))) # where baseline == .85
 
+# create df containting rows for practice trials
+prac_df <- data.frame(
+  "p_superiority" = c(.4, .6),
+  "baseline" = c(.95),
+  "K" = -1) # placehold, as K will depend on the baseline condition to which a participant is assigned
+# append to conditions dataframe
+conds_df <- rbind(conds_df, prac_df)
+
 # label gain vs loss framing trials based on p_superiority and add contract thresholds
 conds_df <- conds_df %>% 
   mutate(frame = if_else(p_superiority > .5, "gain", "loss"),
@@ -511,15 +519,3 @@ for (c in unique(conds_df$condition)) {
 <!--       geom_hline(yintercept = (500 - old_mean), color = "gray", linetype = "longdash") + # contract threshold -->
 <!--       geom_text(aes(y = 500 - old_mean, x = 1, label = "Above this threshold,\nyou gain the contract."), color = "gray", hjust=0, vjust=0, nudge_x = .4, nudge_y = 2) -->
 <!-- ``` -->
-
-##Practice Trials
-
-```{r}
-# data condtions
-
-```
-
-```{r}
-# create practice trial stimuli (same as above)
-
-```
