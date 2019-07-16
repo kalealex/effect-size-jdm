@@ -58,24 +58,34 @@ We might also manipulate how data is processed before it is visualized to test d
 
 We manipulate the probability of the new machine producing more widgets than the old machine (p_superiority), sampling at linear intervals in logodds units. When p_superiority is greater than 0.5, the decision task is framed as a gain scenario where the user needs to manufacture at least 500 million widgets next year to get a new contract. When p_superiority is less than 0.5, the decision task is framed as a loss scenario where the user needs to manufacture no more than 75 defective widgets per million next year to keep an existing contract.
 
-We also manipulate the baseline probability of gaining/keeping the contract with the old machine. We sample two levels of this baseline probability: 0.5 where the old machine is as likely as a coin flip to result in the contract, and 0.15 where the old machine is fairly unlikely to result in the contract. These values are chosen in part to guantee an equal number of trials where intervention is and is not the correct decision at a single level of K.
-
-We control the proportion of the value of the contract over the cost of the new machine (K) setting it equal to 2.1. This is the only value for which there are an equal number of trials where users should vs shouldn't intervene at each level of baseline x gain/loss framing. 
-
-As stated above, we set the threshold for gaining the new contract 500 million widgets and the threshold for keeping the old contract at 75 defective widgets per million.
-
-We control the standard deviation of the distribution of the difference in widgets between the two machines (sd_diff) by setting it to 15. In the gain framing this is 15 million widgets. In the loss framing, this is 15 defective widgets per million. Since the value of sd_diff is relative to the threshold for gaining/keeping the contract, we can think of this variable as constant across trials.
-
-We derive the mean difference in the number of widgets produced by the new minus the old machine (mean_diff) from sd_diff and p_superiority. We derive the standard deviation of the number of widgets produced by the machines from year to year (sd) from sd_diff, variance sum law, and the assumption that the machines have equal and independent variances. We derive the mean number of widgets produced by each machine (mean) from the threshold for gaining/keeping the contract, the sd of widgets for each machine, and the mean_diff between the number of widgets for the new minus the old machine. We derive the probability of gaining/keeping the contract from the threshold, mean, and sd.
-
 ```{r}
 # linear sampling of log odds for ground truth probability of superiority for the new machine
-logodds <- seq(log(0.025/(1-0.025)), log(0.975/(1-0.975)), length.out = 24) # 8
+n_trials <- 24
+logodds <- seq(log(0.025/(1-0.025)), log(0.975/(1-0.975)), length.out = n_trials) # 8
 p_superiority <- 1 / (1 + exp(-logodds))
 
+print(p_superiority)
+```
+
+We also manipulate the baseline probability of gaining/keeping the contract with the old machine. We sample three levels of this baseline probability: 0.5 where the old machine is as likely as a coin flip to result in the contract, 0.15 where the old machine is fairly unlikely to result in the contract, and 0.85 where the old machine has a good chance of resulting in the contract.
+
+```{r}
 # baseline probability of gaining/keeping a contract with the old machine 
 baseline <- c(.15, .5, .85) # c(.15, .5)
 
+# initialize data conditions dataframe
+conds_df <- data.frame(
+  "p_superiority" = rep(p_superiority, length(baseline)),
+  "baseline" = sort(rep(baseline, length(p_superiority))))
+
+head(conds_df)
+```
+
+There are three variables which we set contingent on the baseline in order to maintain a consistent task structure and payoff scheme:
+
+1. We set the value of the contract $K$ (actually, the ratio of the contract value to the cost of the new machine if we hold the cost of the machine constant at $1M) according to the baseline probability of gaining/keeping the contract. We do this in order to maintain an an equal number of trials where users should vs shouldn't intervene at each level of baseline x gain/loss framing. A feature of this kind of intervention problem is that the decision to intervene is only ambiguous under certain circumstances. For example, if the baseline is low, you should alway intervene unless the cost of intervention is high relative to the potential payoff. Similarly, if the baseline is high, you should never intervene unless the potential payoff is high relative to the cost of intervention.
+
+```{r}
 # # ratio (K) of value of contract (X) over cost of intervention (C) 
 # K <- seq(1.5, 7, .1) # c(2.1)
 # 
@@ -85,11 +95,6 @@ baseline <- c(.15, .5, .85) # c(.15, .5)
 #   "baseline" = rep(sort(rep(baseline, length(p_superiority))), length(K)),
 #   "K" = sort(rep(K, length(p_superiority) * length(baseline))))
 
-# initialize data conditions dataframe
-conds_df <- data.frame(
-  "p_superiority" = rep(p_superiority, length(baseline)),
-  "baseline" = sort(rep(baseline, length(p_superiority))))
-
 # ratio (K) of value of contract (X) over cost of intervention (C)
 conds_df <- conds_df %>%
   mutate(K = if_else(baseline == .15, # set K (cost of new machine in millions) contingent on baseline,
@@ -98,19 +103,56 @@ conds_df <- conds_df %>%
                              2.25,
                              6.85))) # where baseline == .85
 
+head(conds_df)
+```
+
+2. Depending on the baseline probability of gaining/keeping the contract, we also set the starting value of the company and...
+
+3. the exchange rate of millions of dollars in company value to actual dollars of MTurk bonus. We do this because with the value of the contract $K$ varying across baseline conditions, different workers would otherwise have the chance to win different amounts of company value.
+
+```{r}
+# create a new data frame to show payoff
+payoff_df <- data.frame("K" = c(1.8, 2.25, 6.85))
+
+# starting company value and exchange rate
+payoff_df <- payoff_df %>% 
+  mutate(
+    # starting value depends on maximum possible loss (if they pay for the new machine every time and never gain\keep the contract)
+    starting_company_value = n_trials + n_trials / 2 * K, 
+    # maximum ending company value (if they never pay for the new machine and always gain\keep the contract)
+    max_company_value = starting_company_value + n_trials / 2 * K,
+    # exchange rate should equalize the maxumum possible bonus ($4) across conditions (five decimal places are necessary to avoid substantial rounding error)
+    exchange_rate = round(4 / max_company_value, 5),
+    # calculate the maximum possible bonus just to check out math
+    max_bonus = max_company_value * exchange_rate)
+
+print(payoff_df)
+```
+
+As stated above, we set the threshold for gaining the new contract 500 million widgets and the threshold for keeping the old contract at 75 defective widgets per million.
+
+```{r}
 # label gain vs loss framing trials based on p_superiority and add contract thresholds
 conds_df <- conds_df %>% 
   mutate(frame = if_else(p_superiority > .5, "gain", "loss"),
-                         threshold = if_else(frame=="gain", 
-                                             500, # million widgets required to gain contract
-                                             75)) # defective widgets per million required to keep contract
+         threshold = if_else(frame=="gain", 
+                             500, # million widgets required to gain contract
+                             75)) # defective widgets per million required to keep contract
+```
 
+We control the standard deviation of the distribution of the difference in widgets between the two machines (sd_diff) by setting it to 15. In the gain framing this is 15 million widgets. In the loss framing, this is 15 defective widgets per million. Since the value of sd_diff is relative to the threshold for gaining/keeping the contract, we can think of this variable as constant across trials. We then derive the mean difference in the number of widgets produced by the new minus the old machine (mean_diff) from sd_diff and p_superiority. 
+
+```{r}
 # add columns for the mean and standard deviation of the difference in the number of widgets produced by the new vs old machine
 # depending on the gain vs loss frame, these values represent millions of widgets vs defective widgets per million
 conds_df <- conds_df %>%
   mutate(sd_diff = 15, # std(new - old)
          mean_diff = sd_diff * qnorm(p_superiority)) # mean(new - old)
+```
 
+We derive the standard deviation of the number of widgets produced by the machines from year to year (sd) from sd_diff, variance sum law, and the assumption that the machines have equal and independent variances. We derive the mean number of widgets produced by each machine (mean) from the threshold for gaining/keeping the contract, the sd of widgets for each machine, and the mean_diff between the number of widgets for the new minus the old machine. We derive the probability of gaining/keeping the contract from the threshold, mean, and sd.
+
+```{r}
 # double the length of the dataframe to add information per machine, creating a stimulus dataframe with a row per distribution to visualize
 stim_df <- map_df(seq_len(2), ~conds_df)
 stim_df$machine <- sort(rep(c("new", "old"), length(stim_df$p_superiority)/2))
@@ -159,58 +201,8 @@ conds_df %>%
   summarise(intervene = sum(should_intervene), n_trials = n())
 ```
 
-Although it would be interesting to look at other values of K this would complicate and unbalance the the design of the study. Similarly, it would be interesting to study higher values of baseline such as 0.65 (i.e., Clinton's predicted chance of winning in 2016), where the old machine seems more sure to result in a contract. However, it turns out the intervention is not optimal when the baseline is much above 0.5 unless the intervention costs far less than the value of the contract. This would require different baselines to be tested at different levels of K, which would make it hard to disentangle the effects of baseline vs K. 
+<!-- Although it would be interesting to look at other values of K this would complicate and unbalance the the design of the study. Similarly, it would be interesting to study higher values of baseline such as 0.65 (i.e., Clinton's predicted chance of winning in 2016), where the old machine seems more sure to result in a contract. However, it turns out the intervention is not optimal when the baseline is much above 0.5 unless the intervention costs far less than the value of the contract. This would require different baselines to be tested at different levels of K, which would make it hard to disentangle the effects of baseline vs K. 
 
-I'm thinking we can uses more extreme values of baseline and K as attention checks. For example, if the baseline probability of gaining/keeping the contract with the old machine is very high, the user should obviously not intervene. If the K is extremely high such that the intervention costs very little relative to the value of the contract, the users should obviously intervene. If users fail in these obvious cases, then we will know that they are not paying attention or do not understand the task. However, for the purpose of the experimental manipulations, I think we should focus on cases were the choice to intervene is more of a toss up in terms of the incentive structure of the situation, and the decision ultimately comes down to the effect size of the intervention (i.e., how much better is the new machine).
+I'm thinking we can uses more extreme values of baseline and K as attention checks. For example, if the baseline probability of gaining/keeping the contract with the old machine is very high, the user should obviously not intervene. If the K is extremely high such that the intervention costs very little relative to the value of the contract, the users should obviously intervene. If users fail in these obvious cases, then we will know that they are not paying attention or do not understand the task. However, for the purpose of the experimental manipulations, I think we should focus on cases were the choice to intervene is more of a toss up in terms of the incentive structure of the situation, and the decision ultimately comes down to the effect size of the intervention (i.e., how much better is the new machine). -->
 
-
-##Copy
-
-Here's how we will frame the task for participants within the experimental interface.
-
-###Instructions Page
-
-In this HIT, you will use charts to inform bets on...
-
-###Practice
-
-Here's an example of...
-
-_<insert svg or gif depending on visualization condition>_
-
-Q1.
-
-_<text entry>_
-
-Q2. 
-
-_<radio buttons>_
-
-###Task Page
-
-####Task
-
-_Trial n out of N_
-
-The chart below shows... Use this chart to answer the questions below.
-
-_<insert svg or gif>_
-
-Q1.
-
-_<text entry>_
-
-Q2. 
-
-_<radio buttons>_
-
-####Betting Prompt
-
-_(This should be displayed somewhere on the task screen as a reminder.)_
-
-
-```{r}
-intervene ~ binomial(1, p)
-p ~ probit_link(baseline + vis + vis:p_contract + trial:p_contract)
-```
 

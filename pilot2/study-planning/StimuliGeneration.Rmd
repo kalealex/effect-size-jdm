@@ -6,7 +6,7 @@ output: html_document
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(echo = TRUE, fig.width=10.26667, fig.height=6.16000)
 library(tidyverse)
 library(gganimate)
 library(RColorBrewer)
@@ -18,11 +18,19 @@ This file contains code to generate stimuli for our effect size judgment and dec
 
 ##Data Conditions
 
+We manipulate the probability of the new machine producing more widgets than the old machine (p_superiority), sampling at 24 linear spaced intervals in logodds units. 
+
 ```{r}
 # linear sampling of log odds for ground truth probability of superiority for the new machine
 logodds <- seq(log(0.025/(1-0.025)), log(0.975/(1-0.975)), length.out = 24) 
 p_sup <- 1 / (1 + exp(-logodds))
 
+print(p_sup)
+```
+
+We also manipulate the baseline probability of gaining/keeping the contract with the old machine. We sample three levels of this baseline probability: 0.5 where the old machine is as likely as a coin flip to result in the contract, 0.15 where the old machine is fairly unlikely to result in the contract, and 0.85 where the old machine has a good chance of resulting in the contract.
+
+```{r}
 # baseline probability of gaining/keeping a contract with the old machine 
 base <- c(.15, .5, .85)
 
@@ -30,36 +38,51 @@ base <- c(.15, .5, .85)
 conds_df <- data.frame(
   "p_superiority" = rep(p_sup, length(base)),
   "baseline" = sort(rep(base, length(p_sup))))
-  
-# ratio (K) of value of contract (X) over cost of intervention (C)
-conds_df <- conds_df %>%
-  mutate(K = if_else(baseline == .15, # set K (cost of new machine in millions) contingent on baseline,
-                     1.8,             # so there are an equal number of trials where participants should vs shouldn't intervene
-                     if_else(baseline == .5,
-                             2.25,
-                             6.85))) # where baseline == .85
 
+head(conds_df)
+```
+
+We also want to creat stimuli for the practice trials. To make these trials easy, we choose a baseline probability of gaining/keeping the contract of 0.95 and probability of superiority values near 0.5. This way it should be obvious that the new machine is not worth the cost, and we can use these trials as an attention check. We create a gain framing version where probability of superiority is 0.6 and a loss framing version where probability of superiority is 0.4.
+
+```{r}
 # create df containting rows for practice trials
 prac_df <- data.frame(
   "p_superiority" = c(.4, .6),
-  "baseline" = c(.95),
-  "K" = -1) # placehold, as K will depend on the baseline condition to which a participant is assigned
+  "baseline" = c(.95))
 # append to conditions dataframe
 conds_df <- rbind(conds_df, prac_df)
 
+head(conds_df)
+```
+
+When p_superiority is greater than 0.5, the decision task is framed as a gain scenario where the user needs to manufacture at least 500 million widgets next year to get a new contract. When p_superiority is less than 0.5, the decision task is framed as a loss scenario where the user needs to manufacture no more than 75 defective widgets per million next year to keep an existing contract.
+
+```{r}
 # label gain vs loss framing trials based on p_superiority and add contract thresholds
 conds_df <- conds_df %>% 
   mutate(frame = if_else(p_superiority > .5, "gain", "loss"),
-                         threshold = if_else(frame=="gain", 
-                                             500, # million widgets required to gain contract
-                                             75)) # defective widgets per million required to keep contract
+         threshold = if_else(frame=="gain", 
+                             500, # million widgets required to gain contract
+                             75)) # defective widgets per million required to keep contract
 
+head(conds_df)
+```
+
+We control the standard deviation of the distribution of the difference in widgets between the two machines (sd_diff) by setting it to 15. In the gain framing this is 15 million widgets. In the loss framing, this is 15 defective widgets per million. Since the value of sd_diff is relative to the threshold for gaining/keeping the contract, we can think of this variable as constant across trials. We then derive the mean difference in the number of widgets produced by the new minus the old machine (mean_diff) from sd_diff and p_superiority. 
+
+```{r}
 # add columns for the mean and standard deviation of the difference in the number of widgets produced by the new vs old machine
 # depending on the gain vs loss frame, these values represent millions of widgets vs defective widgets per million
 conds_df <- conds_df %>%
   mutate(sd_diff = 15, # std(new - old)
          mean_diff = sd_diff * qnorm(p_superiority)) # mean(new - old)
 
+head(conds_df)
+```
+
+Now we calculate the summary statistics for each machine, making the dataframe double its length up to this pointWe derive the standard deviation of the number of widgets produced by the machines from year to year (sd) from sd_diff, variance sum law, and the assumption that the machines have equal and independent variances. We derive the mean number of widgets produced by each machine (mean) from the threshold for gaining/keeping the contract, the sd of widgets for each machine, and the mean_diff between the number of widgets for the new minus the old machine. We derive the probability of gaining/keeping the contract from the threshold, mean, and sd.
+
+```{r}
 # double the length of the dataframe to add information per machine, creating a stimulus dataframe with a row per distribution to visualize
 conds_df <- map_df(seq_len(2), ~conds_df)
 conds_df$Machine <- sort(rep(c("New", "Old"), length(conds_df$p_superiority)/2))
@@ -78,12 +101,24 @@ conds_df <- conds_df %>%
                               1 - pnorm((threshold - mean)/sd),
                               pnorm((threshold - mean)/sd)))
 
+head(conds_df)
+```
+
+We name the conditions based on the the baseline and probability of superiority, so we can later filter the rows belonging to the same stimulus.
+
+```{r}
 # name conditions
 conds_df <- conds_df %>%
   rowwise() %>% # need to name each row differently
   mutate(condition = paste(c(baseline, "base", round(p_superiority, 3), "p_sup"), collapse = "_")) %>%
   ungroup() # need to undo rowwise
 
+head(conds_df)
+```
+
+Since HOPs, quantile dotplots, and densities rely on samples from the underlying data generating process, we need to generate those. However, we don't want to change the shape of our dataframe, so we nest these samples (i.e., draws) inside lists and will later unnest them as needed to produce these specific charts. 
+
+```{r}
 # for HOPs and quantile dotplots we need to add draws to our dataframe
 n <- 1000 # number of samples
 n_dots <- 20 # number of dots for quantile dotplots
@@ -94,24 +129,30 @@ conds_df <- conds_df %>% as.tibble() %>%
          quantiles = map(draws, ~ quantile(unlist(.x), ppoints(n_dots)))) # use draw to get quantiles
          # leave these draws and quantiles nested in the dataframe for later use since they are not relevant to most visualizations
 
+head(conds_df)
+```
+
+We need to save this dataframe for analysis.
+
+```{r eval=FALSE}
 # save conds_df with the draws used to create these stimuli (for use in analysis)
 save(conds_df, file = "stimuli/conds_df.Rda")
-
-# print
-head(conds_df)
 ```
 
 ##Visualization Stimuli
 
-We create one of each plot type for each data condition above and save to a folder called stimuli.
+Here, we define functions for each chart type we plan to show users, and we show the gain framing practice trial as an example.
 
-```{r echo=FALSE}
-# need a color scale for the old and new machines
-machines <- as.factor(c("Old","New"))
-tColors <- brewer.pal(length(machines), "Set1")
-names(tColors) <- levels(machines)
-colScale <- scale_colour_manual(values = tColors)
+First, let's isolate the data we want to plot.
+
+```{r}
+# get the data for the gain framing practice trial to use as an example
+gain_prac_df <- conds_df %>% filter(p_superiority == 0.6)
+
+head(gain_prac_df)
 ```
+
+Before we start building charting functions, we want a helper function to wrap captions and prevent them from running of the edge of our charts.
 
 ```{r echo=FALSE}
 # function to draw captions in a consistent location relative to other text
@@ -120,16 +161,12 @@ wrap_label <- function(label, char_width) {
 }
 ```
 
+We also set up some parameters that will remain consistent across charts, including separate x-axis domains for gain/loss framing, parameters specific to HOPs (i.e., frame rate and number of frames), and sizes for geometries and text, respectively.
 
 ```{r}
 # select limits for x-axis
 data_domain_gain <- c(445, 565)
 data_domain_loss <- c(0, 135)
-
-# set plot dimensions
-dims_pix <- c(770, 462) # pixel dimensions
-ppi <- 75 # assume 75 ppi for the avg monitor
-dims <- dims_pix / ppi # dimensions in inches
 
 # HOPs frame rate
 frame_rate <- 2.5 
@@ -147,6 +184,298 @@ title_size <- 20
 label_size <- 14 
 caption_size <- 16
 char_before_wrap <- 90
+```
+
+###Means Only
+
+A chart function for visualizations showing only means.
+
+```{r}
+means_only <- function(df, data_domain, title, x_label, caption, decision_threshold, threshold_label) {
+  plt <- df %>% ggplot(aes(x = mean, y = reorder(Machine, desc(Machine)), color = Machine)) +
+      geom_point(size = means_size) +
+      theme_bw() +
+      scale_color_brewer(palette = "Set1") +
+      xlim(data_domain[1], data_domain[2]) +
+      labs(
+        title = title,
+        x = x_label,
+        y = NULL,
+        caption = wrap_label(caption, char_before_wrap)) +
+      theme(
+        axis.title = element_text(size=label_size),
+        axis.text.y = element_blank(),
+        plot.title = element_text(size = title_size),
+        plot.caption = element_text(size = caption_size, hjust = 0, vjust = -1)) +
+      geom_vline(xintercept = decision_threshold, linetype = "longdash") + # contract threshold
+      annotate("text", x = (decision_threshold + 2), y = 2.4, label = threshold_label, hjust = 0, vjust = 0)
+  
+  return(plt)
+}
+
+means_only(df = gain_prac_df, 
+           data_domain = data_domain_gain, 
+           title = "Millions of Widgets Produced per Year", 
+           x_label = "Average Number of Widgets Produced (in Millions)",
+           caption = "Dots represent the average number of widgets (in millions) that could be produced by each machine in a given year.", 
+           decision_threshold = 500, 
+           threshold_label = "Above this threshold,\nyou gain the contract.")
+```
+
+###Intervals Only
+
+A chart function for visualizations showing only 95% containment intervals.
+
+```{r}
+intervals_only <- function(df, data_domain, title, x_label, caption, decision_threshold, threshold_label) {
+  plt <- df %>% ggplot(aes(y = mean, x = reorder(Machine, desc(Machine)), color = Machine)) +
+      geom_errorbar(aes(ymin = mean + qnorm(0.025) * sd, ymax = mean + qnorm(0.975) * sd, width = 0)) +
+      coord_flip() +
+      theme_bw() +
+      scale_color_brewer(palette = "Set1") +
+      ylim(data_domain[1], data_domain[2]) +
+      labs(
+        title = title,
+        x = NULL,
+        y = x_label,
+        caption = wrap_label(caption, char_before_wrap)) +
+      theme(
+        axis.title = element_text(size=label_size),
+        axis.text.y = element_blank(),
+        plot.title = element_text(size = title_size),
+        plot.caption = element_text(size = caption_size, hjust = 0, vjust = -1)) +
+      geom_hline(yintercept = decision_threshold, linetype = "longdash") + # contract threshold
+      annotate("text", y = (decision_threshold + 2), x = 2.4, label = threshold_label, hjust = 0, vjust = 0)
+  
+  return(plt)
+}
+
+intervals_only(df = gain_prac_df, 
+               data_domain = data_domain_gain, 
+               title = "Millions of Widgets Produced per Year", 
+               x_label = "Range of Widgets Produced (in Millions)",
+               caption = "Intervals contain 95% of the possible numbers of widgets (in millions) that could be produced by each machine in a given year.", 
+               decision_threshold = 500, 
+               threshold_label = "Above this threshold,\nyou gain the contract.")
+```
+
+###Intervals With Means
+
+A chart function for visualizations showing only 95% containment intervals with means.
+
+```{r}
+intervals_w_means <- function(df, data_domain, title, x_label, caption, decision_threshold, threshold_label) {
+  plt <- df %>% ggplot(aes(y = mean, x = reorder(Machine, desc(Machine)), color = Machine)) +
+      geom_pointrange(aes(ymin = mean + qnorm(0.025) * sd, ymax = mean + qnorm(0.975) * sd), show.legend = FALSE, fatten = means_size * interval_mean_size_factor) +
+      geom_line(aes(y = mean - 1000)) + geom_point(aes(y = mean - 1000)) + # hack to get legend symbols oriented properly
+      coord_flip() +
+      theme_bw() +
+      scale_color_brewer(palette = "Set1") +
+      ylim(data_domain[1], data_domain[2]) +
+      labs(
+        title = title,
+        x = NULL,
+        y = x_label,
+        caption = wrap_label(caption, char_before_wrap)) +
+      theme(
+        axis.title = element_text(size=label_size),
+        axis.text.y = element_blank(),
+        plot.title = element_text(size = title_size),
+        plot.caption = element_text(size = caption_size, hjust = 0, vjust = -1)) +
+      geom_hline(yintercept = decision_threshold, linetype = "longdash") + # contract threshold
+      annotate("text", y = (decision_threshold + 2), x = 2.4, label = threshold_label, hjust = 0, vjust = 0)
+  
+  return(plt)
+}
+
+intervals_w_means(df = gain_prac_df, 
+                  data_domain = data_domain_gain, 
+                  title = "Millions of Widgets Produced per Year", 
+                  x_label = "Range of Widgets Produced (in Millions)",
+                  caption = "Dots represent the average number of widgets (in millions) that could be produced by each machine in a given year. Intervals contain 95% of the possible numbers of widgets that could be produced in a given year.", 
+                  decision_threshold = 500, 
+                  threshold_label = "Above this threshold,\nyou gain the contract.")
+```
+
+###Hypothetical Outcome Plots (HOPs)
+
+A chart function for HOPs of the possible output for each machine.
+
+```{r}
+hops <- function(df, n_draws, frames_per_second, data_domain, title, x_label, caption, decision_threshold, threshold_label, dimensions) {
+  plt <- df %>% select(-one_of(c("quantiles"))) %>% unnest() %>%
+      filter(draw_n %in% 1:n_draws) %>% # filter to set number of draws
+      ggplot(aes(y = draws, x = reorder(Machine, desc(Machine)), color = Machine)) +
+      geom_point(shape = 124, size = HOPs_size) +
+      coord_flip() +
+      theme_bw() +
+      scale_color_brewer(palette = "Set1") +
+      ylim(data_domain[1], data_domain[2]) +
+      labs(
+        title = title,
+        x = NULL,
+        y = x_label,
+        caption = wrap_label(caption, char_before_wrap)) +
+      theme(
+        axis.title = element_text(size=label_size),
+        axis.text.y = element_blank(),
+        plot.title = element_text(size = title_size),
+        plot.caption = element_text(size = caption_size, hjust = 0, vjust = -1)) +
+      geom_hline(yintercept = decision_threshold, linetype = "longdash") + # contract threshold
+      annotate("text", y = (decision_threshold + 2), x = 2.4, label = threshold_label, hjust = 0, vjust = 0) +
+      transition_manual(draw_n)
+    animation <- animate(plt, fps = frames_per_second, nframes = 10 * frames_per_second, res = 100, width = dimensions[1]*100, height = dimensions[2]*100)
+  
+  return(animation)
+}
+
+hops(df = gain_prac_df, 
+     n_draws = n_draws_hops,
+     frames_per_second = frame_rate,
+     data_domain = data_domain_gain, 
+     title = "Millions of Widgets Produced per Year", 
+     x_label = "Number of Widgets Produced (in Millions)",
+     caption = "Lines represent the number of widgets (in millions) that could be produced by each machine in a given year.", 
+     decision_threshold = 500, 
+     threshold_label = "Above this threshold,\nyou gain the contract.",
+     dimensions = c(10.26667, 6.16000))
+```
+
+###Hypothetical Outcome Plots (HOPs) with Means
+
+A chart function for HOPs of the possible output for each machine with means.
+
+```{r}
+hops_w_means <- function(df, n_draws, frames_per_second, data_domain, title, x_label, caption, decision_threshold, threshold_label, dimensions) {
+  plt <- df %>% select(-one_of(c("quantiles"))) %>% unnest() %>%
+      filter(draw_n %in% 1:n_draws) %>% # filter to set number of draws
+      ggplot(aes(y = mean, x = reorder(Machine, desc(Machine)), color = Machine)) +
+      geom_point(size = means_size * HOPs_mean_size_factor) +
+      geom_point(aes(y = draws), shape = 124, size = HOPs_size) +
+      coord_flip() +
+      theme_bw() +
+      scale_color_brewer(palette = "Set1") +
+      ylim(data_domain[1], data_domain[2]) +
+      labs(
+        title = title,
+        x = NULL,
+        y = x_label,
+        caption = wrap_label(caption, char_before_wrap)) +
+      theme(
+        axis.title = element_text(size=label_size),
+        axis.text.y = element_blank(),
+        plot.title = element_text(size = title_size),
+        plot.caption = element_text(size = caption_size, hjust = 0, vjust = -1)) +
+      geom_hline(yintercept = decision_threshold, linetype = "longdash") + # contract threshold
+      annotate("text", y = (decision_threshold + 2), x = 2.4, label = threshold_label, hjust = 0, vjust = 0) +
+      transition_manual(draw_n)
+    animation <- animate(plt, fps = frames_per_second, nframes = 10 * frames_per_second, res = 100, width = dimensions[1]*100, height = dimensions[2]*100)
+  
+  return(animation)
+}
+
+hops_w_means(df = gain_prac_df, 
+             n_draws = n_draws_hops,
+             frames_per_second = frame_rate,
+             data_domain = data_domain_gain, 
+             title = "Millions of Widgets Produced per Year", 
+             x_label = "Number of Widgets Produced (in Millions)",
+             caption = "Dots represent the average number of widgets (in millions) that could be produced by each machine in a given year. Lines represent the number of widgets that could produced in a given year.", 
+             decision_threshold = 500, 
+             threshold_label = "Above this threshold,\nyou gain the contract.",
+             dimensions = c(10.26667, 6.16000))
+```
+
+###Quantile Dotplots
+
+A chart function for quantile dotplots of the possible output for each machine.
+
+```{r}
+quantile_dotplots <- function(df, data_domain, title, x_label, caption, decision_threshold, threshold_label) {
+  plt <- df %>% select(-one_of(c("draws", "draw_n"))) %>% unnest() %>%
+      ggplot(aes(x = quantiles, fill = Machine)) +
+      geom_dotplot(binwidth = 4, binaxis = "x", dotsize = .9, stackratio = 1.35) +
+      theme_bw() +
+      scale_fill_brewer(palette = "Set1") +
+      facet_grid(Machine ~ .) +
+      xlim(data_domain[1], data_domain[2]) +
+      ylim(0, .075) +
+      labs(
+        title = title,
+        x = x_label,
+        y = "Chances of Production",
+        caption = wrap_label(caption, char_before_wrap)) +
+      theme(
+        strip.background = element_blank(),
+        strip.text.x = element_blank(),
+        axis.title = element_text(size=label_size),
+        axis.text.y = element_blank(),
+        plot.title = element_text(size = title_size),
+        plot.caption = element_text(size = caption_size, hjust = 0, vjust = -1)) +
+      geom_vline(xintercept = decision_threshold, linetype = "longdash") + # contract threshold
+      annotate("text", x = (decision_threshold + 2), y = 0.05, label = threshold_label, hjust = 0, vjust = 0)
+  
+  return(plt)
+}
+
+quantile_dotplots(df = gain_prac_df, 
+                  data_domain = data_domain_gain, 
+                  title = "Millions of Widgets Produced per Year", 
+                  x_label = "Number of Widgets Produced (in Millions)",
+                  caption = "Each dot represents a 5% chance that different numbers of widgets (in millions) could be produced by each machine a given year.", 
+                  decision_threshold = 500, 
+                  threshold_label = "Above this threshold,\nyou gain the contract.")
+```
+
+###Densities
+
+A chart function for continuous probability densities of the possible output for each machine.
+
+```{r}
+densities <- function(df, data_domain, title, x_label, caption, decision_threshold, threshold_label) {
+  plt <- df %>% select(-one_of(c("draws", "draw_n"))) %>% unnest() %>%
+      ggplot(aes(x = quantiles, fill = Machine)) +
+      geom_density() +
+      theme_bw() +
+      scale_fill_brewer(palette = "Set1") +
+      facet_grid(Machine ~ .) +
+      xlim(data_domain[1], data_domain[2]) +
+      ylim(0, .075) +
+      labs(
+        title = title,
+        x = x_label,
+        y = "Chances of Production",
+        caption = wrap_label(caption, char_before_wrap)) +
+      theme(
+        axis.title = element_text(size=label_size),
+        axis.text.y = element_blank(),
+        plot.title = element_text(size = title_size),
+        plot.caption = element_text(size = caption_size, hjust = 0, vjust = -1)) +
+      geom_vline(xintercept = decision_threshold, linetype = "longdash") + # contract threshold
+      annotate("text", x = (decision_threshold + 2), y = 0.05, label = threshold_label, hjust = 0, vjust = 0)
+  
+  return(plt)
+}
+
+densities(df = gain_prac_df, 
+          data_domain = data_domain_gain, 
+          title = "Millions of Widgets Produced per Year", 
+          x_label = "Number of Widgets Produced (in Millions)",
+          caption = "The height of the shape represents the chances that different numbers of widgets (in millions) could be produced by each machine a given year.", 
+          decision_threshold = 500, 
+          threshold_label = "Above this threshold,\nyou gain the contract.")
+```
+
+
+##Stimuli Generation
+
+We create one of each chart type for each data condition above and save to a folder called stimuli.
+
+```{r eval=FALSE}
+# set plot dimensions
+dims_pix <- c(770, 462) # pixel dimensions
+ppi <- 75 # assume 75 ppi for the avg monitor
+dims <- dims_pix / ppi # dimensions in inches
 
 # cycle through rows in the table of data conditions
 for (c in unique(conds_df$condition)) {
@@ -155,343 +484,172 @@ for (c in unique(conds_df$condition)) {
   
   if (all(use_df$frame=="gain")) { # stimuli for gain framing trials
     # means only
-    plt <- use_df %>% ggplot(aes(x = mean, y = reorder(Machine, desc(Machine)), color = Machine)) +
-      geom_point(size = means_size) +
-      theme_bw() +
-      colScale +
-      xlim(data_domain_gain[1], data_domain_gain[2]) +
-      labs(
-        title = "Millions of Widgets Produced Per Year",
-        x = "Average Number of Widgets Produced (in Millions)",
-        y = NULL,
-        caption = wrap_label("Dots represent the average number of widgets that could be produced (in millions) by each machine in a given year.", char_before_wrap)) +
-      theme(
-        axis.title = element_text(size=label_size),
-        axis.text.y = element_blank(),
-        plot.title = element_text(size = title_size),
-        plot.caption = element_text(size = caption_size, hjust = 0, vjust = -1)) +
-      geom_vline(xintercept = 500, linetype = "longdash") + # contract threshold
-      annotate("text", x = 502, y = 2.4, label = "Above this threshold,\nyou gain the contract.", hjust = 0, vjust = 0)
+    plt <- means_only(df = use_df, 
+      data_domain = data_domain_gain, 
+      title = "Millions of Widgets Produced per Year", 
+      x_label = "Average Number of Widgets Produced (in Millions)",
+      caption = "Dots represent the average number of widgets (in millions) that could be produced by each machine in a given year.", 
+      decision_threshold = 500, 
+      threshold_label = "Above this threshold,\nyou gain the contract.")
     fname <- paste("stimuli/means_only-", c,".svg", sep = "")
     ggsave(file = fname, plot = plt, width = dims[1], height = dims[2])
     
     # intervals only
-    plt <- use_df %>% ggplot(aes(y = mean, x = reorder(Machine, desc(Machine)), color = Machine)) +
-      geom_errorbar(aes(ymin = mean + qnorm(0.025) * sd, ymax = mean + qnorm(0.975) * sd, width = 0)) +
-      coord_flip() +
-      theme_bw() +
-      colScale +
-      ylim(data_domain_gain[1], data_domain_gain[2]) +
-      labs(
-        title = "Millions of Widgets Produced Per Year",
-        x = NULL,
-        y = "Range of Widgets Produced (in Millions)",
-        caption = wrap_label("Intervals contain 95% of the possible numbers of widgets that could be produced (in millions) by each machine in a given year.", char_before_wrap)) +
-      theme(
-        axis.title = element_text(size=label_size),
-        axis.text.y = element_blank(),
-        plot.title = element_text(size = title_size),
-        plot.caption = element_text(size = caption_size, hjust = 0, vjust = -1)) +
-      geom_hline(yintercept = 500, linetype = "longdash") + # contract threshold
-      annotate("text", y = 502, x = 2.4, label = "Above this threshold,\nyou gain the contract.", hjust = 0, vjust = 0)
+    plt <- intervals_only(df = use_df, 
+      data_domain = data_domain_gain, 
+      title = "Millions of Widgets Produced per Year", 
+      x_label = "Range of Widgets Produced (in Millions)",
+      caption = "Intervals contain 95% of the possible numbers of widgets (in millions) that could be produced by each machine in a given year.", 
+      decision_threshold = 500, 
+      threshold_label = "Above this threshold,\nyou gain the contract.")
     fname <- paste("stimuli/intervals_only-", c,".svg", sep = "")
+    ggsave(file = fname, plot = plt, width = dims[1], height = dims[2])
+    
+    # intervals with means
+    plt <- intervals_w_means(df = use_df, 
+      data_domain = data_domain_gain, 
+      title = "Millions of Widgets Produced per Year", 
+      x_label = "Range of Widgets Produced (in Millions)",
+      caption = "Dots represent the average number of widgets (in millions) that could be produced by each machine in a given year. Intervals contain 95% of the possible numbers of widgets that could be produced in a given year.", 
+      decision_threshold = 500, 
+      threshold_label = "Above this threshold,\nyou gain the contract.")
+    fname <- paste("stimuli/intervals_w_means-", c, ".svg", sep = "")
     ggsave(file = fname, plot = plt, width = dims[1], height = dims[2])
   
     # hops
-    plt <- use_df %>% select(-one_of(c("quantiles"))) %>% unnest() %>%
-      filter(draw_n %in% 1:n_draws_hops) %>% # filter to set number of draws
-      ggplot(aes(y = draws, x = reorder(Machine, desc(Machine)), color = Machine)) +
-      geom_point(shape = 124, size = HOPs_size) +
-      coord_flip() +
-      theme_bw() +
-      colScale +
-      ylim(data_domain_gain[1], data_domain_gain[2]) +
-      labs(
-        title = "Millions of Widgets Produced Per Year",
-        y = "Number of Widgets Produced (in Millions)",
-        x = NULL,
-        caption = wrap_label("Lines represent the number of widgets that could be produced (in millions) by each machine in a given year.", char_before_wrap)) +
-      theme(
-        axis.title = element_text(size=label_size),
-        axis.text.y = element_blank(),
-        plot.title = element_text(size = title_size),
-        plot.caption = element_text(size = caption_size, hjust = 0, vjust = -1)) +
-      geom_hline(yintercept = 500, linetype = "longdash") + # contract threshold
-      annotate("text", y = 502, x = 2.4, label = "Above this threshold,\nyou gain the contract.", hjust = 0, vjust = 0) +
-      transition_manual(draw_n)
-    hops <- animate(plt, fps = 2.5, nframes = 10 * frame_rate, res = 100, width = dims[1]*100, height = dims[2]*100)
+    plt <- hops(df = use_df, 
+      n_draws = n_draws_hops,
+      frames_per_second = frame_rate,
+      data_domain = data_domain_gain, 
+      title = "Millions of Widgets Produced per Year", 
+      x_label = "Number of Widgets Produced (in Millions)",
+      caption = "Lines represent the number of widgets (in millions) that could be produced by each machine in a given year.", 
+      decision_threshold = 500, 
+      threshold_label = "Above this threshold,\nyou gain the contract.",
+      dimensions = dims)
     fname <- paste("stimuli/HOPs-", c, ".gif", sep = "")
-    anim_save(filename = fname, animation = hops)
+    anim_save(filename = fname, animation = plt)
+    
+    # hops with means
+    plt <- hops_w_means(df = use_df, 
+      n_draws = n_draws_hops,
+      frames_per_second = frame_rate,
+      data_domain = data_domain_gain, 
+      title = "Millions of Widgets Produced per Year", 
+      x_label = "Number of Widgets Produced (in Millions)",
+      caption = "Dots represent the average number of widgets (in millions) that could be produced by each machine in a given year. Lines represent the number of widgets that could produced in a given year.", 
+      decision_threshold = 500, 
+      threshold_label = "Above this threshold,\nyou gain the contract.", 
+      dimensions = dims)
+    fname <- paste("stimuli/HOPs_w_means-", c, ".gif", sep = "")
+    anim_save(filename = fname, animation = plt)
   
     # quantile dotplots
-    plt <- use_df %>% select(-one_of(c("draws", "draw_n"))) %>% unnest() %>%
-      ggplot(aes(x = quantiles, fill = Machine)) +
-      geom_dotplot(binwidth = 4, binaxis = "x", dotsize = .9, stackratio = 1.35) +
-      theme_bw() +
-      scale_fill_brewer(palette = "Set1") +
-      facet_grid(Machine ~ .) +
-      xlim(data_domain_gain[1], data_domain_gain[2]) +
-      ylim(0, .075) +
-      labs(
-        title = "Millions of Widgets Produced in Previous Years",
-        x = "Number of Widgets Produced (in Millions)",
-        y = "Possibility of Production",
-        caption = wrap_label("Each dot represents 5% of the possible numbers of widgets that could be produced (in millions) by each machine a given year.", char_before_wrap)) +
-      theme(
-        strip.background = element_blank(),
-        strip.text.x = element_blank(),
-        axis.title = element_text(size=label_size),
-        axis.text.y = element_blank(),
-        plot.title = element_text(size = title_size),
-        plot.caption = element_text(size = caption_size, hjust = 0, vjust = -1)) +
-      geom_vline(xintercept = 500, linetype = "longdash") + # contract threshold
-      annotate("text", x = 502, y = .05, label = "Above this threshold,\nyou gain the contract.", hjust = 0, vjust = 0)
+    plt <- quantile_dotplots(df = use_df, 
+      data_domain = data_domain_gain, 
+      title = "Millions of Widgets Produced per Year", 
+      x_label = "Number of Widgets Produced (in Millions)",
+      caption = "Each dot represents a 5% chance that different numbers of widgets (in millions) could be produced by each machine a given year.", 
+      decision_threshold = 500, 
+      threshold_label = "Above this threshold,\nyou gain the contract.")
     fname <- paste("stimuli/QDPs-", c, ".svg", sep = "")
     ggsave(file = fname, plot = plt, width = dims[1], height = dims[2])
   
     # densities
-    plt <- use_df %>% select(-one_of(c("draws", "draw_n"))) %>% unnest() %>%
-      ggplot(aes(x = quantiles, fill = Machine)) +
-      geom_density() +
-      theme_bw() +
-      scale_fill_brewer(palette = "Set1") +
-      facet_grid(Machine ~ .) +
-      xlim(data_domain_gain[1], data_domain_gain[2]) +
-      ylim(0, .075) +
-      labs(
-        title = "Millions of Widgets Produced in Previous Years",
-        x = "Number of Widgets Produced (in Millions)",
-        y = "Possibility of Production",
-        caption = wrap_label("The height of the shape represents the possibility of numbers of widgets that could be produced (in millions) by each machine in a given year.", char_before_wrap)) +
-      theme(
-        axis.title = element_text(size=label_size),
-        axis.text.y = element_blank(),
-        plot.title = element_text(size = title_size),
-        plot.caption = element_text(size = caption_size, hjust = 0, vjust = -1)) +
-      geom_vline(xintercept = 500, linetype = "longdash") + # contract threshold
-      annotate("text", x = 502, y = .05, label = "Above this threshold,\nyou gain the contract.", hjust = 0, vjust = 0)
+    plt <- densities(df = use_df, 
+      data_domain = data_domain_gain, 
+      title = "Millions of Widgets Produced per Year", 
+      x_label = "Number of Widgets Produced (in Millions)",
+      caption = "The height of the shape represents the chances that different numbers of widgets (in millions) could be produced by each machine a given year.", 
+      decision_threshold = 500, 
+      threshold_label = "Above this threshold,\nyou gain the contract.")
     fname <- paste("stimuli/densities-", c, ".svg", sep = "")
     ggsave(file = fname, plot = plt, width = dims[1], height = dims[2])
-  
-    # intervals with means
-    plt <- use_df %>% ggplot(aes(y = mean, x = reorder(Machine, desc(Machine)), color = Machine)) +
-      geom_pointrange(aes(ymin = mean + qnorm(0.025) * sd, ymax = mean + qnorm(0.975) * sd), show.legend = FALSE, fatten = means_size * interval_mean_size_factor) +
-      geom_line(aes(y = mean - 1000)) + geom_point(aes(y = mean - 1000)) + # hack to get legend symbols oriented properly
-      coord_flip() +
-      theme_bw() +
-      colScale +
-      ylim(data_domain_gain[1], data_domain_gain[2]) +
-      labs(
-        title="Millions of Widgets Produced in Previous Years",
-        y = "Number of Widgets Produced (in Millions)",
-        x = NULL,
-        caption = wrap_label("Dots represent the average number of widgets that could be produced (in millions) by each machine in a given year, and intervals contain 95% of the possible numbers of widgets that could be produced (in millions) in a given year.", char_before_wrap)) +
-      theme(
-        axis.title = element_text(size=label_size),
-        axis.text.y = element_blank(),
-        plot.title = element_text(size = title_size),
-        plot.caption = element_text(size = caption_size, hjust = 0, vjust = -1)) +
-      geom_hline(yintercept = 500, color = "gray", linetype = "longdash") + # contract threshold
-      annotate("text", y = 502, x = 2.4, label = "Above this threshold,\nyou gain the contract.", hjust = 0, vjust = 0)
-    fname <- paste("stimuli/intervals_w_means-", c, ".svg", sep = "")
-    ggsave(file = fname, plot = plt, width = dims[1], height = dims[2])
-  
-    # hops with means
-    plt <- use_df %>% select(-one_of(c("quantiles"))) %>% unnest() %>%
-      filter(draw_n %in% 1:n_draws_hops) %>% # filter to set number of draws
-      ggplot(aes(y = mean, x = reorder(Machine, desc(Machine)), color = Machine)) +
-      geom_point(size = means_size * HOPs_mean_size_factor) +
-      geom_point(aes(y = draws), shape = 124, size = HOPs_size) +
-      coord_flip() +
-      theme_bw() +
-      colScale +
-      ylim(data_domain_gain[1], data_domain_gain[2]) +
-      labs(
-        title = "Millions of Widgets Produced in Previous Years",
-        y = "Number of Widgets Produced (in Millions)",
-        x = NULL,
-        caption = wrap_label("Dots represent the average number of widgets that could be produced (in millions) by each machine in a given year, and lines represent the number of widgets that could produced (in millions) in a given year.", char_before_wrap)) +
-      theme(
-        axis.title = element_text(size=label_size),
-        axis.text.y = element_blank(),
-        plot.title = element_text(size = title_size),
-        plot.caption = element_text(size = caption_size, hjust = 0, vjust = -1)) +
-      geom_hline(yintercept = 500, color = "gray", linetype = "longdash") + # contract threshold
-      annotate("text", y = 502, x = 2.4, label = "Above this threshold,\nyou gain the contract.", hjust = 0, vjust = 0) +
-      transition_manual(draw_n)
-    hops <- animate(plt, fps = 2.5, nframes = 10 * frame_rate, res = 100, width = dims[1]*100, height = dims[2]*100)
-    fname <- paste("stimuli/HOPs_w_means-", c, ".gif", sep = "")
-    anim_save(filename = fname, animation = hops)
+
     
   } else { # stimuli for loss framing trials
     # means only
-    plt <- use_df %>% ggplot(aes(x = mean, y = reorder(Machine, desc(Machine)), color = Machine)) +
-      geom_point(size = means_size) +
-      theme_bw() +
-      colScale +
-      xlim(data_domain_loss[1], data_domain_loss[2]) +
-      labs(
-        title = "Defective Widgets per Million Produced in Previous Years",
-        x = "Average Number of Defective Widgets per Million Produced",
-        y = NULL,
-        caption = wrap_label("Dots represent the average number of defective widgets per million that could be produced by each machine in a given year.", char_before_wrap)) +
-      theme(
-        axis.title = element_text(size=label_size),
-        axis.text.y = element_blank(),
-        plot.title = element_text(size = title_size),
-        plot.caption = element_text(size = caption_size, hjust = 0, vjust = -1)) +
-      geom_vline(xintercept = 75, linetype = "longdash") + # contract threshold
-      annotate("text", x = 49, y = 2.4, label = "Below this threshold,\nyou lose the contract.", hjust = 0, vjust = 0)
+    plt <- means_only(df = use_df, 
+      data_domain = data_domain_loss, 
+      title = "Defective Widgets per Million Produced per Year", 
+      x_label = "Average Number of Defective Widgets per Million Produced",
+      caption = "Dots represent the average number of defective widgets per million that could be produced by each machine in a given year.", 
+      decision_threshold = 75, 
+      threshold_label = "Above this threshold,\nyou lose the contract.")
     fname <- paste("stimuli/means_only-", c,".svg", sep = "")
     ggsave(file = fname, plot = plt, width = dims[1], height = dims[2])
     
     # intervals only
-    plt <- use_df %>% ggplot(aes(y = mean, x = reorder(Machine, desc(Machine)), color = Machine)) +
-      geom_errorbar(aes(ymin = mean + qnorm(0.025) * sd, ymax = mean + qnorm(0.975) * sd, width = 0)) +
-      coord_flip() +
-      theme_bw() +
-      colScale +
-      ylim(data_domain_loss[1], data_domain_loss[2]) +
-      labs(
-        title = "Defective Widgets per Million Produced in Previous Years",
-        x = NULL,
-        y = "Range of Defective Widgets per Million Produced",
-        caption = wrap_label("Intervals contain 95% of the possible numbers of defective widgets per million that could be produced by each machine in a given year.", char_before_wrap)) +
-      theme(
-        axis.title = element_text(size=label_size),
-        axis.text.y = element_blank(),
-        plot.title = element_text(size = title_size),
-        plot.caption = element_text(size = caption_size, hjust = 0, vjust = -1)) +
-      geom_hline(yintercept = 75, linetype = "longdash") + # contract threshold
-      annotate("text", y = 49, x = 2.4, label = "Below this threshold,\nyou lose the contract.", hjust = 0, vjust = 0)
+    plt <- intervals_only(df = use_df, 
+      data_domain = data_domain_loss, 
+      title = "Defective Widgets per Million Produced per Year", 
+      x_label = "Range of Defective Widgets per Million Produced",
+      caption = "Intervals contain 95% of the possible numbers of defective widgets per million that could be produced by each machine in a given year.", 
+      decision_threshold = 75, 
+      threshold_label = "Above this threshold,\nyou lose the contract.")
     fname <- paste("stimuli/intervals_only-", c, ".svg", sep = "")
+    ggsave(file = fname, plot = plt, width = dims[1], height = dims[2])
+    
+     # intervals with means
+    plt <- intervals_w_means(df = use_df, 
+      data_domain = data_domain_loss, 
+      title = "Defective Widgets per Million Produced per Year", 
+      x_label = "Number of Defective Widgets per Million Produced",
+      caption = "Dots represent the average number of defective widgets per million that could be produced by each machine in a given year. Intervals contain 95% of the possible numbers of defective widgets per million that could be produced in a given year.", 
+      decision_threshold = 75, 
+      threshold_label = "Above this threshold,\nyou lose the contract.")
+    fname <- paste("stimuli/intervals_w_means-", c, ".svg", sep = "")
     ggsave(file = fname, plot = plt, width = dims[1], height = dims[2])
   
     # hops
-    plt <- use_df %>% select(-one_of(c("quantiles"))) %>% unnest() %>%
-      filter(draw_n %in% 1:n_draws_hops) %>% # filter to set number of draws
-      ggplot(aes(y = draws, x = reorder(Machine, desc(Machine)), color = Machine)) +
-      geom_point(shape = 124, size = HOPs_size) +
-      coord_flip() +
-      theme_bw() +
-      colScale +
-      ylim(data_domain_loss[1], data_domain_loss[2]) +
-      labs(
-        title = "Defective Widgets per Million Produced in Previous Years",
-        y = "Number of Defective Widgets per Million Produced",
-        x = NULL,
-        caption = wrap_label("Lines represent the number of defective widgets per million that could be produced by each machine in a given year.", char_before_wrap)) +
-      theme(
-        axis.title = element_text(size=label_size),
-        axis.text.y = element_blank(),
-        plot.title = element_text(size = title_size),
-        plot.caption = element_text(size = caption_size, hjust = 0, vjust = -1)) +
-      geom_hline(yintercept = 75, linetype = "longdash") + # contract threshold
-      annotate("text", y = 49, x = 2.4, label = "Below this threshold,\nyou lose the contract.", hjust = 0, vjust = 0) +
-      transition_manual(draw_n)
-    hops <- animate(plt, fps = 2.5, nframes = 10 * frame_rate, res = 100, width = dims[1]*100, height = dims[2]*100)
+    plt <- hops(df = use_df, 
+      n_draws = n_draws_hops,
+      frames_per_second = frame_rate,
+      data_domain = data_domain_loss, 
+      title = "Defective Widgets per Million Produced per Year", 
+      x_label = "Number of Defective Widgets per Million Produced",
+      caption = "Lines represent the number of defective widgets per million that could be produced by each machine in a given year.", 
+      decision_threshold = 75, 
+      threshold_label = "Above this threshold,\nyou lose the contract.",
+      dimensions = dims)
     fname <- paste("stimuli/HOPs-", c, ".gif", sep = "")
-    anim_save(filename = fname, animation = hops)
+    anim_save(filename = fname, animation = plt)
+    
+    # hops with means
+    plt <- hops_w_means(df = use_df, 
+      n_draws = n_draws_hops,
+      frames_per_second = frame_rate,
+      data_domain = data_domain_loss, 
+      title = "Defective Widgets per Million Produced per Year", 
+      x_label = "Number of Defective Widgets per Million Produced",
+      caption = "Dots represent the average number of defective widgets per million that could be produced by each machine in a given year. Lines represent number of defective widgets per million that could be produced in a given year.", 
+      decision_threshold = 75, 
+      threshold_label = "Above this threshold,\nyou lose the contract.", 
+      dimensions = dims)
+    fname <- paste("stimuli/HOPs_w_means-", c, ".gif", sep = "")
+    anim_save(filename = fname, animation = plt)
   
     # quantile dotplots
-    plt <- use_df %>% select(-one_of(c("draws", "draw_n"))) %>% unnest() %>%
-      ggplot(aes(x = quantiles, fill = Machine)) +
-      geom_dotplot(binwidth = 4, binaxis = "x", dotsize = .9, stackratio = 1.35) +
-      theme_bw() +
-      scale_fill_brewer(palette = "Set1") +
-      facet_grid(Machine ~ .) +
-      xlim(data_domain_loss[1], data_domain_loss[2]) +
-      ylim(0, .075) +
-      labs(
-        title = "Defective Widgets per Million Produced in Previous Years",
-        x = "Number of Defective Widgets per Million Produced",
-        y = "Possibility of Production",
-        caption = wrap_label("Each dot represents 5% of the possible numbers of defective widgets per million that could be produced by each machine in a given year.", char_before_wrap)) +
-      theme(
-        strip.background = element_blank(),
-        strip.text.x = element_blank(),
-        axis.title = element_text(size=label_size),
-        axis.text.y = element_blank(),
-        plot.title = element_text(size = title_size),
-        plot.caption = element_text(size = caption_size, hjust = 0, vjust = -1)) +
-      geom_vline(xintercept = 75, linetype = "longdash") + # contract threshold
-      annotate("text", x = 49, y = .05, label = "Below this threshold,\nyou lose the contract.", hjust = 0, vjust = 0)
+    plt <- quantile_dotplots(df = use_df, 
+      data_domain = data_domain_loss, 
+      title = "Defective Widgets per Million Produced per Year", 
+      x_label = "Number of Defective Widgets per Million Produced",
+      caption = "Each dot represents a 5% chance that different numbers of defective widgets per million could be produced by each machine a given year.", 
+      decision_threshold = 75, 
+      threshold_label = "Above this threshold,\nyou lose the contract.")
     fname <- paste("stimuli/QDPs-", c, ".svg", sep = "")
     ggsave(file = fname, plot = plt, width = dims[1], height = dims[2])
   
     # densities
-    plt <- use_df %>% select(-one_of(c("draws", "draw_n"))) %>% unnest() %>%
-      ggplot(aes(x = quantiles, fill = Machine)) +
-      geom_density() +
-      theme_bw() +
-      scale_fill_brewer(palette = "Set1") +
-      facet_grid(Machine ~ .) +
-      xlim(data_domain_loss[1], data_domain_loss[2]) +
-      ylim(0, .075) +
-      labs(
-        title = "Defective Widgets per Million Produced in Previous Years",
-        x = "Number of Defective Widgets per Million Produced",
-        y = "Possibility of Production",
-        caption = wrap_label("The height of the shape represents the possibility of numbers of defective widgets per million that could be produced by each machine in a given year.", char_before_wrap)) +
-      theme(
-        axis.title = element_text(size=label_size),
-        axis.text.y = element_blank(),
-        plot.title = element_text(size = title_size),
-        plot.caption = element_text(size = caption_size, hjust = 0, vjust = -1)) +
-      geom_vline(xintercept = 75, linetype = "longdash") + # contract threshold
-      annotate("text", x = 49, y = .05, label = "Below this threshold,\nyou lose the contract.", hjust = 0, vjust = 0)
+    plt <- densities(df = use_df, 
+      data_domain = data_domain_loss, 
+      title = "Defective Widgets per Million Produced per Year", 
+      x_label = "Number of Defective Widgets per Million Produced",
+      caption = "The height of the shape represents the chances that different numbers of defective widgets per million could be produced by each machine a given year.", 
+      decision_threshold = 75, 
+      threshold_label = "Above this threshold,\nyou lose the contract.")
     fname <- paste("stimuli/densities-", c, ".svg", sep = "")
     ggsave(file = fname, plot = plt, width = dims[1], height = dims[2])
-  
-    # intervals with means
-    plt <- use_df %>% ggplot(aes(y = mean, x = reorder(Machine, desc(Machine)), color = Machine)) +
-      geom_pointrange(aes(ymin = mean + qnorm(0.025) * sd, ymax = mean + qnorm(0.975) * sd), show.legend = FALSE, fatten = means_size * interval_mean_size_factor) +
-      geom_line(aes(y = mean - 1000)) + geom_point(aes(y = mean - 1000)) + # hack to get legend symbols oriented properly
-      coord_flip() +
-      theme_bw() +
-      colScale +
-      ylim(data_domain_loss[1], data_domain_loss[2]) +
-      labs(
-        title = "Defective Widgets per Million Produced in Previous Years",
-        y = "Number of Defective Widgets per Million Produced",
-        x = NULL,
-        caption = wrap_label("Dots represent the average number of defective widgets per million that could be produced by each machine in a given year, and intervals contain 95% of the possible numbers of defective widgets per million that could be produced in a given year.", char_before_wrap)) +
-      theme(
-        axis.title = element_text(size=label_size),
-        axis.text.y = element_blank(),
-        plot.title = element_text(size = title_size),
-        plot.caption = element_text(size = caption_size, hjust = 0, vjust = -1)) +
-      geom_hline(yintercept = 75, linetype = "longdash") + # contract threshold
-      annotate("text", y = 49, x = 2.4, label = "Below this threshold,\nyou lose the contract.", hjust = 0, vjust = 0)
-    fname <- paste("stimuli/intervals_w_means-", c, ".svg", sep = "")
-    ggsave(file = fname, plot = plt, width = dims[1], height = dims[2])
-  
-    # hops with means
-    plt <- use_df %>% select(-one_of(c("quantiles"))) %>% unnest() %>%
-      filter(draw_n %in% 1:n_draws_hops) %>% # filter to set number of draws
-      ggplot(aes(y = mean, x = reorder(Machine, desc(Machine)), color = Machine)) +
-      geom_point(size = means_size * HOPs_mean_size_factor) +
-      geom_point(aes(y = draws), shape = 124, size = HOPs_size) +
-      coord_flip() +
-      theme_bw() +
-      colScale +
-      ylim(data_domain_loss[1], data_domain_loss[2]) +
-      labs(
-        title = "Defective Widgets per Million Produced in Previous Years",
-        y = "Number of Defective Widgets per Million Produced",
-        x = NULL,
-        caption = wrap_label("Dots represent the average number of defective widgets per million that could be produced by each machine in a given year, and lines represent number of defective widgets per million that could be produced in a given year.", char_before_wrap)) +
-      theme(
-        axis.title = element_text(size=label_size),
-        axis.text.y = element_blank(),
-        plot.title = element_text(size = title_size),
-        plot.caption = element_text(size = caption_size, hjust = 0, vjust = -1)) +
-      geom_hline(yintercept = 75, linetype = "longdash") + # contract threshold
-      annotate("text", y = 49, x = 2.4, label = "Below this threshold,\nyou lose the contract.", hjust = 0, vjust = 0) +
-      transition_manual(draw_n)
-    hops <- animate(plt, fps = 2.5, nframes = 10 * frame_rate, res = 100, width = dims[1]*100, height = dims[2]*100)
-    fname <- paste("stimuli/HOPs_w_means-", c, ".gif", sep = "")
-    anim_save(filename = fname, animation = hops)
   }
 }
 ```
@@ -506,7 +664,7 @@ for (c in unique(conds_df$condition)) {
 <!--       # geom_line(aes(y = mean_diff - 1000)) + geom_point(aes(y = mean_diff - 1000)) + # hack to get legend symbols oriented properly -->
 <!--       coord_flip() + -->
 <!--       theme_bw() + -->
-<!--       # colScale + -->
+<!--       # scale_color_brewer(palette = "Set1") + -->
 <!--       ylim(data_domain_gain[1] - old_mean, data_domain_gain[2] - old_mean) + -->
 <!--       labs( -->
 <!--         title="Difference Between New and Old Machines: Millions of Widgets Produced in Previous Years", -->
