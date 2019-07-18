@@ -52,7 +52,7 @@ prac_df <- data.frame(
 # append to conditions dataframe
 conds_df <- rbind(conds_df, prac_df)
 
-head(conds_df)
+head(prac_df)
 ```
 
 When p_superiority is greater than 0.5, the decision task is framed as a gain scenario where the user needs to manufacture at least 500 million widgets next year to get a new contract. When p_superiority is less than 0.5, the decision task is framed as a loss scenario where the user needs to manufacture no more than 75 defective widgets per million next year to keep an existing contract.
