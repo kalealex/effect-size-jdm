@@ -42,7 +42,7 @@ conds_df <- data.frame(
 head(conds_df)
 ```
 
-We also want to creat stimuli for the practice trials. To make these trials easy, we choose a baseline probability of gaining/keeping the contract of 0.95 and probability of superiority values near 0.5. This way it should be obvious that the new machine is not worth the cost, and we can use these trials as an attention check. We create a gain framing version where probability of superiority is 0.6 and a loss framing version where probability of superiority is 0.4.
+We also want to create stimuli for the practice trials. To make these trials easy, we choose a baseline probability of gaining/keeping the contract of 0.95 and probability of superiority values near 0.5. This way it should be obvious that the new machine is not worth the cost, and we can use these trials as an attention check. We create a gain framing version where probability of superiority is 0.6 and a loss framing version where probability of superiority is 0.4.
 
 ```{r}
 # create df containting rows for practice trials
@@ -68,6 +68,21 @@ conds_df <- conds_df %>%
 head(conds_df)
 ```
 
+Since judging probability of superiority might be difficult for participants, we are including a mock task to help them understand what we are asking. We ask them judge a case where probability of superiority is 50%. We'll need versions of this stimulus condition for each baseline condition and each problem framing.
+
+```{r}
+# create df containting rows for mock trial in each condition
+mock_df <- data_grid(conds_df, p_superiority = c(.5), baseline = c(.15, .5, .85), frame = unique(frame)) %>%
+  mutate(threshold = if_else(frame=="gain", 
+                             500, # million widgets required to gain contract
+                             75)) # defective widgets per million required to keep contract
+# # append to conditions dataframe
+conds_df <- rbind(conds_df, mock_df)
+
+print(mock_df)
+```
+
+
 We control the standard deviation of the distribution of the difference in widgets between the two machines (sd_diff) by setting it to 15. In the gain framing this is 15 million widgets. In the loss framing, this is 15 defective widgets per million. Since the value of sd_diff is relative to the threshold for gaining/keeping the contract, we can think of this variable as constant across trials. We then derive the mean difference in the number of widgets produced by the new minus the old machine (mean_diff) from sd_diff and p_superiority. 
 
 ```{r}
@@ -80,7 +95,7 @@ conds_df <- conds_df %>%
 head(conds_df)
 ```
 
-Now we calculate the summary statistics for each machine, making the dataframe double its length up to this pointWe derive the standard deviation of the number of widgets produced by the machines from year to year (sd) from sd_diff, variance sum law, and the assumption that the machines have equal and independent variances. We derive the mean number of widgets produced by each machine (mean) from the threshold for gaining/keeping the contract, the sd of widgets for each machine, and the mean_diff between the number of widgets for the new minus the old machine. We derive the probability of gaining/keeping the contract from the threshold, mean, and sd.
+Now we calculate the summary statistics for each machine, making the dataframe double its length up to this point. We derive the standard deviation of the number of widgets produced by the machines from year to year (sd) from sd_diff, variance sum law, and the assumption that the machines have equal and independent variances. We derive the mean number of widgets produced by each machine (mean) from the threshold for gaining/keeping the contract, the sd of widgets for each machine, and the mean_diff between the number of widgets for the new minus the old machine. We derive the probability of gaining/keeping the contract from the threshold, mean, and sd.
 
 ```{r}
 # double the length of the dataframe to add information per machine, creating a stimulus dataframe with a row per distribution to visualize
@@ -110,7 +125,11 @@ We name the conditions based on the the baseline and probability of superiority,
 # name conditions
 conds_df <- conds_df %>%
   rowwise() %>% # need to name each row differently
-  mutate(condition = paste(c(baseline, "base", round(p_superiority, 3), "p_sup"), collapse = "_")) %>%
+  mutate(
+    condition = paste(c(baseline, "base", round(p_superiority, 3), "p_sup"), collapse = "_"),
+    condition = if_else(p_superiority == 0.5, # for mock trials where p_sup==0.5, add framing to condition name to prevent overwriting
+                        paste(c(condition, frame), collapse = "_"),
+                        condition)) %>%
   ungroup() # need to undo rowwise
 
 head(conds_df)
