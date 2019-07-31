@@ -40,11 +40,21 @@ responses_df <- full_df %>%
     trial_dur = trialDur,
     trial_idx = trialIdx
   ) %>%
+  filter(trial_idx != "practice", trial_idx != "mock") %>% # remove practice and mock trials from responses dataframe, leave in full version
   mutate( # mutate to jitter probability of superiority away from boundaries
     p_superiority = ifelse(p_superiority == 0, 0.25, p_superiority),            # avoid responses equal to zero
     p_superiority = ifelse(p_superiority == 100, 99.75, p_superiority)         # avoid responses equal to one-hundred
   ) %>%
-  filter(trial_idx != "practice", trial_idx != "mock") # remove practice and mock trials from responses dataframe, leave in full version
+  mutate( # mutate to rows where intervene == -1 for some reason
+    intervene = if_else(intervene == -1,
+                        # repair
+                        if_else((payoff == (contract_value - 1) | payoff == (-contract_value - 1) | payoff == -1),
+                                1, # payed for intervention
+                                0), # didn't pay for intervention
+                        # don't repair        
+                        as.numeric(intervene) # hack to avoid type error
+                        )
+  )
 
 head(responses_df)
 ```
@@ -138,7 +148,7 @@ responses_df %>%
   facet_grid(condition ~ baseline)
 ```
 
-Unsurprisingly, users seem pretty bad at decision-making when they use only means to inform their reasoning. Interestingly, the baseline condition seems to have a large impact on decision quality (provisionally, people seem to make better decisions when entropy is lower or the baseline outcome is more certain).
+In the aggregate, differences between conditions are pretty subtle. It looks like maybe people intervene slightly less often at high levels of effect size in the high baseline condition. We'll need to tease these effects out using statistical inference.
 
 
 ###Probability of Superiority Judgments vs Decisions to Intervene
@@ -188,11 +198,11 @@ for (cond in unique(responses_df$condition)) {
 }
 ```
 
-Trial duration seems mostly unrelated to probability of superiority judgments except for in the case of HOPs, where responses seem to cluster closer to the ground truth on longer trial durations (with some exceptions). We should expect that people will have more accurate perceptions of probability the longer they watch HOPs.
+Trial duration seems mostly unrelated to probability of superiority judgments overall.
 
 ####Trial Duration vs Decision Quality
 
-A nice matric for decision quality is whether users responded "correctly" or in line with the normative utility optimal decision rule. We calculate whether the user was "correct"" or not on each trial.
+A nice metric for decision quality is whether users responded "correctly" or in line with the normative utility optimal decision rule. We calculate whether the user was "correct"" or not on each trial.
 
 ```{r}
 # determine whether response on each trial is utility optimal
@@ -254,7 +264,7 @@ responses_df %>%
   facet_grid(~ baseline)
 ```
 
-On average, errors in probability of superiority judgments are high across the board, with the average error equal to about a quarter the range of possible responses.
+On average, errors in probability of superiority judgments are high across the board, with the average error equal to about a quarter the range of possible responses. Error rates are noteably lower in the intervals with means condition at a baseline of 0.5.
 
 ###Mean Error vs Ground Truth
 
@@ -277,7 +287,7 @@ responses_df %>%
 
 Again, we can see that errors are large on average, especially at the extreme ends of the probability scale. Higher errors at the extremes of the probability scale are expected based on _the cental tendency of judgments_.
 
-We can also see that errors are larger in the HOPs condition when the baseline probability of gaining the contract is high. This seems to only be the case for ground truth values greater than 50%. Maybe this asymmetry can be explained by outliers?
+We can also see that errors are slightly larger in the HOPs condition when the ground truth is less than 50% and baseline is 0.5.
 
 ###Proportion of Utility Optimal Decisions
 
@@ -298,7 +308,7 @@ responses_df %>%
     facet_grid(~ baseline)
 ```
 
-We can see that there are dips in performance near 25% and 75% probability of superiority. This is expected considering that these are the charts for which the intervention condition is most ambiguous. Interestingly, when the ground truth is near 50% users of charts that shows only means perform much worse than the users of other charts _when the baseline probability of gaining/keeping the contract is 50%_. This difference seems to disappear when the baseline is increased to 85%. Are means particularly ill suited for decision-making under conditions of maximum ambiguity but less harmful otherwise? Is this trend just noise?
+We can see that there are dips in performance near 25% and 75% probability of superiority. This is expected considering that these are the charts for which the intervention decision is most ambiguous. Interestingly, the parts of the probability scale which are perceived most accurately are the same parts where people make the most utility optimal decisions. It's unclear whether this is just a consequence of the task structure or also a feature of perceptual reasoning to support decisions.
 
 ###Checking for Bias Due to Framing
 
@@ -325,7 +335,7 @@ responses_df %>%
     facet_grid(condition ~ baseline)
 ```
 
-The means only condition looks pretty strange at a baseline of 85%. It's hard to say why the lines would cross like that. With the amount of data collected, it is difficult to differentiate any apparent asymmetry from noise. We'll need to tease this out using formal statistical analysis.
+Asymmetries do not seem substantial.
 
 Next, let's use a similar visualization to investigate framing bias in the proportion of utility optimal decisions.
 
@@ -348,7 +358,7 @@ responses_df %>%
     facet_grid(condition ~ baseline)
 ```
 
-Again, the means only condition looks strange at a baseline of 85%. It makes me wonder if there is an outlier in that condition (e.g., a partipant who was speeding or didn't get the task). Otherwise, there doesn't seem to be much of a framing effect on decision performance.
+It looks like there may be a reversal where users make better decisions in the gain frame at high levels of ground truth probability of superiority, but otherwise users make utility optimal decisions at least as often in the loss frame.
 
 
 ##Individual Patterns of Behavior
@@ -403,7 +413,28 @@ for (worker in unique(responses_df$worker_id)) {
 }
 ```
 
-Looking at these plots for individual participants, we can see that not everyone was shown all 24 levels of ground truth as intended. This is due to a bug in the interface code that reshuffled the trial set throughout the experiment for some participants. This was fixed after HIT assignment batch 7. Let's see what the damage looks like. How many participants were shown various numbers of duplicate trials?
+How many participants meet our exclusion criterion? Here we use the practice trials as attention checks. If a user understands the decision problem, they should not intervene on either of the practice trials.
+
+```{r}
+full_df %>% 
+  # use practice trials as attention check
+  filter(trial == "practice1" | trial == "practice2") %>%
+  mutate(passed_check = intervene == 0) %>%
+  # exclude if a worker has not passed the attention check on both practice trials
+  group_by(workerId, condition, baseline) %>%
+  summarise(exclude = mean(passed_check) != 1) %>%
+  group_by(condition, baseline) %>%
+  summarise(
+    excluded = sum(exclude),
+    total = n())
+```
+
+This does not inspire confidence in our data quality.
+
+
+##Check for Duplicate Trials
+
+In an earlier version of the pilot, not everyone was shown all 24 levels of ground truth as intended. This is due to a bug in the interface code that reshuffled the trial set throughout the experiment for some participants. This was fixed after HIT assignment batch 7. Let's check how many participants were shown various numbers of duplicate trials.
 
 ```{r}
 # create a grid of worker ids * trial indices, every trial that should exist
