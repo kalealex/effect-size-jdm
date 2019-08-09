@@ -60,17 +60,18 @@ We manipulate the probability of the team scoring or giving up more points with 
 When p_superiority is greater than 0.5, the decision task is framed as a gain scenario where the user's team needs to score at least 100 points to win an award. When p_superiority is less than 0.5, the decision task is framed as a loss scenario where the user's team needs to give up fewer than 75 points to keep an award.
 
 ```{r}
-# linear sampling of log odds for ground truth probability of superiority for the new machine
-n_trials.linear_log_odds <- 20
-logodds <- seq(log(0.025/(1-0.025)), log(0.975/(1-0.975)), length.out = n_trials.linear_log_odds)
-p_superiority.linear_log_odds <- 1 / (1 + exp(-logodds))
+# linear sampling of log odds for full span of ground truth probability of superiority between 0.025 and 0.975
+n_trials.full_span <- 20
+logodds.full_span <- seq(log(0.025 / (1 - 0.025)), log(0.975 / (1 - 0.975)), length.out = n_trials.full_span)
 
-# sampling near the decision threshold p_superiority == [0.13, 0.87]
-p_superiority.near_threshold = c(0.11, 0.12, 0.14, 0.15, # near threshold for loss frame
-                                 0.85, 0.86, 0.88, 0.89) # near threshold for gain frame
+# linear sampling of log odds near the decision threshold (p_superiority == [0.13, 0.87]) 
+n_trials.near_threshold <- 8
+logodds.near_threshold <- c(seq(log(0.1 / (1 - 0.1)), log(0.2 /(1 - 0.2)), length.out = n_trials.near_threshold / 2), # near threshold for loss frame
+                            seq(log(0.8 / (1 - 0.8)), log(0.9 /(1 - 0.9)), length.out = n_trials.near_threshold / 2)) # near threshold for gain frame
 
-# combine the sampling strategies
-p_superiority <- sort(c(p_superiority.linear_log_odds, p_superiority.near_threshold))
+# combine the sampling strategies and convert from log odds to probability of superiority
+logodds <- sort(c(logodds.full_span, logodds.near_threshold))
+p_superiority <- 1 / (1 + exp(-logodds))
 n_trials <- length(p_superiority)
 
 print(p_superiority)
