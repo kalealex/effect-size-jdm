@@ -59,6 +59,12 @@ responses_df <- full_df %>%
 head(responses_df)
 ```
 
+<!-- Since the response data seem so noisy we want to figure out why. We look at the first set of trials only to see if the change between gain and loss framing is confusing people. -->
+
+<!-- ```{r} -->
+<!-- responses_df <- responses_df %>% filter((start_gain_frame == "True" & ground_truth > 0.5) | start_gain_frame == "False" & ground_truth < 0.5)  -->
+<!-- ``` -->
+
 <!-- ###Load Stimuli-Generating Data -->
 
 <!-- We'll also want to load the dataframe that was used to create the stimuli that participants made judgments about. -->

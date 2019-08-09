@@ -5,3 +5,5 @@ stimuli.zip
 .Rhistory
 raw_data/
 *.rds
+model-fits/
+PilotAnalysis-InterventionDecisions.Rmd
