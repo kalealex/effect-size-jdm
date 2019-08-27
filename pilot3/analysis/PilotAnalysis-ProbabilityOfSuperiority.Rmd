@@ -18,7 +18,7 @@ library(brms)
 
 In this document, we build a two part mixture in brms which captures the proportion of responses that follow a linear log odds (LLO) pattern vs a constant response pattern. 
 
-The LLO model follows from [related work](https://www.frontiersin.org/articles/10.3389/fnins.2012.00001/full) suggesting that the human perception of probability is encoded on a log odds scale. On this scale, the slope of a linear model represents the shape and severity of the function describing bias in probability perception. The greater the deviation of from a slope of 1 (i.e., ideal performance), the more biased the judgments of probability. Slopes less than one correspond to the kind of bias predicted by excessive attention to the mean. On the same log odds scale, the intercept is a crossover-point which should be proportional to the number of categories of possible outcomes among which probability is divided. In our case, the intercept should be about 0.5 since workers are judging the probability of a new machine vs an old machine producing more (defective) widgets.
+The LLO model follows from [related work](https://www.frontiersin.org/articles/10.3389/fnins.2012.00001/full) suggesting that the human perception of probability is encoded on a log odds scale. On this scale, the slope of a linear model represents the shape and severity of the function describing bias in probability perception. The greater the deviation of from a slope of 1 (i.e., ideal performance), the more biased the judgments of probability. Slopes less than one correspond to the kind of bias predicted by excessive attention to the mean. On the same log odds scale, the intercept is a crossover-point which should be proportional to the number of categories of possible outcomes among which probability is divided. In our case, the intercept should be about 0.5 since workers are judging the probability of a team getting more points with a new player than without.
 
 Although we start by building up the LLO model on its own, there are a large number of responses near 50% (the middle of the probability scale) which cannot be accounted for by the LLO model. Thus, we add a mixture component for a random constant response per subject and model the proportion of responses which match this pattern depending on the visualization condition.
 
@@ -34,10 +34,10 @@ full_df <- read_csv("pilot-anonymous.csv")
 responses_df <- full_df %>%
   rename( # rename to convert away from camel case
     worker_id = workerId,
-    company_value = companyValue,
+    account_value = accountValue,
     ground_truth = groundTruth,
-    p_contract_new = pContractNew,
-    p_contract_old = pContractOld,
+    p_award_with = pAwardWith,
+    p_award_without = pAwardWithout,
     p_superiority = pSup,
     start_time = startTime,
     resp_time = respTime,
@@ -45,25 +45,20 @@ responses_df <- full_df %>%
     trial_idx = trialIdx
   ) %>%
   filter(trial_idx != "practice", trial_idx != "mock") %>% # remove practice and mock trials from responses dataframe, leave in full version
-  mutate( # mutate to jitter probability of superiority away from boundaries
+  mutate( 
+    # flip probability of superiority responses below 50% for the loss frame 
+    p_superiority = if_else(ground_truth < 0.5,
+                            100 - p_superiority,
+                            as.numeric(p_superiority)), # hack to avoid type error
+    # mutate to jitter probability of superiority away from boundaries
     p_superiority = ifelse(p_superiority == 0, 0.25, p_superiority),            # avoid responses equal to zero
     p_superiority = ifelse(p_superiority == 100, 99.75, p_superiority)         # avoid responses equal to one-hundred
-  ) #%>%
-  # mutate( # mutate to rows where intervene == -1 for some reason
-  #   intervene = if_else(intervene == -1,
-  #                       # repair
-  #                       if_else((payoff == (contract_value - 1) | payoff == (-contract_value - 1) | payoff == -1),
-  #                               1, # payed for intervention
-  #                               0), # didn't pay for intervention
-  #                       # don't repair        
-  #                       as.numeric(intervene) # hack to avoid type error
-  #                       )
-  # )
+  )
 
 head(responses_df)
 ```
 
-We need the data in a format where it is prepared for modeling. This means converting both probability of superiority judgments and the ground truth to a logit scale. It also means that we want baseline as a factor rather than a numeric value.
+We need the data in a format where it is prepared for modeling. This means converting both probability of superiority judgments and the ground truth to a logit scale. It also means that we want problem framing as a factor.
 
 ```{r}
 # create data frame for model
@@ -71,7 +66,7 @@ model_df_llo <- responses_df %>%
   mutate( # apply logit function to p_sup judgments and ground truth
     lo_p_sup=qlogis(p_superiority / 100),
     lo_ground_truth=qlogis(ground_truth),
-    baseline=as.factor(baseline)
+    frame = as.factor(if_else(ground_truth > 0.5, "gain", "loss"))
   )
 ```
 
@@ -110,14 +105,14 @@ m.lo_p_sup <- brm(data = model_df_llo, family = gaussian,
 
 Check diagnostics:
 
-- Trace plots. The value of sigma seems pretty large.
+- Trace plots
 
 ```{r}
 # trace plots
 plot(m.lo_p_sup)
 ```
 
-- Pairs plot. These look great.
+- Pairs plot
 
 ```{r}
 # pairs plot
@@ -148,7 +143,7 @@ post %>%
 
 ##Linear Log Odds Model of Probability of Superiority
 
-Now well add in a slope parameter. Hopefully, this will reduce the residual variance.
+Now well add in a slope parameter.
 
 Let's check that our priors seem reasonable.
 
@@ -286,6 +281,8 @@ plot(m.vis.llo_p_sup)
 pairs(m.vis.llo_p_sup)
 ```
 
+Theses slopes are looking pretty correlated.
+
 - Summary
 
 ```{r}
@@ -374,6 +371,32 @@ This looks pretty promising, but let's see if we can account for some of the var
 ##Add Hierarchy for Slopes and Intercepts
 
 The models we've created thus far fail to account for much of the noise in the data. Here, we attempt to parse some heterogeniety in responses by modeling a random effect of worker on slopes and intercepts. This introduces a hierarchical component to our model in order to account for individual differences in the best fitting linear model for each worker's data.
+
+<!-- Let's check that our priors seem reasonable. -->
+
+<!-- ```{r} -->
+<!-- # prior predictive check -->
+<!-- n <- 1e3 -->
+<!-- model_df_llo %>% -->
+<!--   select(lo_ground_truth) %>% -->
+<!--   data_grid(lo_ground_truth = seq_range(lo_ground_truth, 51)) %>% -->
+<!--   mutate(# add priors -->
+<!--          slope     = list(rnorm(n, mean = 0, sd = 1)), -->
+<!--          intercept = list(rnorm(n, mean = 0, sd = 1)), -->
+<!--          sd_worker_slope = list(rnorm(n, mean = 0, sd = 1)), -->
+<!--          sd_worker_intercept = list(rnorm(n, mean = 0, sd = 1)), -->
+<!--          sigma     = list(rnorm(n, mean = 0, sd = 1)) -->
+<!--   ) %>% -->
+<!--   unnest() %>% -->
+<!--   mutate(# linear model -->
+<!--          lo_p_sup = rnorm(n(), mean = intercept, sd = abs(sd_worker_intercept)) + lo_ground_truth * rnorm(n(), mean = slope, sd = abs(sd_worker_slope)), -->
+<!--          p_sup = plogis(lo_p_sup)) %>%  -->
+<!--   ggplot(aes(x = p_sup)) + -->
+<!--   geom_density(fill = "black", size = 0) + -->
+<!--   scale_y_continuous(NULL, breaks = NULL) + -->
+<!--   labs(subtitle = "Prior predictive distribution for probability of superiority") + -->
+<!--   theme(panel.grid = element_blank()) -->
+<!-- ``` -->
 
 ```{r}
 # update the llo model of p_sup responses to include an interaction
@@ -487,19 +510,19 @@ model_df_llo %>%
   facet_grid(. ~ condition)
 ```
 
-Again, this is promising, but it is still very noisy. Also, there are areas of high posterior density in the interals_w_means and means_only conditions where there are no observations. Maybe adding the baseline condition to the model will improve the fit?
+Again, this is promising, but it is still very noisy. Also, there are areas of high posterior density where there are no observations. Part of the reason for this that we restricted the response scale to 50-100 for this iteration of the pilot.
 
 
-##Add a Slope Interaction for Baseline Condition
+##Add a Slope Interaction for Problem Framing
 
-Similar to how we model the effects of visualization conditions on the slope of the LLO model as interactions with the ground truth, we add an interaction for baseline conditions. This gives us a three way interaction.
+Similar to how we model the effects of visualization conditions on the slope of the LLO model as interactions with the ground truth, we add an interaction for gain/loss framing. This gives us a three way interaction.
 
 ```{r}
 # update the llo model of p_sup responses to include an interaction
-m.vis.base.wrkr.llo_p_sup <- update(m.llo_p_sup, 
-                         formula = lo_p_sup ~ (1 + lo_ground_truth|worker_id) + lo_ground_truth:condition:baseline,
+m.vis.frame.wrkr.llo_p_sup <- update(m.llo_p_sup, 
+                         formula = lo_p_sup ~ (1 + lo_ground_truth|worker_id) + lo_ground_truth:condition:frame,
                          newdata = model_df_llo,
-                         file = "model-fits/llo_mdl_vis_base_wrkr")
+                         file = "model-fits/llo_mdl_vis_frame_wrkr")
 ```
 
 Check diagnostics:
@@ -508,21 +531,21 @@ Check diagnostics:
 
 ```{r}
 # trace plots
-plot(m.vis.base.wrkr.llo_p_sup)
+plot(m.vis.frame.wrkr.llo_p_sup)
 ```
 
 - Pairs plot
 
 ```{r}
 # pairs plot
-pairs(m.vis.base.wrkr.llo_p_sup)
+pairs(m.vis.frame.wrkr.llo_p_sup)
 ```
 
 - Summary
 
 ```{r}
 # model summary
-print(m.vis.base.wrkr.llo_p_sup)
+print(m.vis.frame.wrkr.llo_p_sup)
 ```
 
 Let's check out a posterior predictive distribution for probability of superiority. This still looks too wide considering the number of responses near 50% that we see in the data.
@@ -530,8 +553,8 @@ Let's check out a posterior predictive distribution for probability of superiori
 ```{r}
 # posterior predictive check
 model_df_llo %>%
-  select(lo_ground_truth, condition, baseline, worker_id) %>%
-  add_predicted_draws(m.vis.base.wrkr.llo_p_sup, prediction = "lo_p_sup", seed = 1234) %>%
+  select(lo_ground_truth, condition, frame, worker_id) %>%
+  add_predicted_draws(m.vis.frame.wrkr.llo_p_sup, prediction = "lo_p_sup", seed = 1234) %>%
   mutate(post_p_sup = plogis(lo_p_sup)) %>%
   ggplot(aes(x = post_p_sup)) +
   geom_density(fill = "black", size = 0) +
@@ -544,10 +567,10 @@ What does the posterior for the effect of each visualization condition look like
 
 ```{r}
 # use posterior samples to define distributions for the slope in each visualization condition
-posterior_samples(m.vis.base.wrkr.llo_p_sup) %>%
-  transmute(slope_HOPs = `b_lo_ground_truth:conditionHOPs:baseline0.5` + `b_lo_ground_truth:conditionHOPs:baseline0.85`,
-            slope_intervals_w_means = `b_lo_ground_truth:conditionintervals_w_means:baseline0.5` + `b_lo_ground_truth:conditionintervals_w_means:baseline0.85`,
-            slope_means_only = `b_lo_ground_truth:conditionmeans_only:baseline0.5` + `b_lo_ground_truth:conditionmeans_only:baseline0.85`) %>%
+posterior_samples(m.vis.frame.wrkr.llo_p_sup) %>%
+  transmute(slope_HOPs = `b_lo_ground_truth:conditionHOPs:framegain` + `b_lo_ground_truth:conditionHOPs:frameloss`,
+            slope_intervals_w_means = `b_lo_ground_truth:conditionintervals_w_means:framegain` + `b_lo_ground_truth:conditionintervals_w_means:frameloss`,
+            slope_means_only = `b_lo_ground_truth:conditionmeans_only:framegain` + `b_lo_ground_truth:conditionmeans_only:frameloss`) %>%
   gather(key, value) %>%
   ggplot(aes(x = value, group = key, color = key, fill = key)) +
   geom_density(alpha = 0.35) +
@@ -559,14 +582,14 @@ posterior_samples(m.vis.base.wrkr.llo_p_sup) %>%
   theme(panel.grid = element_blank())
 ```
 
-Let's take a look at some of the estimated linear models per visualization * baseline condition.
+Let's take a look at some of the estimated linear models per visualization condition. Adding different slopes per framing condition should introduce some asymmetry on either side of 50%.
 
 ```{r}
 # this time we'll adopt functions from the tidybayes package to make plotting posterior predictions easier
 model_df_llo %>%
-  group_by(condition, baseline, worker_id) %>%
+  group_by(condition, frame, worker_id) %>%
   data_grid(lo_ground_truth = seq_range(lo_ground_truth, n = 51)) %>%
-  add_predicted_draws(m.vis.base.wrkr.llo_p_sup) %>%
+  add_predicted_draws(m.vis.frame.wrkr.llo_p_sup) %>%
   ggplot(aes(x = lo_ground_truth, y = lo_p_sup, color = condition, fill = condition)) +
   geom_abline(intercept = 0, slope = 1, size = 1, alpha = .3, color = "red", linetype = "dashed") + # ground truth
   stat_lineribbon(aes(y = .prediction), .width = c(.95, .80, .50), alpha = .25) +
@@ -577,16 +600,16 @@ model_df_llo %>%
                   ylim = quantile(model_df_llo$lo_p_sup, c(0, 1))) +
   theme_bw() +
   theme(panel.grid = element_blank()) + 
-  facet_grid(baseline ~ condition)
+  facet_grid(. ~ condition)
 ```
 
 What does this look like in probability units?
 
 ```{r}
 model_df_llo %>%
-  group_by(condition, baseline, worker_id) %>%
+  group_by(condition, frame, worker_id) %>%
   data_grid(lo_ground_truth = seq_range(lo_ground_truth, n = 51)) %>%
-  add_predicted_draws(m.vis.base.wrkr.llo_p_sup) %>%
+  add_predicted_draws(m.vis.frame.wrkr.llo_p_sup) %>%
   ggplot(aes(x = plogis(lo_ground_truth), y = plogis(lo_p_sup), color = condition, fill = condition)) +
   geom_abline(intercept = 0, slope = 1, size = 1, alpha = .3, color = "red", linetype = "dashed") + # ground truth
   stat_lineribbon(aes(y = plogis(.prediction)), .width = c(.95, .80, .50), alpha = 1/4) +
@@ -600,15 +623,13 @@ model_df_llo %>%
   facet_grid(baseline ~ condition)
 ```
 
-Adding an interaction for the baseline condition doesn't really fix the problem that our posterior predictions have high density where there are few responses. However, it does seem like probability of superiority judgments may be slightly more distorted when the baseline is 0.5.
-
-Let's check whether adding parameters to account for baseline is worth it insofar as the added parameters contribute more to predictive validity than they contribute to overfitting. We'll determine this by comparing the models with and without parameters for baseline according to the widely applicable information criterion (WAIC). Lower values of WAIC indicate a better fitting model.
+Let's check whether adding parameters to account for problem framing is worth it insofar as the added parameters contribute more to predictive validity than they contribute to overfitting. We'll determine this by comparing the models with and without parameters for baseline according to the widely applicable information criterion (WAIC). Lower values of WAIC indicate a better fitting model.
 
 ```{r}
-waic(m.vis.wrkr.llo_p_sup, m.vis.base.wrkr.llo_p_sup)
+waic(m.vis.wrkr.llo_p_sup, m.vis.frame.wrkr.llo_p_sup)
 ```
 
-The fact that WAIC values for the two models are approximately equal suggests that we don't get much improvement in model fit from adding the parameters for baseline condition to this model. This makes sense as the baseline conditions are more likely to impact decisions than probability judgments.
+The fact that WAIC values for the two models are approximately equal suggests that we don't get much improvement in model fit from adding the parameters for problem framing to this model. This makes sense as the problem framing is more likely to impact decisions than probability judgments.
 
 
 ##A Mixture Model of Fake Probability of Superiority Responses
@@ -636,13 +657,12 @@ softmax <- function(x) {
 
 # predictions on each trial per process: llo vs guess_one
 process_df <- responses_df %>% rowwise() %>% 
-  mutate( # heuristic functions
+  mutate(
     llo = ground_truth * 100, # our simulated llo model has zero bias
     guess_one = 99.75
   ) %>% 
   gather(process, process_est, llo, guess_one) %>% # reshape
-  select(worker_id, baseline, ground_truth, process, process_est) %>%
-  mutate(baseline = as.factor(baseline))
+  select(worker_id, ground_truth, process, process_est)
 
 # user same p_process for each worker (no hierarchy)
 fake_worker_params_df <- model_df_llo %>%
@@ -658,7 +678,7 @@ fake_df_llo_mix <- model_df_llo %>%
   slice(rep(1:n(), each = n_trial_scalar)) %>%
   rowwise() %>%
   mutate(process = sample(x = c("llo", "guess_one"), size = n(), replace = TRUE, prob = p_process_worker)) %>% # sample process to use on each trial
-  left_join(process_df, by = c("worker_id", "baseline", "ground_truth", "process")) %>% # add process estimates to model_df
+  left_join(process_df, by = c("worker_id", "ground_truth", "process")) %>% # add process estimates to model_df
   select(-p_superiority) %>% # remove actual responses 
   mutate(
     lo_p_sup = qlogis(process_est / 100) + rnorm(n(), 0, sigma_err), # likelihood function
@@ -735,7 +755,7 @@ Let's also check out a posterior predictive distribution for the fake probabilit
 ```{r}
 # posterior predictive check
 fake_df_llo_mix %>%
-  select(lo_ground_truth, condition, baseline, worker_id) %>%
+  select(lo_ground_truth, worker_id) %>%
   add_predicted_draws(m.fake.llo_mix, prediction = "lo_p_sup", seed = 1234) %>%
   mutate(post_p_sup = plogis(lo_p_sup)) %>%
   ggplot(aes(x = post_p_sup)) +
@@ -830,16 +850,18 @@ pairs(m.vis.wrkr.llo_mix, pars = c("b_mu1_lo_ground_truth:conditionHOPs",
 print(m.vis.wrkr.llo_mix)
 ```
 
-There are a couple problems with this model. First, the trace plots show some divergence between chains in estimating individual variability in slopes `sd_worker_id__mu1_lo_ground_truth` and intercepts `sd_worker_id__mu1_Intercept`, respectively as well as the residual error `sigma1`. This lack of convergence is symptomatic of a parameter space with difficult geometry. This means we need to reparameterize our model. 
+Something clearly went horribly wrong when fitting this model. In past pilots, it has helped to reparameterize the model in order to represent the correlation between the three parameters representing rates of the constant response strategy in each visualization condition (e.g., `b_theta2_conditionmeans_only`). We do this by adding a multivariate normal prior.
 
-A second problem may be the root cause of our issues. The posterior samples are strongly correlated among the estimates of the rate of the constant response strategy in each visualization condition (e.g., `b_theta2_conditionmeans_only`). In order to make the geometry of parameter space easier for the MCMC sampler, the model needs to know about this correlation between conditions. We reparameterize the model in order to represent the correlation between these three parameters by adding a multivariate normal prior.
+<!-- There are a couple problems with this model. First, the trace plots show some divergence between chains in estimating individual variability in slopes `sd_worker_id__mu1_lo_ground_truth` and intercepts `sd_worker_id__mu1_Intercept`, respectively as well as the residual error `sigma1`. This lack of convergence is symptomatic of a parameter space with difficult geometry. This means we need to reparameterize our model.  -->
+
+<!-- A second problem may be the root cause of our issues. The posterior samples are strongly correlated among the estimates of the rate of the constant response strategy in each visualization condition (e.g., `b_theta2_conditionmeans_only`). In order to make the geometry of parameter space easier for the MCMC sampler, the model needs to know about this correlation between conditions. We reparameterize the model in order to represent the correlation between these three parameters by adding a multivariate normal prior. -->
 
 
 ##Revised Mixture of the LLO Model and a Random Constant Response
 
 This is an adaptation of the previous model which attempts to remedy the issues we saw in the pairs plots. What we do here is add a multivariate normal prior for the rate of random constant responses in each visualization condition. This allows the model to learn both the mean rate for each visualization condition `mu_theta2` (in log odds units) and the shared covariance matrix for the rates in each condition `Sigma_theta2`.
 
-```{r}
+```{r eval=FALSE}
 # define stanvars for multi_normal prior on condition effects
 stanvars <- stanvar(rep(1, 3), "mu_theta2", scode = "  vector[3] mu_theta2;") +
   stanvar(diag(3), "Sigma_theta2", scode = "  matrix[3, 3] Sigma_theta2;")
@@ -865,161 +887,163 @@ m.vis.wrkr.llo_mix2 <- brm(
 )
 ```
 
-Check diagnostics:
+This also takes forever to run, which suggests to me that it probably has the same problems. I think it that constraining the response scale was the problem here.
 
-- Trace plots
+<!-- Check diagnostics: -->
 
-```{r}
-# trace plots
-plot(m.vis.wrkr.llo_mix2)
-```
+<!-- - Trace plots -->
 
-- Pairs plot
+<!-- ```{r} -->
+<!-- # trace plots -->
+<!-- plot(m.vis.wrkr.llo_mix2) -->
+<!-- ``` -->
 
-```{r}
-# pairs plot (too many things to view at once, so we've grouped them)
-# mixture proportions
-pairs(m.vis.wrkr.llo_mix2, pars = c("sd_worker_id__theta2_Intercept",
-                               "b_theta2_conditionHOPs",
-                               "b_theta2_conditionmeans_only",
-                               "b_theta2_conditionintervals_w_means"))
-```
+<!-- - Pairs plot -->
 
-```{r}
-# pairs plot (too many things to view at once, so we've grouped them)
-# hyperparameters
-pairs(m.vis.wrkr.llo_mix2, pars = c("b_mu1_Intercept",
-                               "sd_worker_id__mu1_Intercept",
-                               "sd_worker_id__mu1_lo_ground_truth",
-                               "cor_worker_id__mu1_Intercept__mu1_lo_ground_truth",
-                               "sigma1",
-                               "b_mu2_Intercept",
-                               "sd_worker_id__mu2_Intercept",
-                               "sigma2"))
-```
+<!-- ```{r} -->
+<!-- # pairs plot (too many things to view at once, so we've grouped them) -->
+<!-- # mixture proportions -->
+<!-- pairs(m.vis.wrkr.llo_mix2, pars = c("sd_worker_id__theta2_Intercept", -->
+<!--                                "b_theta2_conditionHOPs", -->
+<!--                                "b_theta2_conditionmeans_only", -->
+<!--                                "b_theta2_conditionintervals_w_means")) -->
+<!-- ``` -->
 
-```{r}
-# pairs plot (too many things to view at once, so we've grouped them)
-# slope effects
-pairs(m.vis.wrkr.llo_mix2, pars = c("b_mu1_lo_ground_truth:conditionHOPs",
-                               "b_mu1_lo_ground_truth:conditionmeans_only",
-                               "b_mu1_lo_ground_truth:conditionintervals_w_means"))
-```
+<!-- ```{r} -->
+<!-- # pairs plot (too many things to view at once, so we've grouped them) -->
+<!-- # hyperparameters -->
+<!-- pairs(m.vis.wrkr.llo_mix2, pars = c("b_mu1_Intercept", -->
+<!--                                "sd_worker_id__mu1_Intercept", -->
+<!--                                "sd_worker_id__mu1_lo_ground_truth", -->
+<!--                                "cor_worker_id__mu1_Intercept__mu1_lo_ground_truth", -->
+<!--                                "sigma1", -->
+<!--                                "b_mu2_Intercept", -->
+<!--                                "sd_worker_id__mu2_Intercept", -->
+<!--                                "sigma2")) -->
+<!-- ``` -->
 
-- Summary
+<!-- ```{r} -->
+<!-- # pairs plot (too many things to view at once, so we've grouped them) -->
+<!-- # slope effects -->
+<!-- pairs(m.vis.wrkr.llo_mix2, pars = c("b_mu1_lo_ground_truth:conditionHOPs", -->
+<!--                                "b_mu1_lo_ground_truth:conditionmeans_only", -->
+<!--                                "b_mu1_lo_ground_truth:conditionintervals_w_means")) -->
+<!-- ``` -->
 
-```{r}
-# model summary
-print(m.vis.wrkr.llo_mix2)
-```
+<!-- - Summary -->
 
-Let's check out a posterior predictive distribution for probability of superiority.
+<!-- ```{r} -->
+<!-- # model summary -->
+<!-- print(m.vis.wrkr.llo_mix2) -->
+<!-- ``` -->
 
-```{r}
-# posterior predictive check
-model_df_llo %>%
-  select(lo_ground_truth, condition, worker_id) %>%
-  add_predicted_draws(m.vis.wrkr.llo_mix2, prediction = "lo_p_sup", seed = 1234) %>%
-  mutate(post_p_sup = plogis(lo_p_sup)) %>%
-  ggplot(aes(x = post_p_sup)) +
-  geom_density(fill = "black", size = 0) +
-  scale_y_continuous(NULL, breaks = NULL) +
-  labs(subtitle = "Posterior predictive distribution for probability of superiority") +
-  theme(panel.grid = element_blank())
-```
+<!-- Let's check out a posterior predictive distribution for probability of superiority. -->
 
-How does this compare to the empirical distribution of probability of superiority responses?
+<!-- ```{r} -->
+<!-- # posterior predictive check -->
+<!-- model_df_llo %>% -->
+<!--   select(lo_ground_truth, condition, worker_id) %>% -->
+<!--   add_predicted_draws(m.vis.wrkr.llo_mix2, prediction = "lo_p_sup", seed = 1234) %>% -->
+<!--   mutate(post_p_sup = plogis(lo_p_sup)) %>% -->
+<!--   ggplot(aes(x = post_p_sup)) + -->
+<!--   geom_density(fill = "black", size = 0) + -->
+<!--   scale_y_continuous(NULL, breaks = NULL) + -->
+<!--   labs(subtitle = "Posterior predictive distribution for probability of superiority") + -->
+<!--   theme(panel.grid = element_blank()) -->
+<!-- ``` -->
 
-```{r}
-# posterior predictive check
-model_df_llo %>%
-  ggplot(aes(x = p_superiority)) +
-  geom_density(fill = "black", size = 0) +
-  scale_y_continuous(NULL, breaks = NULL) +
-  labs(subtitle = "Posterior predictive distribution for probability of superiority") +
-  theme(panel.grid = element_blank())
-```
+<!-- How does this compare to the empirical distribution of probability of superiority responses? -->
 
-What does the posterior for the effect of each visualization condition look like?
+<!-- ```{r} -->
+<!-- # posterior predictive check -->
+<!-- model_df_llo %>% -->
+<!--   ggplot(aes(x = p_superiority)) + -->
+<!--   geom_density(fill = "black", size = 0) + -->
+<!--   scale_y_continuous(NULL, breaks = NULL) + -->
+<!--   labs(subtitle = "Posterior predictive distribution for probability of superiority") + -->
+<!--   theme(panel.grid = element_blank()) -->
+<!-- ``` -->
 
-```{r}
-# use posterior samples to define distributions for the slope in each visualization condition
-posterior_samples(m.vis.wrkr.llo_mix2) %>%
-  transmute(slope_HOPs = `b_mu1_lo_ground_truth:conditionHOPs`,
-            slope_intervals_w_means = `b_mu1_lo_ground_truth:conditionintervals_w_means`,
-            slope_means_only = `b_mu1_lo_ground_truth:conditionmeans_only`) %>%
-  gather(key, value) %>%
-  ggplot(aes(x = value, group = key, color = key, fill = key)) +
-  geom_density(alpha = 0.35) +
-  scale_fill_brewer(type = "qual", palette = 1) +
-  scale_color_brewer(type = "qual", palette = 1) +
-  scale_x_continuous(expression(slope), expand = c(0, 0)) +
-  scale_y_continuous(NULL, breaks = NULL) +
-  labs(subtitle = "Posterior for slopes by visualization condition") +
-  theme(panel.grid = element_blank())
-```
+<!-- What does the posterior for the effect of each visualization condition look like? -->
 
-Let's take a look at some of the estimated linear models per visualization condition.
+<!-- ```{r} -->
+<!-- # use posterior samples to define distributions for the slope in each visualization condition -->
+<!-- posterior_samples(m.vis.wrkr.llo_mix2) %>% -->
+<!--   transmute(slope_HOPs = `b_mu1_lo_ground_truth:conditionHOPs`, -->
+<!--             slope_intervals_w_means = `b_mu1_lo_ground_truth:conditionintervals_w_means`, -->
+<!--             slope_means_only = `b_mu1_lo_ground_truth:conditionmeans_only`) %>% -->
+<!--   gather(key, value) %>% -->
+<!--   ggplot(aes(x = value, group = key, color = key, fill = key)) + -->
+<!--   geom_density(alpha = 0.35) + -->
+<!--   scale_fill_brewer(type = "qual", palette = 1) + -->
+<!--   scale_color_brewer(type = "qual", palette = 1) + -->
+<!--   scale_x_continuous(expression(slope), expand = c(0, 0)) + -->
+<!--   scale_y_continuous(NULL, breaks = NULL) + -->
+<!--   labs(subtitle = "Posterior for slopes by visualization condition") + -->
+<!--   theme(panel.grid = element_blank()) -->
+<!-- ``` -->
 
-```{r}
-# this time we'll adopt functions from the tidybayes package to make plotting posterior predictions easier
-model_df_llo %>%
-  group_by(condition, worker_id) %>%
-  data_grid(lo_ground_truth = seq_range(lo_ground_truth, n = 51)) %>%
-  add_predicted_draws(m.vis.wrkr.llo_mix2) %>%
-  ggplot(aes(x = lo_ground_truth, y = lo_p_sup, color = condition, fill = condition)) +
-  geom_abline(intercept = 0, slope = 1, size = 1, alpha = .3, color = "red", linetype = "dashed") + # ground truth
-  stat_lineribbon(aes(y = .prediction), .width = c(.95, .80, .50), alpha = .25) +
-  geom_point(data = model_df_llo) +
-  scale_fill_brewer(type = "qual", palette = 1) +
-  scale_color_brewer(type = "qual", palette = 1) + 
-  coord_cartesian(xlim = quantile(model_df_llo$lo_ground_truth, c(0, 1)),
-                  ylim = quantile(model_df_llo$lo_p_sup, c(0, 1))) +
-  theme_bw() +
-  theme(panel.grid = element_blank()) +
-  facet_grid(. ~ condition)
-```
+<!-- Let's take a look at some of the estimated linear models per visualization condition. -->
 
-What does this look like in probability units?
+<!-- ```{r} -->
+<!-- # this time we'll adopt functions from the tidybayes package to make plotting posterior predictions easier -->
+<!-- model_df_llo %>% -->
+<!--   group_by(condition, worker_id) %>% -->
+<!--   data_grid(lo_ground_truth = seq_range(lo_ground_truth, n = 51)) %>% -->
+<!--   add_predicted_draws(m.vis.wrkr.llo_mix2) %>% -->
+<!--   ggplot(aes(x = lo_ground_truth, y = lo_p_sup, color = condition, fill = condition)) + -->
+<!--   geom_abline(intercept = 0, slope = 1, size = 1, alpha = .3, color = "red", linetype = "dashed") + # ground truth -->
+<!--   stat_lineribbon(aes(y = .prediction), .width = c(.95, .80, .50), alpha = .25) + -->
+<!--   geom_point(data = model_df_llo) + -->
+<!--   scale_fill_brewer(type = "qual", palette = 1) + -->
+<!--   scale_color_brewer(type = "qual", palette = 1) +  -->
+<!--   coord_cartesian(xlim = quantile(model_df_llo$lo_ground_truth, c(0, 1)), -->
+<!--                   ylim = quantile(model_df_llo$lo_p_sup, c(0, 1))) + -->
+<!--   theme_bw() + -->
+<!--   theme(panel.grid = element_blank()) + -->
+<!--   facet_grid(. ~ condition) -->
+<!-- ``` -->
 
-```{r}
-model_df_llo %>%
-  group_by(condition, worker_id) %>%
-  data_grid(lo_ground_truth = seq_range(lo_ground_truth, n = 51)) %>%
-  add_predicted_draws(m.vis.wrkr.llo_mix2) %>%
-  ggplot(aes(x = plogis(lo_ground_truth), y = plogis(lo_p_sup), color = condition, fill = condition)) +
-  geom_abline(intercept = 0, slope = 1, size = 1, alpha = .3, color = "red", linetype = "dashed") + # ground truth
-  stat_lineribbon(aes(y = plogis(.prediction)), .width = c(.95, .80, .50), alpha = .25) +
-  geom_point(data = model_df_llo) +
-  scale_fill_brewer(type = "qual", palette = 1) +
-  scale_color_brewer(type = "qual", palette = 1) + 
-  coord_cartesian(xlim = quantile(plogis(model_df_llo$lo_ground_truth), c(0, 1)),
-                  ylim = quantile(plogis(model_df_llo$lo_p_sup), c(0, 1))) +
-  theme_bw() +
-  theme(panel.grid = element_blank()) + 
-  facet_grid(. ~ condition)
-```
+<!-- What does this look like in probability units? -->
 
-What about the mixture proportions? Let's plot the posterior for theta. Because theta is in log odds units we'll transform it into probability units.
+<!-- ```{r} -->
+<!-- model_df_llo %>% -->
+<!--   group_by(condition, worker_id) %>% -->
+<!--   data_grid(lo_ground_truth = seq_range(lo_ground_truth, n = 51)) %>% -->
+<!--   add_predicted_draws(m.vis.wrkr.llo_mix2) %>% -->
+<!--   ggplot(aes(x = plogis(lo_ground_truth), y = plogis(lo_p_sup), color = condition, fill = condition)) + -->
+<!--   geom_abline(intercept = 0, slope = 1, size = 1, alpha = .3, color = "red", linetype = "dashed") + # ground truth -->
+<!--   stat_lineribbon(aes(y = plogis(.prediction)), .width = c(.95, .80, .50), alpha = .25) + -->
+<!--   geom_point(data = model_df_llo) + -->
+<!--   scale_fill_brewer(type = "qual", palette = 1) + -->
+<!--   scale_color_brewer(type = "qual", palette = 1) +  -->
+<!--   coord_cartesian(xlim = quantile(plogis(model_df_llo$lo_ground_truth), c(0, 1)), -->
+<!--                   ylim = quantile(plogis(model_df_llo$lo_p_sup), c(0, 1))) + -->
+<!--   theme_bw() + -->
+<!--   theme(panel.grid = element_blank()) +  -->
+<!--   facet_grid(. ~ condition) -->
+<!-- ``` -->
 
-```{r}
-# posteriors of mixture proportion
-posterior_samples(m.vis.wrkr.llo_mix2) %>%
-  transmute(
-      #p_mix_HOPs = plogis(b_theta2_Intercept),
-      p_mix_HOPs = plogis(b_theta2_conditionHOPs),
-      p_mix_intervals_w_means = plogis(b_theta2_conditionintervals_w_means),
-      p_mix_means_only = plogis(b_theta2_conditionmeans_only)
-    ) %>%
-  gather(key, value) %>%
-  ggplot(aes(x = value, group = key, color = key, fill = key)) +
-  geom_density(alpha = 0.35) +
-  # scale_fill_brewer(type = "qual", palette = 1) +
-  # scale_color_brewer(type = "qual", palette = 1) +
-  scale_x_continuous(expression(slope), expand = c(0, 0)) +
-  scale_y_continuous(NULL, breaks = NULL) +
-  labs(subtitle = "Posterior for proportion of constant response by visualization condition") +
-  theme(panel.grid = element_blank())
-```
+<!-- What about the mixture proportions? Let's plot the posterior for theta. Because theta is in log odds units we'll transform it into probability units. -->
 
-All of this looks good! 
+<!-- ```{r} -->
+<!-- # posteriors of mixture proportion -->
+<!-- posterior_samples(m.vis.wrkr.llo_mix2) %>% -->
+<!--   transmute( -->
+<!--       #p_mix_HOPs = plogis(b_theta2_Intercept), -->
+<!--       p_mix_HOPs = plogis(b_theta2_conditionHOPs), -->
+<!--       p_mix_intervals_w_means = plogis(b_theta2_conditionintervals_w_means), -->
+<!--       p_mix_means_only = plogis(b_theta2_conditionmeans_only) -->
+<!--     ) %>% -->
+<!--   gather(key, value) %>% -->
+<!--   ggplot(aes(x = value, group = key, color = key, fill = key)) + -->
+<!--   geom_density(alpha = 0.35) + -->
+<!--   # scale_fill_brewer(type = "qual", palette = 1) + -->
+<!--   # scale_color_brewer(type = "qual", palette = 1) + -->
+<!--   scale_x_continuous(expression(slope), expand = c(0, 0)) + -->
+<!--   scale_y_continuous(NULL, breaks = NULL) + -->
+<!--   labs(subtitle = "Posterior for proportion of constant response by visualization condition") + -->
+<!--   theme(panel.grid = element_blank()) -->
+<!-- ``` -->
+
+<!-- All of this looks good!  -->

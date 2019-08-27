@@ -201,7 +201,7 @@ conds_df %>%
 
 We also need to set the *starting value of the fantasy sports account* and the *exchange rate* of actual dollars in MTurk bonus per million of dollars in account value. 
 
-First, we _set the starting value of the user's account equal to the maximum possible amount participants could lose_, if they buy the new player every trial and always fail to win/keep the award
+First, we _set the starting value of the user's account equal to the maximum possible amount participants could lose_, if they buy the new player every trial and always fail to win/keep the award.
 
 ```{r}
 # starting value depends on maximum possible loss (if they pay for the new machine every time and never gain\keep the contract)
@@ -210,35 +210,222 @@ conds_df <- conds_df %>% mutate(starting_account_value = n_trials + n_trials / 2
 conds_df %>% group_by(frame, K, starting_account_value) %>% summarise()
 ```
 
-Next, _we set the exchange rate to mainain a consistent expected bonus of $3 if participants make the optimal decision on every trial_.
+Next, _we set the exchange rate to range from $0 to $3 depending on decision quality_. To figure out how to calculate bonuses, we want to know what account values would look like at the end of the experiment if users guessed on every trial vs if they made the optimal choice on every trial. To learn this, we'll run a simulation of two response patterns: random guessing vs utility optimal decision-making.
 
 ```{r}
-# add expected change in account value on each trial to conditions dataframe
-conds_df <- conds_df %>%
-  mutate(expected_payoff = if_else(frame == "gain",
-                                   # gain frame
-                                   if_else(should_intervene,
-                                           with_player_p_award * K - 1,
-                                           without_player_p_award * K),
-                                   # loss frame
-                                   if_else(should_intervene,
-                                           (1 - with_player_p_award) * (-1 * K) - 1,
-                                           (1 - without_player_p_award) * (-1 * K))))
+# set up for simulation
+n_iter <- 500
+simulation_df <- NULL
 
-# set exchange rates based on the expected account value at the end of the experiment
-payoff_df <- conds_df %>% group_by(K, starting_account_value) %>%
-  summarise(
-    # expected and max account value
-    expected_account_value = mean(starting_account_value) + sum(expected_payoff),
-    max_account_value = mean(starting_account_value) + n_trials / 2 * mean(K), # if they always win/keep the award and never buy the new player 
-    # bonus stats with exhange rate based on constant expected bonus of $3
-    exchange_rate = round(3 / expected_account_value, 5), # five decimal places are necessary to avoid substantial rounding error
-    expected_bonus = expected_account_value * exchange_rate,
-    max_bonus = max_account_value * exchange_rate)
+# generate outcome, whether award is won/kept or not
+outcome <- function(intervene, p_with, p_without) {
+  if (intervene) {
+    return(runif(1) <= p_with)
+  } else {
+    return(runif(1) <= p_without)
+  }
+}
 
-# merge these payoff variables into the conditions dataframe
-conds_df <- conds_df %>% full_join(payoff_df, by = c("K","starting_account_value"))
+for (i in 1:n_iter) {
+  temp <- conds_df %>% 
+    mutate(
+      # generate payoff for random guess 
+      random_guess = as.logical(rbinom(n(), 1, 0.5)),
+      random_outcome = as.logical(pmap(list(random_guess, with_player_p_award, without_player_p_award), outcome)),
+      random_payoff = if_else(p_superiority > 0.5,
+                              # gain frame
+                              if_else(random_outcome,
+                                      K - random_guess,
+                                      as.numeric(-random_guess)),
+                              # loss frame
+                              if_else(random_outcome,
+                                      as.numeric(-random_guess),
+                                      -K - random_guess)),
+      random_correct = (random_guess == should_intervene),
+      # generate payoff for optimal guess
+      optimal_outcome = as.logical(pmap(list(should_intervene, with_player_p_award, without_player_p_award), outcome)),
+      optimal_payoff = if_else(p_superiority > 0.5,
+                              # gain frame
+                              if_else(optimal_outcome,
+                                      K - should_intervene,
+                                      as.numeric(-should_intervene)),
+                              # loss frame
+                              if_else(optimal_outcome,
+                                      as.numeric(-should_intervene),
+                                      -K - should_intervene)),
+      optimal_correct = TRUE
+    ) %>%
+    summarise(
+      iter = i,
+      random_value = mean(starting_account_value) + sum(random_payoff),
+      random_correct = sum(random_correct),
+      optimal_value = mean(starting_account_value) + sum(optimal_payoff),
+      optimal_correct = sum(optimal_correct)
+    )
+  simulation_df = rbind(simulation_df, temp)
+}
 
-knitr::kable(payoff_df)
+head(simulation_df)
 ```
 
+Let's plot the results of our simulation.
+
+```{r}
+simulation_df %>%
+  select(iter, random_value, optimal_value) %>%
+  gather(response_pattern, account_value, -iter) %>%
+  ggplot(aes(x = account_value, fill = response_pattern)) +
+  geom_density(alpha = 0.2) +
+  theme_bw() +
+  labs(
+    title = "Simulated Account Values at End of Experiment"
+  )
+```
+
+We can see that account values aren't reliably different between these two strategies. This is problem for differentiating between good and poor performance. 
+
+In order to make the incentives more fair, we'll try setting the low end of likely account values under the optimal response distribution (i.e., an account value of 55) to correspond to no bonus. Above that every unit of company value should count for \$0.50 with a maximum bonus of \$5. This bonus structure will reward performance the most for account values that are unlikely to be obtainted by random guessing. However, luck still has a large impact on this payoff scheme.
+
+```{r}
+# set exchange rate and cutoff
+cutoff <- 55
+exchange <- 0.5
+
+simulation_df %>%
+  select(iter, random_value, optimal_value) %>%
+  gather(response_pattern, account_value, -iter) %>%
+  mutate(bonus = (account_value - cutoff) * exchange) %>%
+  ggplot(aes(x = bonus, fill = response_pattern)) +
+  geom_density(alpha = 0.2) +
+  theme_bw() +
+  labs(
+    title = "Bonuses for Simulated Performance"
+  )
+```
+
+
+<!-- ```{r} -->
+<!-- # set exchange rate and cutoff -->
+<!-- cutoff <- 55 -->
+<!-- exchange <- 0.5 -->
+
+<!-- simulation_df %>% -->
+<!--   select(iter, random_value, optimal_value) %>% -->
+<!--   gather(response_pattern, account_value, -iter) %>% -->
+<!--   mutate( -->
+<!--     bonus_new = pmax(pmin((account_value - cutoff) * exchange, 5), 0), -->
+<!--     bonus_old = account_value * 0.05 -->
+<!--     ) %>% -->
+<!--   group_by(response_pattern) %>% -->
+<!--   summarise( -->
+<!--     avg_bonus_new = mean(bonus_new), -->
+<!--     avg_bonus_old = mean(bonus_old) -->
+<!--   ) -->
+<!-- ``` -->
+
+
+
+
+<!-- Alternatively, we could give participants feedback on their decisions in terms of expected utility. This is less realistic, but it should differentiate strongly between random guessing and optimal decisions. Let's simulate this behavior. -->
+
+<!-- ```{r} -->
+<!-- # set up for simulation -->
+<!-- deterministic_df <- NULL -->
+
+<!-- for (i in 1:n_iter) { -->
+<!--   temp <- conds_df %>%  -->
+<!--     mutate( -->
+<!--       # generate deterministic for random guess  -->
+<!--       random_guess = as.logical(rbinom(n(), 1, 0.5)), -->
+<!--       random_payoff = if_else(p_superiority > 0.5, -->
+<!--                               # gain frame -->
+<!--                               if_else(random_guess, -->
+<!--                                       K * with_player_p_award - 1, -->
+<!--                                       K * without_player_p_award), -->
+<!--                               # loss frame -->
+<!--                               if_else(random_guess, -->
+<!--                                       -K * (1 - with_player_p_award) - 1, -->
+<!--                                       -K * (1 - without_player_p_award))), -->
+<!--       random_correct = (random_guess == should_intervene), -->
+<!--       # generate deterministic payoff for optimal guess -->
+<!--       optimal_payoff = if_else(p_superiority > 0.5,  -->
+<!--                               # gain frame -->
+<!--                               if_else(should_intervene, -->
+<!--                                       K * with_player_p_award - 1, -->
+<!--                                       K * without_player_p_award), -->
+<!--                               # loss frame -->
+<!--                               if_else(should_intervene, -->
+<!--                                       -K * (1 - with_player_p_award) - 1, -->
+<!--                                       -K * (1 - without_player_p_award))), -->
+<!--       optimal_correct = TRUE -->
+<!--     ) %>% -->
+<!--     summarise( -->
+<!--       iter = i, -->
+<!--       random_value = mean(starting_account_value) + sum(random_payoff), -->
+<!--       random_correct = sum(random_correct), -->
+<!--       optimal_value = mean(starting_account_value) + sum(optimal_payoff), -->
+<!--       optimal_correct = sum(optimal_correct) -->
+<!--     ) -->
+<!--   deterministic_df = rbind(deterministic_df, temp) -->
+<!-- } -->
+
+<!-- head(deterministic_df) -->
+<!-- ``` -->
+
+<!-- Let's take a look at the results of our simulation. We can see that optimal responses obtain a completely separate distribution of account values. -->
+
+<!-- ```{r} -->
+<!-- # plot for deterministic outcomes -->
+<!-- deterministic_df %>% -->
+<!--   select(iter, random_value, optimal_value) %>% -->
+<!--   gather(response_pattern, account_value, -iter) %>% -->
+<!--   ggplot(aes(x = account_value, fill = response_pattern)) + -->
+<!--   geom_histogram(alpha = 0.2) + -->
+<!--   theme_bw() + -->
+<!--   labs( -->
+<!--     title = "Simulated Account Values Based On Expected Utility" -->
+<!--   ) -->
+<!-- ``` -->
+
+<!-- If we apply the same cutoff of exchange rate to this data, we can see that this approach is more rewarding for participants to try their best on the task compared to those who guess randomly. -->
+
+<!-- ```{r} -->
+<!-- # set exchange rate and cutoff -->
+<!-- cutoff <- 55 -->
+<!-- exchange <- 0.2 -->
+
+<!-- deterministic_df %>% -->
+<!--   select(iter, random_value, optimal_value) %>% -->
+<!--   gather(response_pattern, account_value, -iter) %>% -->
+<!--   mutate(bonus = (account_value - cutoff) * exchange) %>% -->
+<!--   ggplot(aes(x = bonus, fill = response_pattern)) + -->
+<!--   geom_histogram(alpha = 0.2) + -->
+<!--   theme_bw() + -->
+<!--   labs( -->
+<!--     title = "Bonuses for Expected Value of Simulated Responses" -->
+<!--   ) -->
+<!-- ``` -->
+
+<!-- However, we do want users to pay attention to the probabilistic outcomes in the task to emphasize the uncertainty in effect size estimates. Ideally, we want to introduce the fairness of a deterministic payoff into a task which is still stochastic in nature. We can acheive this by rewarding users for their company value at a lower rate and giving them an additional 5 cents bonus for each utility optimal decision. Let's take a look at the results of this kind of mixed payoff scheme. -->
+
+<!-- ```{r} -->
+<!-- # set exchange rate and cutoff -->
+<!-- cutoff <- 55 -->
+<!-- exchange <- 0.1 -->
+<!-- correct_bonus <- 0.05 -->
+
+<!-- simulation_df %>% -->
+<!--   gather(key, value, -iter) %>% -->
+<!--   separate(key, into = c("response_pattern", "value_type"), sep = "_") %>% -->
+<!--   spread(value_type, value) %>% -->
+<!--   rename(account_value = value) %>% -->
+<!--   mutate(bonus = (account_value - cutoff) * exchange + correct * correct_bonus) %>% -->
+<!--   ggplot(aes(x = bonus, fill = response_pattern)) + -->
+<!--   geom_density(alpha = 0.2) + -->
+<!--   theme_bw() + -->
+<!--   labs( -->
+<!--     title = "Bonuses for Optimal Responses and Simulated Performance" -->
+<!--   ) -->
+<!-- ``` -->
+
+<!-- Something like this gives us the best of both worlds, however it will complicate feedback. -->

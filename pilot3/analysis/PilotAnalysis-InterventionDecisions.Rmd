@@ -1,0 +1,549 @@
+---
+title: "Pilot Analysis: Building a Logistic Regression Model of Decisions"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(RColorBrewer)
+library(rstan)
+rstan_options(auto_write = TRUE)
+options(mc.cores = parallel::detectCores())
+devAskNewPage(ask = FALSE)
+library(modelr)
+library(tidybayes)
+library(brms)
+```
+
+In this document, we build a logistic regression model of intervention decisions. This model is basically a psychometric function which estimates two parameters:
+1. The the _point of subjective equality_, at which users see team equal utility with or without the new player. Differences between this parameter and the utility optimal decision rule for the intervention problem reflect bias in decision-making, either toward or away from intervening.
+2. The slope or the amount of _noise in the perception of utility_, which reflects the consistency with which users evaluate prospects.
+
+##Load and Prepare Data
+
+We load worker responses from our pilot and do some preprocessing.
+
+```{r}
+# read in data 
+full_df <- read_csv("pilot-anonymous.csv")
+
+# preprocessing
+responses_df <- full_df %>%
+  rename( # rename to convert away from camel case
+    worker_id = workerId,
+    account_value = accountValue,
+    ground_truth = groundTruth,
+    p_award_with = pAwardWith,
+    p_award_without = pAwardWithout,
+    p_superiority = pSup,
+    start_time = startTime,
+    resp_time = respTime,
+    trial_dur = trialDur,
+    trial_idx = trialIdx
+  ) %>%
+  filter(trial_idx != "practice", trial_idx != "mock") %>% # remove practice and mock trials from responses dataframe, leave in full version
+  mutate( # mutate to rows where intervene == -1 for some reason
+    intervene = if_else(intervene == -1,
+                        # repair
+                        if_else((payoff == (award_value - 1) | payoff == (-award_value - 1) | payoff == -1),
+                                1, # payed for intervention
+                                0), # didn't pay for intervention
+                        # don't repair        
+                        as.numeric(intervene) # hack to avoid type error
+                        )
+  ) #%>%
+  # mutate( # create ground truth metric for evidence in favor of decision
+  #   # evidence = qlogis(p_award_with) - qlogis(p_award_without)
+  #   evidence = log((p_award_with - p_award_without) / (1 / award_value))
+  # )
+
+head(responses_df)
+```
+
+We need the data in a format where it is prepared for modeling. This means that we want problem framing as a factor.
+
+```{r}
+# create data frame for model
+model_df <- responses_df %>%
+  mutate(
+    frame = as.factor(if_else(ground_truth > 0.5, "gain", "loss"))
+  )
+```
+
+We also want a scale of evidence in favor of intervention. We calculate this by apply a log odds transform to our utility optimal decision rule, transforming our evidence from differences of probabilities into log odds units consistent with the idea that people perceive proabilities as log odds.
+
+```{r}
+model_df <- model_df %>%
+  mutate(
+    p_diff = p_award_with - (p_award_without + (1 / award_value)),
+    evidence = qlogis(p_award_with) - qlogis(p_award_without + (1 / award_value))
+  )
+
+model_df %>%
+  ggplot(aes(p_diff, evidence)) +
+  geom_point() +
+  geom_vline(xintercept = 0, size = 1, alpha = .3, color = "red", linetype = "dashed") + # utility optimal decision rule
+  geom_hline(yintercept = 0, size = 1, alpha = .3, color = "red", linetype = "dashed") +
+  theme_bw() +
+  labs(
+    x = "Evidence in terms of probability",
+    y = "Evidence in terms of log odds"
+  )
+```
+
+Let's look at the distribution of levels of evidence sampled on this scale.
+
+```{r}
+model_df %>% ggplot(aes(x = evidence)) +
+  geom_histogram(fill = "black", binwidth = 0.25) +
+  geom_vline(xintercept = 0, size = 1, alpha = .3, color = "red", linetype = "dashed") + # utility optimal decision rule
+  xlim(quantile(model_df$evidence, c(0, 1))) +
+  theme_bw() +
+  theme(panel.grid = element_blank())
+```
+
+
+##Distribution of Decisions
+
+We start as simply as possible by just modeling the distribution of decisions using a logit link function and a linear model with only an intercept.
+
+```{r}
+# get_prior(data = model_df, 
+#           family = bernoulli(link = "logit"),
+#           formula = bf(intervene ~ 1))
+
+# starting as simple as possible: learn the distribution of decisions
+m.logistic_intercept <- brm(data = model_df, family = bernoulli(link = "logit"),
+              formula = bf(intervene ~ 1),
+              prior = c(prior(normal(0, 1), class = Intercept)),
+              iter = 3000, warmup = 500, chains = 2, cores = 2,
+              file = "model-fits/logistic_intercept_mdl")
+```
+
+Check diagnostics:
+
+- Trace plots
+
+```{r}
+# trace plots
+plot(m.logistic_intercept)
+```
+
+- Summary
+
+```{r}
+# model summary
+print(m.logistic_intercept)
+```
+
+Let's check out a posterior predictive distribution for intervention decisions. 
+
+```{r}
+# posterior predictive check
+model_df %>%
+  select(evidence) %>% # this model should not be sensitive to evidence
+  add_predicted_draws(m.logistic_intercept, prediction = "intervene", seed = 1234, n = 200) %>%
+  ggplot(aes(x = intervene)) +
+  geom_density(fill = "black", size = 0) +
+  scale_y_continuous(NULL, breaks = NULL) +
+  labs(subtitle = "Posterior predictive distribution for intervention") +
+  theme(panel.grid = element_blank())
+```
+
+The posterior predictive distribution is about what we'd expect. The bias toward intervening is consistent with a positive intercept parameter. 
+
+How do the posterior predictions compare to the observed data?
+
+```{r}
+# data density
+model_df %>%
+  ggplot(aes(x = intervene)) +
+  geom_density(fill = "black", size = 0) +
+  scale_y_continuous(NULL, breaks = NULL) +
+  labs(subtitle = "Data distribution for intervention") +
+  theme(panel.grid = element_blank())
+```
+
+Let's take a look at the estimated psychometric function. This should not have any slope.
+
+```{r}
+model_df %>%
+  add_fitted_draws(m.logistic_intercept, value = "pf", n = 200) %>%
+  ggplot(aes(x = evidence, y = intervene)) +
+  geom_vline(xintercept = 0, size = 1, alpha = .3, color = "red", linetype = "dashed") + # utility optimal decision rule
+  # geom_line(aes(y = pf, group = .draw)) +
+  stat_lineribbon(aes(y = pf), .width = c(.95, .80, .50), alpha = .25) +
+  geom_point(alpha = .15, color = "royalblue") +
+  coord_cartesian(xlim = quantile(model_df$evidence, c(0, 1)),
+                  ylim = quantile(model_df$intervene, c(0, 1))) +
+  theme_bw() +
+  theme(panel.grid = element_blank())
+```
+
+
+##Linear Model with Logit Link Function
+
+Now we'll add a slope parameter to our model to make it a simple linear model where decisions to intervene are a function of the probability of getting the award with the new player.
+
+```{r}
+# linear model with logit link
+m.logistic <- brm(data = model_df, family = bernoulli(link = "logit"),
+              formula = bf(intervene ~ 1 + evidence),
+              prior = c(prior(normal(0, 1), class = Intercept),
+                        prior(normal(0, 1), class = b)),
+              iter = 3000, warmup = 500, chains = 2, cores = 2,
+              file = "model-fits/logistic_mdl")
+```
+
+Check diagnostics:
+
+- Trace plots
+
+```{r}
+# trace plots
+plot(m.logistic)
+```
+
+- Pairs plot
+
+```{r}
+# pairs plot
+pairs(m.logistic)
+```
+
+- Summary
+
+```{r}
+# model summary
+print(m.logistic)
+```
+
+Let's check out a posterior predictive distribution for intervention decisions. 
+
+```{r}
+# posterior predictive check
+model_df %>%
+  select(evidence) %>%
+  add_predicted_draws(m.logistic, prediction = "intervene", seed = 1234, n = 200) %>%
+  ggplot(aes(x = intervene)) +
+  geom_density(fill = "black", size = 0) +
+  scale_y_continuous(NULL, breaks = NULL) +
+  labs(subtitle = "Posterior predictive distribution for intervention") +
+  theme(panel.grid = element_blank())
+```
+
+How do the posterior predictions compare to the observed data?
+
+```{r}
+# data density
+model_df %>%
+  ggplot(aes(x = intervene)) +
+  geom_density(fill = "black", size = 0) +
+  scale_y_continuous(NULL, breaks = NULL) +
+  labs(subtitle = "Data distribution for intervention") +
+  theme(panel.grid = element_blank())
+```
+
+Let's take a look at the estimated psychometric function.
+
+```{r}
+model_df %>%
+  add_fitted_draws(m.logistic, value = "pf", n = 200) %>%
+  ggplot(aes(x = evidence, y = intervene)) +
+  geom_vline(xintercept = 0, size = 1, alpha = .3, color = "red", linetype = "dashed") + # utility optimal decision rule
+  # geom_line(aes(y = pf, group = .draw)) +
+  stat_lineribbon(aes(y = pf), .width = c(.95, .80, .50), alpha = .25) +
+  geom_point(alpha = .15, color = "royalblue") +
+  coord_cartesian(xlim = quantile(model_df$evidence, c(0, 1)),
+                  ylim = quantile(model_df$intervene, c(0, 1))) +
+  theme_bw() +
+  theme(panel.grid = element_blank())
+```
+
+
+##Add Different Linear Models per Visualization Condition
+
+Now we add visualization condition as a predictor of both the point of subjective equality and the slope of the psychometric function.
+
+```{r}
+# get_prior(data = model_df, family = bernoulli(link = "logit"),
+#           formula = bf(intervene ~ 0 + condition + evidence:condition))
+
+# linear model with logit link
+m.vis.logistic <- brm(data = model_df, family = bernoulli(link = "logit"),
+              formula = bf(intervene ~ 0 + condition + evidence:condition),
+              prior = c(prior(normal(0, 1), class = b)),
+              iter = 3000, warmup = 500, chains = 2, cores = 2,
+              file = "model-fits/logistic_mdl_vis")
+```
+
+Check diagnostics:
+
+- Trace plots
+
+```{r}
+# trace plots
+plot(m.vis.logistic)
+```
+
+- Pairs plot
+
+```{r}
+# pairs plot
+pairs(m.vis.logistic)
+```
+
+- Summary
+
+```{r}
+# model summary
+print(m.vis.logistic)
+```
+
+Let's check out a posterior predictive distribution for intervention decisions. 
+
+```{r}
+# posterior predictive check
+model_df %>%
+  group_by(condition, evidence) %>%
+  add_predicted_draws(m.vis.logistic, seed = 1234, n = 200) %>%
+  ggplot(aes(x = .prediction)) +
+  geom_density(fill = "black", size = 0) +
+  scale_y_continuous(NULL, breaks = NULL) +
+  labs(subtitle = "Posterior predictive distribution for intervention") +
+  theme(panel.grid = element_blank())
+```
+
+How do the posterior predictions compare to the observed data?
+
+```{r}
+# data density
+model_df %>%
+  ggplot(aes(x = intervene)) +
+  geom_density(fill = "black", size = 0) +
+  scale_y_continuous(NULL, breaks = NULL) +
+  labs(subtitle = "Data distribution for intervention") +
+  theme(panel.grid = element_blank())
+```
+
+Let's take a look at the estimated psychometric functions for each visualization condition.
+
+```{r}
+model_df %>%
+  add_fitted_draws(m.vis.logistic, value = "pf", n = 200) %>%
+  ggplot(aes(x = evidence, y = intervene, color = condition)) +
+  geom_vline(xintercept = 0, size = 1, alpha = .3, color = "red", linetype = "dashed") + # utility optimal decision rule
+  # geom_line(aes(y = pf, group = .draw)) +
+  stat_lineribbon(aes(y = pf, fill = condition), .width = .95, alpha = .25, show.legend = FALSE) +
+  geom_point(alpha = .15) +
+  scale_fill_brewer(type = "qual", palette = 1) +
+  scale_color_brewer(type = "qual", palette = 1) + 
+  coord_cartesian(xlim = quantile(model_df$evidence, c(0, 1)),
+                  ylim = quantile(model_df$intervene, c(0, 1))) +
+  theme_bw() +
+  theme(panel.grid = element_blank())
+```
+
+
+##Add Hierarchy for Slopes and Intercepts
+
+The models we've created thus far fail to account for much of the noise in the data. Here, we attempt to parse some heterogeniety in responses by modeling a random effect of worker on slopes and intercepts. This introduces a hierarchical component to our model in order to account for individual differences in the best fitting linear model for each worker's data.
+
+```{r}
+# get_prior(data = model_df, family = bernoulli(link = "logit"),
+#           formula = bf(intervene ~ 0 + condition + evidence:condition))
+
+# linear model with logit link
+m.vis.wrkr.logistic <- brm(data = model_df, family = bernoulli(link = "logit"),
+              formula = bf(intervene ~ (1 + evidence|worker_id) + 0 + condition + evidence:condition),
+              prior = c(prior(normal(0, 1), class = b)),
+              iter = 3000, warmup = 500, chains = 2, cores = 2,
+              file = "model-fits/logistic_mdl_vis_wrkr")
+```
+
+Check diagnostics:
+
+- Trace plots
+
+```{r}
+# trace plots
+plot(m.vis.wrkr.logistic)
+```
+
+- Pairs plot
+
+```{r}
+# pairs plot
+pairs(m.vis.wrkr.logistic)
+```
+
+- Summary
+
+```{r}
+# model summary
+print(m.vis.wrkr.logistic)
+```
+
+Let's check out a posterior predictive distribution for intervention decisions. 
+
+```{r}
+# posterior predictive check
+model_df %>%
+  group_by(worker_id, condition, evidence) %>%
+  add_predicted_draws(m.vis.wrkr.logistic, seed = 1234, n = 200) %>%
+  ggplot(aes(x = .prediction)) +
+  geom_density(fill = "black", size = 0) +
+  scale_y_continuous(NULL, breaks = NULL) +
+  labs(subtitle = "Posterior predictive distribution for intervention") +
+  theme(panel.grid = element_blank())
+```
+
+How do the posterior predictions compare to the observed data?
+
+```{r}
+# data density
+model_df %>%
+  ggplot(aes(x = intervene)) +
+  geom_density(fill = "black", size = 0) +
+  scale_y_continuous(NULL, breaks = NULL) +
+  labs(subtitle = "Data distribution for intervention") +
+  theme(panel.grid = element_blank())
+```
+
+Let's take a look at the estimated psychometric function in each condition for the average observer.
+
+```{r}
+model_df %>%
+  group_by(evidence, condition, worker_id) %>%
+  add_fitted_draws(m.vis.wrkr.logistic, value = "pf", re_formula = NA, n = 200) %>%
+  ggplot(aes(x = evidence, y = intervene, color = condition)) +
+  geom_vline(xintercept = 0, size = 1, alpha = .3, color = "red", linetype = "dashed") + # utility optimal decision rule
+  stat_lineribbon(aes(y = pf), .width = c(.95, .80, .50), alpha = .25) +
+  geom_point(alpha = .15) +
+  scale_fill_brewer(type = "qual", palette = 1) +
+  scale_color_brewer(type = "qual", palette = 1) + 
+  coord_cartesian(xlim = quantile(model_df$evidence, c(0, 1)),
+                  ylim = quantile(model_df$intervene, c(0, 1))) +
+  theme_bw() +
+  theme(panel.grid = element_blank())
+```
+
+Now we're seeing more separation between visualization conditions. However, these differences are highly uncertain.
+
+##Add Predictors for Problem Framing
+
+Similar to how we model the effects of visualization conditions on the location and slope of the psychometric function, we add predictors for gain vs loss framing. This gives us a three way interaction with evidence.
+
+```{r}
+# linear model with logit link
+m.vis.frame.wrkr.logistic <- brm(data = model_df, family = bernoulli(link = "logit"),
+                              formula = bf(intervene ~ (1 + evidence|worker_id) + 0 + condition + frame + evidence:condition:frame),
+                              prior = c(prior(normal(0, 1), class = b)),
+                              iter = 3000, warmup = 500, chains = 2, cores = 2,
+                              file = "model-fits/logistic_mdl_vis_frame_wrkr")
+```
+
+Check diagnostics:
+
+- Trace plots
+
+```{r}
+# trace plots
+plot(m.vis.frame.wrkr.logistic)
+```
+
+- Pairs plot
+
+```{r}
+# pairs plot (too many things to view at once, so we've grouped them)
+# hyperparameters
+pairs(m.vis.frame.wrkr.logistic, pars = c("sd_worker_id__Intercept",
+                               "sd_worker_id__evidence",
+                               "cor_worker_id__Intercept__evidence"))
+```
+
+```{r}
+# pairs plot (too many things to view at once, so we've grouped them)
+# slope effects
+pairs(m.vis.frame.wrkr.logistic, pars = c("b_conditionHOPs:framegain:evidence",
+                                       "b_conditionintervals_w_means:framegain:evidence",
+                                       "b_conditionmeans_only:framegain:evidence",
+                                       "b_conditionHOPs:frameloss:evidence",
+                                       "b_conditionintervals_w_means:frameloss:evidence",
+                                       "b_conditionmeans_only:frameloss:evidence"))
+```
+
+```{r}
+# pairs plot (too many things to view at once, so we've grouped them)
+# intercept effects
+pairs(m.vis.frame.wrkr.logistic, exact_match = TRUE, pars = c("b_conditionHOPs",
+                                                           "b_conditionintervals_w_means",
+                                                           "b_conditionmeans_only",
+                                                           "b_frameloss"))
+```
+
+- Summary
+
+```{r}
+# model summary
+print(m.vis.frame.wrkr.logistic)
+```
+
+Let's check out a posterior predictive distribution for intervention decisions. 
+
+```{r}
+# posterior predictive check
+model_df %>%
+  group_by(worker_id, condition, evidence) %>%
+  add_predicted_draws(m.vis.frame.wrkr.logistic, seed = 1234, n = 200) %>%
+  ggplot(aes(x = .prediction)) +
+  geom_density(fill = "black", size = 0) +
+  scale_y_continuous(NULL, breaks = NULL) +
+  labs(subtitle = "Posterior predictive distribution for intervention") +
+  theme(panel.grid = element_blank())
+```
+
+How do the posterior predictions compare to the observed data?
+
+```{r}
+# data density
+model_df %>%
+  ggplot(aes(x = intervene)) +
+  geom_density(fill = "black", size = 0) +
+  scale_y_continuous(NULL, breaks = NULL) +
+  labs(subtitle = "Data distribution for intervention") +
+  theme(panel.grid = element_blank())
+```
+
+Let's take a look at the estimated psychometric function for the average observer in each visualization condition and each level of problemt framing.
+
+```{r}
+model_df %>%
+  group_by(evidence, condition, frame, worker_id) %>%
+  add_fitted_draws(m.vis.frame.wrkr.logistic, value = "pf", re_formula = NA, n = 200) %>%
+  ggplot(aes(x = evidence, y = intervene, color = condition)) +
+  geom_vline(xintercept = 0, size = 1, alpha = .3, color = "red", linetype = "dashed") + # utility optimal decision rule
+  stat_lineribbon(aes(y = pf), .width = c(.95, .80, .50), alpha = .25) +
+  geom_point(alpha = .15) +
+  scale_fill_brewer(type = "qual", palette = 1) +
+  scale_color_brewer(type = "qual", palette = 1) + 
+  coord_cartesian(xlim = quantile(model_df$evidence, c(0, 1)),
+                  ylim = quantile(model_df$intervene, c(0, 1))) +
+  theme_bw() +
+  theme(panel.grid = element_blank()) +
+  facet_grid(. ~ frame)
+```
+
+Here we see a slight difference in psychometric functions for visualization conditions across problem frames, with more convergence of performance in the loss frame.
+
+
+##Model Comparison
+
+Let's check check which of these two hierarchical models, with and without framing as a predictor, fits best insofar as the parameters contribute more to predictive validity than they contribute to overfitting. We'll determine this by comparing the models according to the widely applicable information criterion (WAIC). Lower values of WAIC indicate a better fitting model.
+
+```{r}
+waic(m.vis.wrkr.logistic, m.vis.frame.wrkr.logistic)
+```
+
+The model with the lowest WAIC value (i.e., the best fitting model) is the one with predictors for visualization condition and problem frameing. The importance of problem framing is consistent with prior work in behavioral economics.

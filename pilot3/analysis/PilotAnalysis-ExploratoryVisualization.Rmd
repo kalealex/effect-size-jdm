@@ -104,7 +104,7 @@ for (cond in unique(responses_df$condition)) {
 }
 ```
 
-As we would expect based on a linear log odds representation of probability, probability of superiority judgments tend to be biased toward 50% relative to the ground truth. We can also see that responses are highly variable, with some responses falling completely on the wrong side of 50%, suggesting that some participants may have been confused by this question.
+As we would expect based on a linear log odds representation of probability, probability of superiority judgments tend to be biased toward 50% relative to the ground truth.
 
 Another more compact way of looking at the relationship between estimated probability of superiority and the ground truth is to just plot them against one another. Let's look at this even though its sort of a mess.
 
@@ -120,9 +120,10 @@ responses_df %>%
     x = "Ground Truth",
     y = "Probability of Superiority Responses"
   ) +
-  facet_grid(condition ~ baseline)
+  facet_grid(. ~ condition)
 ```
 
+We can see that constraining responses to a scale from 50 to 100 has produced an artificial bound on variability. This might be an issue when it comes to modeling.
 
 
 ###Decisions to Intervene
@@ -138,7 +139,7 @@ responses_df <- responses_df %>%
          ) 
 ```
 
-Let's plot the proportion of users who intervene at each level of ground truth probability of superiority in each visualization * baseline condition. People should intervene more often at extreme probabilities. We show the utility optimal decision threshold in red. This should give us an overview of decision quality.
+Let's plot the proportion of users who intervene at each level of ground truth probability of superiority in each visualization condition. People should intervene more often at extreme probabilities. We show the utility optimal decision threshold in red. This should give us an overview of decision quality.
 
 ```{r}
 # summarise the data as the overall proportion of trials where users intervene vs what they should do at each level of ground_truth * condition * baseline
@@ -160,7 +161,7 @@ responses_df %>%
   facet_grid(. ~ condition)
 ```
 
-In the aggregate, differences between conditions are pretty subtle. It looks like maybe people intervene slightly less often at high levels of effect size in the high baseline condition. We'll need to tease these effects out using statistical inference.
+In the aggregate, differences between conditions are pretty subtle. It looks like there may be a slight discrepancy in performance between the gain and loss framing trials (i.e., above and below a ground truth of 50%). We'll need to tease these effects out using statistical inference.
 
 
 ###Probability of Superiority Judgments vs Decisions to Intervene
@@ -183,6 +184,7 @@ responses_df %>%
   facet_grid(. ~ condition)
 ```
 
+People's probability of superiority judgments and decisions are correlated in the way that you would expect if they understood the task.
 
 ###Relationships with Trial Duration
 
@@ -222,7 +224,7 @@ responses_df <- responses_df %>%
   mutate(correct = intervene == should_intervene)
 ```
 
-Let's look at the proportion correct as a function of trial duration, faceting baseline and visualization conditions as above.
+Let's look at the proportion correct as a function of trial duration, faceting visualization conditions as above.
 
 ```{r}
 # summarise the data as the overall proportion of trials where users make utility optimal decisions at each level of condition * baseline * trial_dur
@@ -275,7 +277,7 @@ responses_df %>%
     )
 ```
 
-On average, errors in probability of superiority judgments are high across the board, with the average error equal to about a quarter the range of possible responses. Error rates are noteably lower in the intervals with means condition at a baseline of 0.5.
+On average, errors in probability of superiority judgments are high across the board, with the average error equal to about a third the range of possible responses. Error rates are noteably high in the intervals with means condition.
 
 ###Mean Error vs Ground Truth
 
@@ -365,7 +367,7 @@ responses_df %>%
     facet_grid(. ~ condition)
 ```
 
-It looks like there may be a reversal where users make better decisions in the gain frame at high levels of ground truth probability of superiority, but otherwise users make utility optimal decisions at least as often in the loss frame.
+It looks like there may be a reversal where users make better decisions in the gain frame at high levels of ground truth probability of superiority, but otherwise users make utility optimal decisions at least as often in the loss frame. This pattern is clearest in the HOPs and intervals_w_means conditions. However, sampling error makes it difficult to see.
 
 
 ##Individual Patterns of Behavior
@@ -419,21 +421,30 @@ for (worker in unique(responses_df$worker_id)) {
 }
 ```
 
-How many participants meet our exclusion criterion? Here we use the practice trials as attention checks. If a user understands the decision problem, they should not intervene on either of the practice trials.
+How many participants meet our exclusion criteria? Here we use the practice trials as attention checks. If a user understands the decision problem, they should not intervene on either of the practice trials. We also look for participants who always responded the same thing on either question since these folks were probably speeding.
+
 
 ```{r}
 full_df %>% 
   # use practice trials as attention check
-  filter(trial == "practice1" | trial == "practice2") %>%
-  mutate(passed_check = intervene == 0) %>%
+  mutate(passed_check = (trial == "practice1" | trial == "practice2") & (intervene == 0)) %>%
   # exclude if a worker has not passed the attention check on both practice trials
   group_by(workerId, condition) %>%
-  summarise(exclude = mean(passed_check) != 1) %>%
+  summarise(
+    failed_attention_check = mean(passed_check) != 1,
+    speeding_p_sup = length(unique(pSup)) == 1,
+    speeding_intervene = length(unique(intervene)) == 1
+    ) %>%
   group_by(condition) %>%
   summarise(
-    excluded = sum(exclude),
-    total = n())
+    failed_attention_check = sum(failed_attention_check),
+    speeding_p_sup = sum(speeding_p_sup),
+    speeding_intervene = sum(speeding_intervene),
+    total = n()
+    )
 ```
+
+It looks like most people are messing up at least on of the practice trials but very few people are speeding.
 
 
 ##Check for Duplicate Trials

@@ -154,6 +154,13 @@ head(conds_df)
 
 Since HOPs, quantile dotplots, and densities rely on samples from the underlying data generating process, we need to generate those. However, we don't want to change the shape of our dataframe, so we nest these samples (i.e., draws) inside lists and will later unnest them as needed to produce these specific charts. 
 
+<!-- Change this according to Matt's instructions: -->
+<!-- In R every distribution has 4 functions: dname pname qname and rname for distribution "name" -->
+<!-- D is density, q is quantile, P is CDF, R is random draws -->
+<!-- You can use ppoints to generate evenly spaced probabilities for creating quantiles -->
+<!-- So qname(ppoints(20)) gives 20 quantiles from distribution "name" (edited)  -->
+<!-- dname you can use for making density plots -->
+
 ```{r}
 # for HOPs and quantile dotplots we need to add draws to our dataframe
 n <- 1000 # number of samples
@@ -430,6 +437,13 @@ hops_w_means(df = gain_prac_df,
 ###Quantile Dotplots
 
 A chart function for quantile dotplots of the possible points for each version of the team.
+
+<!-- Update the way these are drawn, and apply an arbitrary scaling factor to densities to match: -->
+<!-- x = qnorm(ppoints(20)) -->
+<!-- binwidth = (max(x) - min(x)) / (8.25)  -->
+<!-- data.frame(x = x) %>% -->
+<!--   ggplot(aes(x)) + -->
+<!--   geom_dotplot(binwidth = binwidth) -->
 
 ```{r}
 quantile_dotplots <- function(df, data_domain, title, x_label, caption, decision_threshold, threshold_label) {

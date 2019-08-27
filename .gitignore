@@ -6,4 +6,4 @@ stimuli.zip
 raw_data/
 *.rds
 model-fits/
-PilotAnalysis-InterventionDecisions.Rmd
+pilot4/

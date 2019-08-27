@@ -1,0 +1,787 @@
+---
+title: "Pilot Analysis: Building a Probit Regression Model of Decisions"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(RColorBrewer)
+library(rstan)
+rstan_options(auto_write = TRUE)
+options(mc.cores = parallel::detectCores())
+devAskNewPage(ask = FALSE)
+library(modelr)
+library(tidybayes)
+library(brms)
+```
+
+In this document, we build a probit regression model of intervention decisions. This model is basically a cumulative Gaussian psychometric function which estimates two parameters:
+1. The mean or the _point of subjective equality_, at which users see the new machine as having equal utility to the old machine. Differences between this parameter and the utility optimal decision rule for the intervention problem reflect bias in decision-making, either toward or away from intervening.
+2. The standard deviation or the amount of _noise in the perception of utility_, which reflects the consistency with which users evaluate prospects.
+
+##Load and Prepare Data
+
+We load worker responses from our pilot and do some preprocessing.
+
+```{r}
+# read in data 
+full_df <- read_csv("pilot-anonymous.csv")
+
+# preprocessing
+responses_df <- full_df %>%
+  rename( # rename to convert away from camel case
+    worker_id = workerId,
+    company_value = companyValue,
+    ground_truth = groundTruth,
+    p_contract_new = pContractNew,
+    p_contract_old = pContractOld,
+    p_superiority = pSup,
+    start_time = startTime,
+    resp_time = respTime,
+    trial_dur = trialDur,
+    trial_idx = trialIdx
+  ) %>%
+  filter(trial_idx != "practice", trial_idx != "mock") %>% # remove practice and mock trials from responses dataframe, leave in full version
+  mutate( # mutate to rows where intervene == -1 for some reason
+    intervene = if_else(intervene == -1,
+                        # repair
+                        if_else((payoff == (contract_value - 1) | payoff == (-contract_value - 1) | payoff == -1),
+                                1, # payed for intervention
+                                0), # didn't pay for intervention
+                        # don't repair        
+                        as.numeric(intervene) # hack to avoid type error
+                        )
+  ) %>%
+  mutate( # create ground truth metric for evidence in favor of decision
+    evidence = log((p_contract_new - p_contract_old) / (1 / contract_value))
+  )
+
+head(responses_df)
+```
+
+We need the data in a format where it is prepared for modeling. This means that we want baseline as a factor rather than a numeric value.
+
+```{r}
+# create data frame for model
+model_df <- responses_df %>%
+  mutate(
+    baseline = as.factor(baseline),
+    frame = as.factor(if_else(ground_truth > 0.5, "gain", "loss"))
+  )
+
+model_df %>% ggplot(aes(x = evidence)) +
+  geom_histogram(fill = "black", binwidth = 0.03) +
+  geom_vline(xintercept = 0, size = 1, alpha = .3, color = "red", linetype = "dashed") + # utility optimal decision rule
+  xlim(quantile(model_df$evidence, c(0, 1))) +
+  theme_bw() +
+  theme(panel.grid = element_blank())
+```
+
+
+##Distribution of Decisions
+
+We start as simply as possible by just modeling the distribution of decisions using a probit link function and a linear model with only an intercept.
+
+```{r}
+# get_prior(data = model_df, 
+#           family = bernoulli(link = "probit"),
+#           formula = bf(intervene ~ 1))
+
+# starting as simple as possible: learn the distribution of decisions
+m.probit_intercept <- brm(data = model_df, family = bernoulli(link = "probit"),
+              formula = bf(intervene ~ 1), #+ lf(disc ~ 1),
+              prior = c(prior(normal(0, 1), class = Intercept)),
+              iter = 3000, warmup = 500, chains = 2, cores = 2,
+              file = "model-fits/probit_intercept_mdl")
+```
+
+Check diagnostics:
+
+- Trace plots. The value of sigma seems pretty large.
+
+```{r}
+# trace plots
+plot(m.probit_intercept)
+```
+
+- Summary
+
+```{r}
+# model summary
+print(m.probit_intercept)
+```
+
+Let's check out a posterior predictive distribution for intervention decisions. 
+
+```{r}
+# posterior predictive check
+model_df %>%
+  select(evidence) %>% # this model should not be sensitive to evidence
+  add_predicted_draws(m.probit_intercept, prediction = "intervene", seed = 1234, n = 200) %>%
+  ggplot(aes(x = intervene)) +
+  geom_density(fill = "black", size = 0) +
+  scale_y_continuous(NULL, breaks = NULL) +
+  labs(subtitle = "Posterior predictive distribution for intervention") +
+  theme(panel.grid = element_blank())
+```
+
+The posterior predictive distribution is about what we'd expect. The bias toward intervening is consistent with a positive intercept parameter. 
+
+How do the posterior predictions compare to the observed data?
+
+```{r}
+# data density
+model_df %>%
+  ggplot(aes(x = intervene)) +
+  geom_density(fill = "black", size = 0) +
+  scale_y_continuous(NULL, breaks = NULL) +
+  labs(subtitle = "Data distribution for intervention") +
+  theme(panel.grid = element_blank())
+```
+
+Let's take a look at the estimated psychometric function. This should not have any slope.
+
+```{r}
+model_df %>%
+  # group_by(worker_id, trial_idx, intervene) %>%
+  # data_grid(evidence = seq_range(evidence, n = 51)) %>%
+  add_fitted_draws(m.probit_intercept, value = "pf", n = 200) %>%
+  ggplot(aes(x = evidence, y = intervene)) +
+  geom_vline(xintercept = 0, size = 1, alpha = .3, color = "red", linetype = "dashed") + # utility optimal decision rule
+  # geom_line(aes(y = pf, group = .draw)) +
+  stat_lineribbon(aes(y = pf), .width = c(.95, .80, .50), alpha = .25) +
+  geom_point(alpha = .15, color = "royalblue") +
+  coord_cartesian(xlim = quantile(model_df$evidence, c(0, 1)),
+                  ylim = quantile(model_df$intervene, c(0, 1))) +
+  theme_bw() +
+  theme(panel.grid = element_blank())
+```
+
+
+##Linear Model with Probit Link Function
+
+Now well add a slope parameter to our model to make it a simple linear model where decisions to intervene are a function of the probability of getting the contract with the new machine.
+
+```{r}
+# get_prior(data = model_df,
+#           family = binomial("probit"),
+#           intervene | trials(1) ~ 1 + evidence)
+
+# linear model with probit link
+m.probit <- brm(data = model_df, family = bernoulli(link = "probit"),
+              formula = bf(intervene ~ 1 + evidence),
+              prior = c(prior(normal(0, 1), class = Intercept),
+                        prior(normal(0, 1), class = b)),
+              iter = 3000, warmup = 500, chains = 2, cores = 2,
+              file = "model-fits/probit_mdl")
+```
+
+Check diagnostics:
+
+- Trace plots
+
+```{r}
+# trace plots
+plot(m.probit)
+```
+
+- Pairs plot.
+
+```{r}
+# pairs plot
+pairs(m.probit)
+```
+
+- Summary
+
+```{r}
+# model summary
+print(m.probit)
+```
+
+Let's check out a posterior predictive distribution for intervention decisions. 
+
+```{r}
+# posterior predictive check
+model_df %>%
+  select(evidence) %>%
+  add_predicted_draws(m.probit, prediction = "intervene", seed = 1234, n = 200) %>%
+  ggplot(aes(x = intervene)) +
+  geom_density(fill = "black", size = 0) +
+  scale_y_continuous(NULL, breaks = NULL) +
+  labs(subtitle = "Posterior predictive distribution for intervention") +
+  theme(panel.grid = element_blank())
+```
+
+The posterior predictive distribution is about what we'd expect. The bias toward intervening is consistent with a positive intercept parameter. 
+
+How do the posterior predictions compare to the observed data?
+
+```{r}
+# data density
+model_df %>%
+  ggplot(aes(x = intervene)) +
+  geom_density(fill = "black", size = 0) +
+  scale_y_continuous(NULL, breaks = NULL) +
+  labs(subtitle = "Data distribution for intervention") +
+  theme(panel.grid = element_blank())
+```
+
+Let's take a look at the estimated psychometric function.
+
+```{r}
+model_df %>%
+  # group_by(worker_id, trial_idx, intervene) %>%
+  # data_grid(evidence = seq_range(evidence, n = 51)) %>%
+  add_fitted_draws(m.probit, value = "pf", n = 200) %>%
+  ggplot(aes(x = evidence, y = intervene)) +
+  geom_vline(xintercept = 0, size = 1, alpha = .3, color = "red", linetype = "dashed") + # utility optimal decision rule
+  # geom_line(aes(y = pf, group = .draw)) +
+  stat_lineribbon(aes(y = pf), .width = c(.95, .80, .50), alpha = .25) +
+  geom_point(alpha = .15, color = "royalblue") +
+  coord_cartesian(xlim = quantile(model_df$evidence, c(0, 1)),
+                  ylim = quantile(model_df$intervene, c(0, 1))) +
+  theme_bw() +
+  theme(panel.grid = element_blank())
+```
+
+
+##Add Different Linear Models per Visualization Condition
+
+Now we add visualization condition as a predictor of both the point of subjective equality and the slope of the psychometric function.
+
+```{r}
+# get_prior(data = model_df, family = bernoulli(link = "probit"),
+#           formula = bf(intervene ~ 0 + condition + evidence:condition))
+
+# linear model with probit link
+m.vis.probit <- brm(data = model_df, family = bernoulli(link = "probit"),
+              formula = bf(intervene ~ 0 + condition + evidence:condition),
+              prior = c(prior(normal(0, 1), class = b)),
+              iter = 3000, warmup = 500, chains = 2, cores = 2,
+              file = "model-fits/probit_mdl_vis")
+```
+
+Check diagnostics:
+
+- Trace plots
+
+```{r}
+# trace plots
+plot(m.vis.probit)
+```
+
+- Pairs plot
+
+```{r}
+# pairs plot
+pairs(m.vis.probit)
+```
+
+- Summary
+
+```{r}
+# model summary
+print(m.vis.probit)
+```
+
+Let's check out a posterior predictive distribution for intervention decisions. 
+
+```{r}
+# posterior predictive check
+model_df %>%
+  group_by(condition, evidence) %>%
+  add_predicted_draws(m.vis.probit, seed = 1234, n = 200) %>%
+  ggplot(aes(x = .prediction)) +
+  geom_density(fill = "black", size = 0) +
+  scale_y_continuous(NULL, breaks = NULL) +
+  labs(subtitle = "Posterior predictive distribution for intervention") +
+  theme(panel.grid = element_blank())
+```
+
+The posterior predictive distribution is about what we'd expect. The bias toward intervening is consistent with a positive intercept parameter. 
+
+How do the posterior predictions compare to the observed data?
+
+```{r}
+# data density
+model_df %>%
+  ggplot(aes(x = intervene)) +
+  geom_density(fill = "black", size = 0) +
+  scale_y_continuous(NULL, breaks = NULL) +
+  labs(subtitle = "Data distribution for intervention") +
+  theme(panel.grid = element_blank())
+```
+
+Let's take a look at the estimated psychometric functions.
+
+```{r}
+model_df %>%
+  add_fitted_draws(m.vis.probit, value = "pf", n = 200) %>%
+  ggplot(aes(x = evidence, y = intervene, color = condition)) +
+  geom_vline(xintercept = 0, size = 1, alpha = .3, color = "red", linetype = "dashed") + # utility optimal decision rule
+  # geom_line(aes(y = pf, group = .draw)) +
+  stat_lineribbon(aes(y = pf, fill = condition), .width = .95, alpha = .25, show.legend = FALSE) +
+  geom_point(alpha = .15) +
+  scale_fill_brewer(type = "qual", palette = 1) +
+  scale_color_brewer(type = "qual", palette = 1) + 
+  coord_cartesian(xlim = quantile(model_df$evidence, c(0, 1)),
+                  ylim = quantile(model_df$intervene, c(0, 1))) +
+  theme_bw() +
+  theme(panel.grid = element_blank())
+```
+
+
+##Add Hierarchy for Slopes and Intercepts
+
+The models we've created thus far fail to account for much of the noise in the data. Here, we attempt to parse some heterogeniety in responses by modeling a random effect of worker on slopes and intercepts. This introduces a hierarchical component to our model in order to account for individual differences in the best fitting linear model for each worker's data.
+
+```{r}
+# get_prior(data = model_df, family = bernoulli(link = "probit"),
+#           formula = bf(intervene ~ 0 + condition + evidence:condition))
+
+# linear model with probit link
+m.vis.wrkr.probit <- brm(data = model_df, family = bernoulli(link = "probit"),
+              formula = bf(intervene ~ (1 + evidence|worker_id) + 0 + condition + evidence:condition),
+              prior = c(prior(normal(0, 1), class = b)),
+              iter = 3000, warmup = 500, chains = 2, cores = 2,
+              file = "model-fits/probit_mdl_vis_wrkr")
+```
+
+Check diagnostics:
+
+- Trace plots
+
+```{r}
+# trace plots
+plot(m.vis.wrkr.probit)
+```
+
+- Pairs plot
+
+```{r}
+# pairs plot
+pairs(m.vis.wrkr.probit)
+```
+
+- Summary
+
+```{r}
+# model summary
+print(m.vis.wrkr.probit)
+```
+
+Let's check out a posterior predictive distribution for intervention decisions. 
+
+```{r}
+# posterior predictive check
+model_df %>%
+  group_by(worker_id, condition, evidence) %>%
+  add_predicted_draws(m.vis.wrkr.probit, seed = 1234, n = 200) %>%
+  ggplot(aes(x = .prediction)) +
+  geom_density(fill = "black", size = 0) +
+  scale_y_continuous(NULL, breaks = NULL) +
+  labs(subtitle = "Posterior predictive distribution for intervention") +
+  theme(panel.grid = element_blank())
+```
+
+The posterior predictive distribution is about what we'd expect. The bias toward intervening is consistent with a positive intercept parameter. 
+
+How do the posterior predictions compare to the observed data?
+
+```{r}
+# data density
+model_df %>%
+  ggplot(aes(x = intervene)) +
+  geom_density(fill = "black", size = 0) +
+  scale_y_continuous(NULL, breaks = NULL) +
+  labs(subtitle = "Data distribution for intervention") +
+  theme(panel.grid = element_blank())
+```
+
+Let's take a look at the estimated psychometric function in each condition for the average observer.
+
+```{r}
+model_df %>%
+  group_by(evidence, condition, worker_id) %>%
+  add_fitted_draws(m.vis.wrkr.probit, value = "pf", re_formula = NA, n = 200) %>%
+  ggplot(aes(x = evidence, y = intervene, color = condition)) +
+  geom_vline(xintercept = 0, size = 1, alpha = .3, color = "red", linetype = "dashed") + # utility optimal decision rule
+  stat_lineribbon(aes(y = pf), .width = c(.95, .80, .50), alpha = .25) +
+  geom_point(alpha = .15) +
+  scale_fill_brewer(type = "qual", palette = 1) +
+  scale_color_brewer(type = "qual", palette = 1) + 
+  coord_cartesian(xlim = quantile(model_df$evidence, c(0, 1)),
+                  ylim = quantile(model_df$intervene, c(0, 1))) +
+  theme_bw() +
+  theme(panel.grid = element_blank())
+```
+
+Now we're seeing more separation between visualization conditions.
+
+
+##Add a Predictors for Baseline Condition
+
+Similar to how we model the effects of visualization conditions on the location and slope of the psychometric function, we add predictors for baseline conditions. This gives us a three way interaction with evidence.
+
+```{r}
+# linear model with probit link
+m.vis.base.wrkr.probit <- brm(data = model_df, family = bernoulli(link = "probit"),
+                              formula = bf(intervene ~ (1 + evidence|worker_id) + 0 + condition + baseline + evidence:condition:baseline),
+                              prior = c(prior(normal(0, 1), class = b)),
+                              iter = 3000, warmup = 500, chains = 2, cores = 2,
+                              file = "model-fits/probit_mdl_vis_base_wrkr")
+```
+
+Check diagnostics:
+
+- Trace plots
+
+```{r}
+# trace plots
+plot(m.vis.base.wrkr.probit)
+```
+
+- Pairs plot
+
+```{r}
+# pairs plot (too many things to view at once, so we've grouped them)
+# hyperparameters
+pairs(m.vis.base.wrkr.probit, pars = c("sd_worker_id__Intercept",
+                               "sd_worker_id__evidence",
+                               "cor_worker_id__Intercept__evidence"))
+```
+
+```{r}
+# pairs plot (too many things to view at once, so we've grouped them)
+# slope effects
+pairs(m.vis.base.wrkr.probit, pars = c("b_conditionHOPs:baseline0.5:evidence",
+                                       "b_conditionintervals_w_means:baseline0.5:evidence",
+                                       "b_conditionmeans_only:baseline0.5:evidence",
+                                       "b_conditionHOPs:baseline0.85:evidence",
+                                       "b_conditionintervals_w_means:baseline0.85:evidence",
+                                       "b_conditionmeans_only:baseline0.85:evidence"))
+```
+
+```{r}
+# pairs plot (too many things to view at once, so we've grouped them)
+# intercept effects
+pairs(m.vis.base.wrkr.probit, exact_match = TRUE, pars = c("b_conditionHOPs",
+                                                           "b_conditionintervals_w_means",
+                                                           "b_conditionmeans_only",
+                                                           "b_baseline0.85"))
+```
+
+- Summary
+
+```{r}
+# model summary
+print(m.vis.base.wrkr.probit)
+```
+
+Let's check out a posterior predictive distribution for intervention decisions. 
+
+```{r}
+# posterior predictive check
+model_df %>%
+  group_by(worker_id, condition, evidence) %>%
+  add_predicted_draws(m.vis.base.wrkr.probit, seed = 1234, n = 200) %>%
+  ggplot(aes(x = .prediction)) +
+  geom_density(fill = "black", size = 0) +
+  scale_y_continuous(NULL, breaks = NULL) +
+  labs(subtitle = "Posterior predictive distribution for intervention") +
+  theme(panel.grid = element_blank())
+```
+
+The posterior predictive distribution is about what we'd expect. The bias toward intervening is consistent with a positive intercept parameter. 
+
+How do the posterior predictions compare to the observed data?
+
+```{r}
+# data density
+model_df %>%
+  ggplot(aes(x = intervene)) +
+  geom_density(fill = "black", size = 0) +
+  scale_y_continuous(NULL, breaks = NULL) +
+  labs(subtitle = "Data distribution for intervention") +
+  theme(panel.grid = element_blank())
+```
+
+Let's take a look at the estimated psychometric function in each condition for the average observer.
+
+```{r}
+model_df %>%
+  group_by(evidence, condition, baseline, worker_id) %>%
+  add_fitted_draws(m.vis.base.wrkr.probit, value = "pf", re_formula = NA, n = 200) %>%
+  ggplot(aes(x = evidence, y = intervene, color = condition)) +
+  geom_vline(xintercept = 0, size = 1, alpha = .3, color = "red", linetype = "dashed") + # utility optimal decision rule
+  stat_lineribbon(aes(y = pf), .width = c(.95, .80, .50), alpha = .25) +
+  geom_point(alpha = .15) +
+  scale_fill_brewer(type = "qual", palette = 1) +
+  scale_color_brewer(type = "qual", palette = 1) + 
+  coord_cartesian(xlim = quantile(model_df$evidence, c(0, 1)),
+                  ylim = quantile(model_df$intervene, c(0, 1))) +
+  theme_bw() +
+  theme(panel.grid = element_blank()) + 
+  facet_grid(. ~ baseline)
+```
+
+Psychometric function fits look qualitatively similar across baseline conditions, however, performance is closer across conditions in the high baseline condition. While it looks like we are hardly sampling above the utitlity optimal decision threshold in the baseline == 0.85 condition, half of the trials we sample are above an evidence level of 0. However, the skew in sampling on the evidence scale might not be ideal for fitting psychometric functions.
+
+```{r}
+model_df %>%
+  mutate(above_threshold = evidence > 0) %>%
+  group_by(baseline, condition, frame) %>%
+  summarise(
+    proportion_above_threshold = sum(above_threshold) / n()
+  )
+```
+
+
+##Use Predictors for Problem Framing Instead of Predictors for Baseline Condition
+
+Let's take the same approach to modeling the effect of problem framing instead of baseline condition. After this we'll put together a model with both baseline and framing parameters, and we'll compare all of our models thus far.
+
+```{r}
+# linear model with probit link
+m.vis.frame.wrkr.probit <- brm(data = model_df, family = bernoulli(link = "probit"),
+                              formula = bf(intervene ~ (1 + evidence|worker_id) + 0 + condition + frame + evidence:condition:frame),
+                              prior = c(prior(normal(0, 1), class = b)),
+                              iter = 3000, warmup = 500, chains = 2, cores = 2,
+                              file = "model-fits/probit_mdl_vis_frame_wrkr")
+```
+
+Check diagnostics:
+
+- Trace plots
+
+```{r}
+# trace plots
+plot(m.vis.frame.wrkr.probit)
+```
+
+- Pairs plot
+
+```{r}
+# pairs plot (too many things to view at once, so we've grouped them)
+# hyperparameters
+pairs(m.vis.frame.wrkr.probit, pars = c("sd_worker_id__Intercept",
+                               "sd_worker_id__evidence",
+                               "cor_worker_id__Intercept__evidence"))
+```
+
+```{r}
+# pairs plot (too many things to view at once, so we've grouped them)
+# slope effects
+pairs(m.vis.frame.wrkr.probit, pars = c("b_conditionHOPs:framegain:evidence",
+                                       "b_conditionintervals_w_means:framegain:evidence",
+                                       "b_conditionmeans_only:framegain:evidence",
+                                       "b_conditionHOPs:frameloss:evidence",
+                                       "b_conditionintervals_w_means:frameloss:evidence",
+                                       "b_conditionmeans_only:frameloss:evidence"))
+```
+
+The level of correlation among slopes in the gain frame is somewhat concerning.
+
+```{r}
+# pairs plot (too many things to view at once, so we've grouped them)
+# intercept effects
+pairs(m.vis.frame.wrkr.probit, exact_match = TRUE, pars = c("b_conditionHOPs",
+                                                           "b_conditionintervals_w_means",
+                                                           "b_conditionmeans_only",
+                                                           "b_frameloss"))
+```
+
+- Summary
+
+```{r}
+# model summary
+print(m.vis.frame.wrkr.probit)
+```
+
+Let's check out a posterior predictive distribution for intervention decisions. 
+
+```{r}
+# posterior predictive check
+model_df %>%
+  group_by(worker_id, condition, evidence) %>%
+  add_predicted_draws(m.vis.frame.wrkr.probit, seed = 1234, n = 200) %>%
+  ggplot(aes(x = .prediction)) +
+  geom_density(fill = "black", size = 0) +
+  scale_y_continuous(NULL, breaks = NULL) +
+  labs(subtitle = "Posterior predictive distribution for intervention") +
+  theme(panel.grid = element_blank())
+```
+
+The posterior predictive distribution is about what we'd expect. The bias toward intervening is consistent with a positive intercept parameter. 
+
+How do the posterior predictions compare to the observed data?
+
+```{r}
+# data density
+model_df %>%
+  ggplot(aes(x = intervene)) +
+  geom_density(fill = "black", size = 0) +
+  scale_y_continuous(NULL, breaks = NULL) +
+  labs(subtitle = "Data distribution for intervention") +
+  theme(panel.grid = element_blank())
+```
+
+Let's take a look at the estimated psychometric functions.
+
+```{r}
+model_df %>%
+  group_by(evidence, condition, frame, worker_id) %>%
+  add_fitted_draws(m.vis.frame.wrkr.probit, value = "pf", re_formula = NA, n = 200) %>%
+  ggplot(aes(x = evidence, y = intervene, color = condition)) +
+  geom_vline(xintercept = 0, size = 1, alpha = .3, color = "red", linetype = "dashed") + # utility optimal decision rule
+  stat_lineribbon(aes(y = pf), .width = c(.95, .80, .50), alpha = .25) +
+  geom_point(alpha = .15) +
+  scale_fill_brewer(type = "qual", palette = 1) +
+  scale_color_brewer(type = "qual", palette = 1) + 
+  coord_cartesian(xlim = quantile(model_df$evidence, c(0, 1)),
+                  ylim = quantile(model_df$intervene, c(0, 1))) +
+  theme_bw() +
+  theme(panel.grid = element_blank()) +
+  facet_grid(. ~ frame)
+```
+
+Here we see a slight difference in psychometric functions for visualization conditions across problem frames, with more convergence of performance in the loss frame.
+
+
+##Use Predictors for Visualization, Baseline, and Problem Framing
+
+Let's put everything we've done so far into one model (with a four way interaction!).
+
+```{r}
+# linear model with probit link
+m.vis.base.frame.wrkr.probit <- brm(data = model_df, family = bernoulli(link = "probit"),
+                              formula = bf(intervene ~ (1 + evidence|worker_id) + 0 + condition + baseline + frame + evidence:condition:baseline:frame),
+                              prior = c(prior(normal(0, 1), class = b)),
+                              iter = 3000, warmup = 500, chains = 2, cores = 2,
+                              file = "model-fits/probit_mdl_vis_base_frame_wrkr")
+```
+
+Check diagnostics:
+
+- Trace plots
+
+```{r}
+# trace plots
+plot(m.vis.base.frame.wrkr.probit)
+```
+
+- Pairs plot
+
+```{r}
+# pairs plot (too many things to view at once, so we've grouped them)
+# hyperparameters
+pairs(m.vis.base.frame.wrkr.probit, pars = c("sd_worker_id__Intercept",
+                               "sd_worker_id__evidence",
+                               "cor_worker_id__Intercept__evidence"))
+```
+
+```{r}
+# pairs plot (too many things to view at once, so we've grouped them)
+# slope effects: gain frame
+pairs(m.vis.base.frame.wrkr.probit, pars = c("b_conditionHOPs:baseline0.5:framegain:evidence",
+                                             "b_conditionintervals_w_means:baseline0.5:framegain:evidence",
+                                             "b_conditionmeans_only:baseline0.5:framegain:evidence",
+                                             "b_conditionHOPs:baseline0.85:framegain:evidence",
+                                             "b_conditionintervals_w_means:baseline0.85:framegain:evidence",
+                                             "b_conditionmeans_only:baseline0.85:framegain:evidence"))
+```
+
+```{r}
+# pairs plot (too many things to view at once, so we've grouped them)
+# slope effects: loss frame
+pairs(m.vis.base.frame.wrkr.probit, pars = c("b_conditionHOPs:baseline0.5:frameloss:evidence",
+                                             "b_conditionintervals_w_means:baseline0.5:frameloss:evidence",
+                                             "b_conditionmeans_only:baseline0.5:frameloss:evidence",
+                                             "b_conditionHOPs:baseline0.85:frameloss:evidence",
+                                             "b_conditionintervals_w_means:baseline0.85:frameloss:evidence",
+                                             "b_conditionmeans_only:baseline0.85:frameloss:evidence"))
+```
+
+```{r}
+# pairs plot (too many things to view at once, so we've grouped them)
+# intercept effects
+pairs(m.vis.base.frame.wrkr.probit, exact_match = TRUE, pars = c("b_conditionHOPs",
+                                                                 "b_conditionintervals_w_means",
+                                                                 "b_conditionmeans_only",
+                                                                 "b_baseline0.85",
+                                                                 "b_frameloss"))
+```
+
+- Summary
+
+```{r}
+# model summary
+print(m.vis.base.frame.wrkr.probit)
+```
+
+Let's check out a posterior predictive distribution for intervention decisions. 
+
+```{r}
+# posterior predictive check
+model_df %>%
+  group_by(worker_id, condition, evidence) %>%
+  add_predicted_draws(m.vis.base.frame.wrkr.probit, seed = 1234, n = 200) %>%
+  ggplot(aes(x = .prediction)) +
+  geom_density(fill = "black", size = 0) +
+  scale_y_continuous(NULL, breaks = NULL) +
+  labs(subtitle = "Posterior predictive distribution for intervention") +
+  theme(panel.grid = element_blank())
+```
+
+The posterior predictive distribution is about what we'd expect. The bias toward intervening is consistent with a positive intercept parameter. 
+
+How do the posterior predictions compare to the observed data?
+
+```{r}
+# data density
+model_df %>%
+  ggplot(aes(x = intervene)) +
+  geom_density(fill = "black", size = 0) +
+  scale_y_continuous(NULL, breaks = NULL) +
+  labs(subtitle = "Data distribution for intervention") +
+  theme(panel.grid = element_blank())
+```
+
+Let's take a look at the estimated psychometric functions.
+
+```{r}
+model_df %>%
+  group_by(evidence, condition, baseline, frame, worker_id) %>%
+  add_fitted_draws(m.vis.base.frame.wrkr.probit, value = "pf", re_formula = NA, n = 200) %>%
+  ggplot(aes(x = evidence, y = intervene, color = condition)) +
+  geom_vline(xintercept = 0, size = 1, alpha = .3, color = "red", linetype = "dashed") + # utility optimal decision rule
+  stat_lineribbon(aes(y = pf), .width = c(.95, .80, .50), alpha = .25) +
+  geom_point(alpha = .15) +
+  scale_fill_brewer(type = "qual", palette = 1) +
+  scale_color_brewer(type = "qual", palette = 1) + 
+  coord_cartesian(xlim = quantile(model_df$evidence, c(0, 1)),
+                  ylim = quantile(model_df$intervene, c(0, 1))) +
+  theme_bw() +
+  theme(panel.grid = element_blank()) +
+  facet_grid(baseline ~ frame)
+```
+
+Again we see a slight difference in psychometric functions for visualization conditions across problem frames and levels of baseline, with more convergence of performance in the loss frame and baseline == 0.85.
+
+
+##Model Comparison
+
+Let's check check which of these hierarchical models fits best insofar as the parameters contribute more to predictive validity than they contribute to overfitting. We'll determine this by comparing the models according to the widely applicable information criterion (WAIC). Lower values of WAIC indicate a better fitting model.
+
+```{r}
+waic(m.vis.wrkr.probit, m.vis.base.wrkr.probit, m.vis.frame.wrkr.probit, m.vis.base.frame.wrkr.probit)
+```
+
+A couple observations are important here:
+
+1. The model with the lowest WAIC value (i.e., the best fitting model) is the one with predictors for visualization condition and problem frameing but not baseline condition.
+2. The model with predictors for both baseline and frame has a higher WAIC value than the model with predictors for frame but not baseline. This means that adding predictors for the effect of baseline to the model with predictors for framing contributes less to predictive validity than it does to overfitting.
+
+The conclusion I draw from this is that we don't see to learn much by manipulating the baseline condition, but problem framing is important. consistent with prior work in behavioral economics.

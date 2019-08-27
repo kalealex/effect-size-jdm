@@ -395,7 +395,7 @@ stanvars <- stanvar(rep(1, 3), "mu_theta2", scode = "  vector[3] mu_theta2;") +
 
 # fit the model
 m.vis.wrkr.llo_mix <- brm(
-   bf(lo_p_sup ~ 1, 
+  bf(lo_p_sup ~ 1, 
     mu1 ~ (1 + lo_ground_truth|worker_id) + lo_ground_truth:condition, # our most recent llo model
     mu2 ~ (1|worker_id), # random constant response per worker (to account for people who always answer the same, often but not always 50%)
     theta2 ~ (1|worker_id) + 0 + condition # the proportion of responses that are constant
