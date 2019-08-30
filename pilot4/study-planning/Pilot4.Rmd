@@ -259,7 +259,7 @@ In order to make the incentives more fair, we'll try setting the low end of like
 ```{r}
 # set exchange rate and cutoff
 cutoff <- 80
-exchange <- 0.25
+exchange <- 0.2
 
 simulation_df %>%
   select(iter, random_value, optimal_value) %>%
