@@ -198,10 +198,10 @@ n_draws_hops <- 50
 n_dots_qdps <- 20
 
 # geom sizes
-means_size_interval <- 12
+means_size_interval <- 24
 interval_size <- 2
 HOPs_size <- 9
-means_size_HOPs <- 12
+means_size_HOPs <- 24
 means_size_slab <- 36
 
 # opacity for uncertainty encodings
@@ -300,9 +300,10 @@ intervals_w_means <- function(df, data_domain, title, x_label, caption, decision
     mean_without <- df %>% filter(Team == "Without the New Player") %>% select(mean) %>% as.numeric()
     
     plt <- plt + 
-      geom_segment(x = 1.9, xend = 1.1, y = mean_with, yend = 146.3535, size = 0.5, linetype = "longdash", color = "black") +
-      geom_segment(x = 1.1, xend = 1.1, y = mean_without, yend = 146.3535, size = 0.5, linetype = "longdash", color = "black") +
-      annotate("text", x = 1.1, y = 148, label = "Average\npredicted\nscore", hjust = 0, vjust = 0.5)
+      geom_segment(x = 2.1, xend = 2.1, y = mean_with, yend = 75, size = 0.5, linetype = "dotted", color = "black") +
+      annotate("text", x = 2.1, y = 73, label = "Average predicted score\nwith the new player", hjust = 1, vjust = 0.5) +
+      geom_segment(x = 1.1, xend = 1.1, y = mean_without, yend = 75, size = 0.5, linetype = "dotted", color = "black") +
+      annotate("text", x = 1.1, y = 73, label = "Average predicted score\nwithout the new player", hjust = 1, vjust = 0.5)
   }
   
   return(plt)
@@ -415,9 +416,10 @@ hops_w_means <- function(df, n_draws, frames_per_second, data_domain, title, x_l
     mean_without <- df %>% filter(Team == "Without the New Player") %>% select(mean) %>% as.numeric()
     
     plt <- plt + 
-      geom_segment(x = 1.9, xend = 1.1, y = mean_with, yend = 146.3535, size = 0.5, linetype = "longdash", color = "black") +
-      geom_segment(x = 1.1, xend = 1.1, y = mean_without, yend = 146.3535, size = 0.5, linetype = "longdash", color = "black") +
-      annotate("text", x = 1.1, y = 148, label = "Average\npredicted\nscore", hjust = 0, vjust = 0.5)
+      geom_segment(x = 2.1, xend = 2.1, y = mean_with, yend = 75, size = 0.5, linetype = "dotted", color = "black") +
+      annotate("text", x = 2.1, y = 73, label = "Average predicted score\nwith the new player", hjust = 1, vjust = 0.5) +
+      geom_segment(x = 1.1, xend = 1.1, y = mean_without, yend = 75, size = 0.5, linetype = "dotted", color = "black") +
+      annotate("text", x = 1.1, y = 73, label = "Average predicted score\nwithout the new player", hjust = 1, vjust = 0.5)
   }
   
   animation <- animate(plt, fps = frames_per_second, nframes = 10 * frames_per_second, res = 100, width = dimensions[1]*100, height = dimensions[2]*100)
@@ -447,7 +449,8 @@ quantile_dotplots <- function(df, n_dots, data_domain, title, x_label, caption, 
       ggplot(aes(dist = "norm", arg1 = mean, arg2 = sd, y = rev(levels(Team)), fill = Team)) +
       geom_vline(xintercept = decision_threshold, linetype = "longdash") + # award threshold
       annotate("text", x = (decision_threshold + 2), y = "Without the New Player", label = threshold_label, hjust = 0, vjust = -4.5) +
-      stat_dist_dotsh(quantiles = n_dots, binwidth = 5, dotsize = 0.85, stackratio = 1.2, alpha = opacity, color = NA) +
+      # stat_dist_dotsh(quantiles = n_dots, binwidth = 5, dotsize = 0.85, stackratio = 1.2, alpha = opacity, color = NA) +
+      stat_dist_dotsh(quantiles = n_dots, binwidth = 5, dotsize = .8, stackratio = 1.2, alpha = opacity, color = NA) +
       theme_bw() +
       scale_fill_brewer(palette = "Set1") +
       coord_cartesian(
@@ -480,60 +483,6 @@ quantile_dotplots(df = prac_df,
                   threshold_label = "Above this threshold,\nyou win the award.")
 ```
 
-<!-- Update the way these are drawn, and apply an arbitrary scaling factor to densities to match: -->
-<!-- x = qnorm(ppoints(20)) -->
-<!-- binwidth = (max(x) - min(x)) / (8.25)  -->
-<!-- data.frame(x = x) %>% -->
-<!--   ggplot(aes(x)) + -->
-<!--   geom_dotplot(binwidth = binwidth) -->
-
-<!-- ```{r} -->
-<!-- quantile_dotplots <- function(df, n_dots, data_domain, title, x_label, caption, decision_threshold, threshold_label) { -->
-<!--   plt <- df %>% -->
-<!--       mutate( -->
-<!--         quantiles = list(ppoints(n_dots)), # get n_draws equally spaced quantiles -->
-<!--         x = pmap(list(quantiles, mean, sd), qnorm) # map those quantiles to points x drawn from each distribution -->
-<!--         # binwidth = (max(unlist(x)) - min(unlist(x))) / 8.25 # Matt Kay's binwidth calculation -->
-<!--       ) %>%  -->
-<!--       unnest() %>% # one row per draw -->
-<!--       ggplot(aes(x = x, fill = Team)) + -->
-<!--       geom_vline(xintercept = decision_threshold, linetype = "longdash") + # award threshold -->
-<!--       annotate("text", x = (decision_threshold + 2), y = 0.05, label = threshold_label, hjust = 0, vjust = 0) + -->
-<!--       geom_hline(yintercept = 0, size = 0.75, color = "gray") + -->
-<!--       geom_dotplot(binaxis = "x", alpha = opacity, dotsize = .85, stackratio = 1.3) + -->
-<!--       # geom_dotplot(binwidth = 4, binaxis = "x", dotsize = .9, stackratio = 1.35) + -->
-<!--       theme_bw() + -->
-<!--       scale_fill_brewer(palette = "Set1") + -->
-<!--       facet_grid(Team ~ .) + -->
-<!--       xlim(data_domain[1], data_domain[2]) + -->
-<!--       ylim(-0.012, .065) + -->
-<!--       labs( -->
-<!--         title = title, -->
-<!--         x = x_label, -->
-<!--         y = "Chances of Points", -->
-<!--         fill = "Your Team", -->
-<!--         caption = wrap_label(caption, char_before_wrap)) + -->
-<!--       theme( -->
-<!--         strip.background = element_blank(), -->
-<!--         strip.text.x = element_blank(), -->
-<!--         axis.title = element_text(size=label_size), -->
-<!--         axis.text.y = element_blank(), -->
-<!--         plot.title = element_text(size = title_size), -->
-<!--         plot.caption = element_text(size = caption_size, hjust = 0, vjust = -1)) -->
-
-<!--   return(plt) -->
-<!-- } -->
-
-<!-- quantile_dotplots(df = prac_df,  -->
-<!--                   n_dots = n_dots_qdps, -->
-<!--                   data_domain = data_domain,  -->
-<!--                   title = "Predicted Number of Points Scored",  -->
-<!--                   x_label = "Points Scored", -->
-<!--                   caption = "Each dot represents a 5% chance that different numbers of points (shown along the horizontal axis) could be scored by your team with (top) and without the new player (bottom).",  -->
-<!--                   decision_threshold = 100,  -->
-<!--                   threshold_label = "Above this threshold,\nyou win the award.") -->
-<!-- ``` -->
-
 ###Quantile Dotplots with Means
 
 A chart function for quantile dotplots of the possible points for each version of the team with means added.
@@ -544,7 +493,8 @@ quantile_dotplots_w_means <- function(df, n_dots, data_domain, title, x_label, c
       ggplot(aes(dist = "norm", arg1 = mean, arg2 = sd, y = rev(levels(Team)), fill = Team)) +
       geom_vline(xintercept = decision_threshold, linetype = "longdash") + # award threshold
       annotate("text", x = (decision_threshold + 2), y = "Without the New Player", label = threshold_label, hjust = 0, vjust = -4.5) +
-      stat_dist_dotsh(quantiles = n_dots, binwidth = 5, dotsize = .85, stackratio = 1.2, alpha = opacity, color = NA) +
+      # stat_dist_dotsh(quantiles = n_dots, binwidth = 5, dotsize = .85, stackratio = 1.2, alpha = opacity, color = NA) +
+      stat_dist_dotsh(quantiles = n_dots, binwidth = 5, dotsize = .8, stackratio = 1.2, alpha = opacity, color = NA) +
       geom_point(aes(x = mean, color = Team), shape = 124, size = means_size_slab, show.legend = FALSE, position = position_nudge(y = 0.275)) + # add means
       theme_bw() +
       scale_fill_brewer(palette = "Set1") +
@@ -572,9 +522,10 @@ quantile_dotplots_w_means <- function(df, n_dots, data_domain, title, x_label, c
     mean_without <- df %>% filter(Team == "Without the New Player") %>% select(mean) %>% as.numeric()
     
     plt <- plt + 
-      geom_segment(y = 1.95, yend = 1.6, x = mean_with, xend = 146.3535, size = 0.5, linetype = "longdash", color = "black") +
-      geom_segment(y = 1.6, yend = 1.6, x = mean_without, xend = 146.3535, size = 0.5, linetype = "longdash", color = "black") +
-      annotate("text", y = 1.6, x = 148, label = "Average\npredicted\nscore", hjust = 0, vjust = 0.5)
+      geom_segment(y = 2.6, yend = 2.6, x = mean_with, xend = 75, size = 0.5, linetype = "dotted", color = "black") +
+      annotate("text", y = 2.6, x = 73, label = "Average predicted score\nwith the new player", hjust = 1, vjust = 0.5) +
+      geom_segment(y = 1.6, yend = 1.6, x = mean_without, xend = 75, size = 0.5, linetype = "dotted", color = "black") +
+      annotate("text", y = 1.6, x = 73, label = "Average predicted score\nwithout the new player", hjust = 1, vjust = 0.5)
   }
   
   return(plt)
@@ -589,56 +540,6 @@ quantile_dotplots_w_means(df = prac_df,
                           decision_threshold = 100, 
                           threshold_label = "Above this threshold,\nyou win the award.")
 ```
-
-<!-- ```{r} -->
-<!-- quantile_dotplots_w_means <- function(df, n_dots, data_domain, title, x_label, caption, decision_threshold, threshold_label) { -->
-<!--   plt <- df %>% -->
-<!--       mutate( -->
-<!--         quantiles = list(ppoints(n_dots)), # get n_draws equally spaced quantiles -->
-<!--         x = pmap(list(quantiles, mean, sd), qnorm) # map those quantiles to points x drawn from each distribution -->
-<!--         # binwidth = (max(unlist(x)) - min(unlist(x))) / 8.25 # Matt Kay's binwidth calculation -->
-<!--       ) %>%  -->
-<!--       unnest() %>% # one row per draw -->
-<!--       ggplot(aes(x = x, fill = Team)) + -->
-<!--       geom_vline(xintercept = decision_threshold, linetype = "longdash") + # award threshold -->
-<!--       annotate("text", x = (decision_threshold + 2), y = 0.05, label = threshold_label, hjust = 0, vjust = 0) + -->
-<!--       geom_hline(yintercept = 0, size = 0.75, color = "gray") + -->
-<!--       geom_dotplot(binaxis = "x", alpha = opacity, dotsize = .85, stackratio = 1.3) + -->
-<!--       # geom_point(aes(x = mean, y = -0.005, color = Team), size = means_size, shape = 124, show.legend = FALSE) + # add means -->
-<!--       # geom_vline(aes(xintercept = mean, color = Team), size = means_size, show.legend = FALSE) + # add means -->
-<!--       geom_segment(aes(x = mean, xend = mean, y = -0.01, yend = 0.045, color = Team), size = means_size_segment, show.legend = FALSE) + # add means -->
-<!--       theme_bw() + -->
-<!--       scale_fill_brewer(palette = "Set1") + -->
-<!--       scale_color_brewer(palette = "Set1") + -->
-<!--       facet_grid(Team ~ .) + -->
-<!--       xlim(data_domain[1], data_domain[2]) + -->
-<!--       ylim(-0.012, .065) + -->
-<!--       labs( -->
-<!--         title = title, -->
-<!--         x = x_label, -->
-<!--         y = "Chances of Points", -->
-<!--         fill = "Your Team", -->
-<!--         caption = wrap_label(caption, char_before_wrap)) + -->
-<!--       theme( -->
-<!--         strip.background = element_blank(), -->
-<!--         strip.text.x = element_blank(), -->
-<!--         axis.title = element_text(size=label_size), -->
-<!--         axis.text.y = element_blank(), -->
-<!--         plot.title = element_text(size = title_size), -->
-<!--         plot.caption = element_text(size = caption_size, hjust = 0, vjust = -1)) -->
-
-<!--   return(plt) -->
-<!-- } -->
-
-<!-- quantile_dotplots_w_means(df = prac_df,  -->
-<!--                           n_dots = n_dots_qdps, -->
-<!--                           data_domain = data_domain,  -->
-<!--                           title = "Predicted Number of Points Scored",  -->
-<!--                           x_label = "Points Scored", -->
-<!--                           caption = "The red and blue vertical lines on each plot represent the average number of points that could be scored by your team with (top) and without the new player (bottom). Each dot represents a 5% chance that different numbers of points (shown along the horizontal axis) could be scored.",  -->
-<!--                           decision_threshold = 100,  -->
-<!--                           threshold_label = "Above this threshold,\nyou win the award.") -->
-<!-- ``` -->
 
 ###Densities
 
@@ -682,53 +583,6 @@ densities(df = prac_df,
           threshold_label = "Above this threshold,\nyou win the award.")
 ```
 
-<!-- ```{r} -->
-<!-- densities <- function(df, data_domain, title, x_label, caption, decision_threshold, threshold_label) { -->
-<!--   plt <- df %>%  -->
-<!--       mutate( -->
-<!--         quantiles = list(ppoints(1000)), # get many equally spaced quantiles -->
-<!--         x = pmap(list(quantiles, mean, sd), qnorm) # map those quantiles to points x drawn from each distribution -->
-<!--         # density = pmap(list(x, mean, sd), dnorm) # map those points to densities -->
-<!--       ) %>%  -->
-<!--       unnest() %>% # one row per draw -->
-<!--       ggplot(aes(x = x, fill = Team)) + -->
-<!--       geom_vline(xintercept = decision_threshold, linetype = "longdash") + # award threshold -->
-<!--       annotate("text", x = (decision_threshold + 2), y = 0.05, label = threshold_label, hjust = 0, vjust = 0) + -->
-<!--       geom_hline(yintercept = 0, size = 0.75, color = "gray") + -->
-<!--       stat_density(geom = "area", alpha = opacity, trim = TRUE) + -->
-<!--       # geom_density(alpha = 0.65) + -->
-<!--       # geom_line(aes(y = density)) + -->
-<!--       theme_bw() + -->
-<!--       scale_fill_brewer(palette = "Set1") + -->
-<!--       facet_grid(Team ~ .) + -->
-<!--       xlim(data_domain[1], data_domain[2]) + -->
-<!--       ylim(-0.012, .065) + -->
-<!--       labs( -->
-<!--         title = title, -->
-<!--         x = x_label, -->
-<!--         y = "Chances of Points", -->
-<!--         fill = "Your Team", -->
-<!--         caption = wrap_label(caption, char_before_wrap)) + -->
-<!--       theme( -->
-<!--         strip.background = element_blank(), -->
-<!--         strip.text.x = element_blank(), -->
-<!--         axis.title = element_text(size=label_size), -->
-<!--         axis.text.y = element_blank(), -->
-<!--         plot.title = element_text(size = title_size), -->
-<!--         plot.caption = element_text(size = caption_size, hjust = 0, vjust = -1)) -->
-
-<!--   return(plt) -->
-<!-- } -->
-
-<!-- densities(df = prac_df,  -->
-<!--           data_domain = data_domain,  -->
-<!--           title = "Predicted Number of Points Scored",  -->
-<!--           x_label = "Points Scored", -->
-<!--           caption = "The height of the shaded area represents the chances that different numbers of points (shown along the horizontal axis) could be scored by your team with (top) and without the new player (bottom).",  -->
-<!--           decision_threshold = 100,  -->
-<!--           threshold_label = "Above this threshold,\nyou win the award.") -->
-<!-- ``` -->
-
 ###Densities with Means
 
 A chart function for continuous probability densities of the possible points for each version of the team with means added.
@@ -767,9 +621,10 @@ densities_w_means <- function(df, data_domain, title, x_label, caption, decision
     mean_without <- df %>% filter(Team == "Without the New Player") %>% select(mean) %>% as.numeric()
     
     plt <- plt + 
-      geom_segment(y = 1.95, yend = 1.6, x = mean_with, xend = 146.3535, size = 0.5, linetype = "longdash", color = "black") +
-      geom_segment(y = 1.6, yend = 1.6, x = mean_without, xend = 146.3535, size = 0.5, linetype = "longdash", color = "black") +
-      annotate("text", y = 1.6, x = 148, label = "Average\npredicted\nscore", hjust = 0, vjust = 0.5)
+      geom_segment(y = 2.6, yend = 2.6, x = mean_with, xend = 75, size = 0.5, linetype = "dotted", color = "black") +
+      annotate("text", y = 2.6, x = 73, label = "Average predicted score\nwith the new player", hjust = 1, vjust = 0.5) +
+      geom_segment(y = 1.6, yend = 1.6, x = mean_without, xend = 75, size = 0.5, linetype = "dotted", color = "black") +
+      annotate("text", y = 1.6, x = 73, label = "Average predicted score\nwithout the new player", hjust = 1, vjust = 0.5)
   }
   
   return(plt)
@@ -784,52 +639,6 @@ densities_w_means(df = prac_df,
                   threshold_label = "Above this threshold,\nyou win the award.")
 ```
 
-<!-- ```{r} -->
-<!-- densities_w_means <- function(df, data_domain, title, x_label, caption, decision_threshold, threshold_label) { -->
-<!--   plt <- df %>%  -->
-<!--       mutate( -->
-<!--         quantiles = list(ppoints(1000)), # get many equally spaced quantiles -->
-<!--         x = pmap(list(quantiles, mean, sd), qnorm) # map those quantiles to points x drawn from each distribution -->
-<!--         # density = pmap(list(x, mean, sd), dnorm) # map those points to densities -->
-<!--       ) %>%  -->
-<!--       unnest() %>% # one row per draw -->
-<!--       ggplot(aes(x = x, fill = Team)) + -->
-<!--       geom_vline(xintercept = decision_threshold, linetype = "longdash") + # award threshold -->
-<!--       annotate("text", x = (decision_threshold + 2), y = 0.05, label = threshold_label, hjust = 0, vjust = 0) -->
-<!--       geom_hline(yintercept = 0, size = 0.75, color = "gray") + -->
-<!--       stat_density(geom = "area", alpha = opacity, trim = TRUE) + -->
-<!--       geom_segment(aes(x = mean, xend = mean, y = -0.01, yend = 0.045, color = Team), size = means_size_segment, show.legend = FALSE) + # add means -->
-<!--       theme_bw() + -->
-<!--       scale_fill_brewer(palette = "Set1") + -->
-<!--       scale_color_brewer(palette = "Set1") + -->
-<!--       facet_grid(Team ~ .) + -->
-<!--       xlim(data_domain[1], data_domain[2]) + -->
-<!--       ylim(-0.012, .065) + -->
-<!--       labs( -->
-<!--         title = title, -->
-<!--         x = x_label, -->
-<!--         y = "Chances of Points", -->
-<!--         fill = "Your Team", -->
-<!--         caption = wrap_label(caption, char_before_wrap)) + -->
-<!--       theme( -->
-<!--         strip.background = element_blank(), -->
-<!--         strip.text.x = element_blank(), -->
-<!--         axis.title = element_text(size=label_size), -->
-<!--         axis.text.y = element_blank(), -->
-<!--         plot.title = element_text(size = title_size), -->
-<!--         plot.caption = element_text(size = caption_size, hjust = 0, vjust = -1)) -->
-
-<!--   return(plt) -->
-<!-- } -->
-
-<!-- densities_w_means(df = prac_df,  -->
-<!--                   data_domain = data_domain,  -->
-<!--                   title = "Predicted Number of Points Scored",  -->
-<!--                   x_label = "Points Scored", -->
-<!--                   caption = "The red and blue vertical lines on each plot represent the average number of points that could be scored by your team with (top) and without the new player (bottom). The height of the shaded area represents the chances that different numbers of points (shown along the horizontal axis) could be scored.",  -->
-<!--                   decision_threshold = 100,  -->
-<!--                   threshold_label = "Above this threshold,\nyou win the award.") -->
-<!-- ``` -->
 
 ##Stimuli Generation
 
