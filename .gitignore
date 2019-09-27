@@ -3,6 +3,6 @@ stimuli/
 stimuli.zip
 *presentation/
 .Rhistory
-raw_data/
+raw-data/
 *.rds
 model-fits/

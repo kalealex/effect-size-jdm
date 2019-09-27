@@ -324,14 +324,26 @@ A chart function for HOPs of the possible points for each version of the team.
 
 ```{r}
 hops <- function(df, n_draws, frames_per_second, data_domain, title, x_label, caption, decision_threshold, threshold_label, dimensions) {
+  # # generate low-discrepancy sequences to shuffle draws
+  # sobol_matrix <- sobol(n = n_draws, dim = 2, scrambling = 3, seed = round(runif(1) * 1000))
+  # draw_idx_with <- rank(sobol_matrix[,1])
+  # draw_idx_without <- rank(sobol_matrix[,2])
+  
   plt <- df %>% 
+      # mutate(
+      #   quantiles = list(ppoints(n_draws)), # get n_draws equally spaced quantiles
+      #   draws = pmap(list(quantiles, mean, sd), qnorm), # map those quantiles to draws from each distribution
+      #   draw_n = if_else(Team == "With the New Player", # number draws differently for each distribution
+      #                    list(draw_idx_with),
+      #                    list(draw_idx_without))
+      # ) %>% 
       mutate(
         quantiles = list(sample(ppoints(n_draws))), # get n_draws equally spaced quantiles and shuffle their order
         draws = pmap(list(quantiles, mean, sd), qnorm), # map those quantiles to draws from each distribution
         draw_n = if_else(Team == "With the New Player", # number draws differently for each distribution so we aren't showing the same quantile for both distributions
                          list(sample(1:n_draws)),
                          list(1:n_draws))
-      ) %>% 
+      ) %>%
       unnest(cols = c(quantiles, draws, draw_n)) %>% # one row per draw
       ggplot(aes(y = draws, x = Team, color = Team)) +
       scale_x_discrete(limits = rev(levels(df$Team))) + # get teams in correct order (red on top)
@@ -355,7 +367,8 @@ hops <- function(df, n_draws, frames_per_second, data_domain, title, x_label, ca
         plot.caption = element_text(size = caption_size, hjust = 0, vjust = -1)) +
       transition_manual(draw_n)
   
-  animation <- animate(plt, fps = frames_per_second, nframes = 10 * frames_per_second, res = 100, width = dimensions[1]*100, height = dimensions[2]*100)
+  # animation <- animate(plt, fps = frames_per_second, nframes = 10 * frames_per_second, res = 100, width = dimensions[1]*100, height = dimensions[2]*100)
+  animation <- animate(plt, fps = frames_per_second, nframes = n_draws, res = 100, width = dimensions[1]*100, height = dimensions[2]*100)
   
   return(animation)
 }
@@ -422,7 +435,8 @@ hops_w_means <- function(df, n_draws, frames_per_second, data_domain, title, x_l
       annotate("text", x = 1.1, y = 73, label = "Average predicted score\nwithout the new player", hjust = 1, vjust = 0.5)
   }
   
-  animation <- animate(plt, fps = frames_per_second, nframes = 10 * frames_per_second, res = 100, width = dimensions[1]*100, height = dimensions[2]*100)
+  # animation <- animate(plt, fps = frames_per_second, nframes = 10 * frames_per_second, res = 100, width = dimensions[1]*100, height = dimensions[2]*100)
+  animation <- animate(plt, fps = frames_per_second, nframes = n_draws, res = 100, width = dimensions[1]*100, height = dimensions[2]*100)
   
   return(animation)
 }

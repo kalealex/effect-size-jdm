@@ -8,7 +8,7 @@ anonymize <- function(x, algo="crc32"){
 }
 
 # load raw data
-raw_df <- read_csv("raw_data/pilot.csv")
+raw_df <- read_csv("raw-data/pilot.csv")
 
 # anonymize worker ids
 anonymous_df <- raw_df %>%

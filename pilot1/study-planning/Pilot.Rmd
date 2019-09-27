@@ -173,6 +173,46 @@ ggplot(aes(x = odds_of_victory, y = est_CLES, color = heuristic)) +
 
 One thing to note is that the "relative mean difference" heuristic depends on the maximum mean difference shown which makes it uniquely sensitive to the standard deviation of the difference distribution (B - A), the levels of which are encoded as facets. Notice how only the orange line (i.e., rel_mean_diff_est) is changing across the facets. This tells us that _we don't need to test very many levels of uncertainty, but we should test a range of ground truth CLES_ values (x-axis), especially values near the extremes of the probability scale.
 
+<!-- ```{r} -->
+<!-- # mean difference vs axis width heuristic -->
+<!-- mean_difference_vs_axis_width <- function(mean_diff, axis_width) { -->
+<!--   return(50 - 50 * mean_diff / axis_width) -->
+<!-- } -->
+<!-- # apply(conds_df, 1, function(df) relative_mean_difference(df['mean_diff'], df['max_abs_mean_diff'])) -->
+<!-- conds_df %>% filter(sd_diff==1) %>% rowwise() %>% mutate(rel_mean_diff_est = mean_difference_vs_axis_width(mean_diff, sd_diff * 3)) %>% ggplot(aes(x=odds_of_victory,y=rel_mean_diff_est)) + geom_line() -->
+<!-- ``` -->
+
+<!-- ```{r echo=FALSE} -->
+<!-- # need a consistent color scale for these heuristics -->
+<!-- heuristics <- as.factor(c("ground_truth", "rel_mean_diff_est", "mean_diff_vs_interval_width_est", "mean_diff_vs_axis_width_est", "interval_overlap_est", "outcome_proportion_est")) -->
+<!-- hColors <- brewer.pal(length(heuristics), "Set1") -->
+<!-- names(hColors) <- levels(heuristics) -->
+<!-- colScale <- scale_colour_manual(values = hColors) -->
+<!-- ``` -->
+
+<!-- ```{r} -->
+<!-- conds_df %>%  -->
+<!--   # filter(sd_diff == 5) %>% -->
+<!--   rowwise() %>%  -->
+<!--   mutate( # add heuristic estimates -->
+<!--     rel_mean_diff_est = relative_mean_difference(mean_diff, max_abs_mean_diff), -->
+<!--     mean_diff_vs_interval_width_est = means_first_then_uncertainty(mean_diff, sd_team), -->
+<!--     mean_diff_vs_axis_width_est = mean_difference_vs_axis_width(mean_diff, sd_diff * 3), -->
+<!--     interval_overlap_est = interval_overlap(mean_diff, sd_team), -->
+<!--     outcome_proportion_est = outcome_proportion(mean_diff, sd_diff) -->
+<!--   ) %>%  -->
+<!--   gather(heuristic, est_CLES, rel_mean_diff_est, mean_diff_vs_interval_width_est, mean_diff_vs_axis_width_est, interval_overlap_est, outcome_proportion_est) %>% # reshape -->
+<!-- ggplot(aes(x = odds_of_victory, y = est_CLES, color = heuristic)) + -->
+<!--   geom_line() + -->
+<!--   colScale + -->
+<!--   theme_bw() + -->
+<!--   labs(title = "Heuristic Estimates vs Ground Truth CLES", -->
+<!--       x = "Ground Truth Pr(A > B)", -->
+<!--       y = "Estimated Pr(A > B)" -->
+<!--   ) + -->
+<!--   facet_wrap(~ sd_diff) -->
+<!-- ``` -->
+
 ###Propagating Heuristic Estimates to Predictions of Betting Behavior
 
 To create a normative model of betting behavior, we simulate an idealized user who, given some estimate for CLES, can perfectly judge the optimal betting amount. This models the impact of distortions in the perception of CLES on betting behavior. Deviations from this normative betting behavior can be captured in bias and noise parameters which account for biases in utility assessment (e.g., risk aversion) and sources of increased error (e.g., task difficulty, the working memory load of reading the vis).
