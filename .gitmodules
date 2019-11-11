@@ -1,9 +1,6 @@
-[submodule "experiment/src/heuristics-experiment-interface"]
-	path = experiment/src/heuristics-experiment-interface
+[submodule "interface/heuristics-experiment-interface"]
+	path = interface/heuristics-experiment-interface
 	url = https://github.com/kalealex/heuristics-experiment-interface.git
-[submodule "experiment/heuristics-experiment-interface"]
-	path = experiment/heuristics-experiment-interface
-	url = https://github.com/kalealex/heuristics-experiment-interface.git
-[submodule "experiment/effect-size-jdm-experiment-interface"]
-	path = experiment/effect-size-jdm-experiment-interface
+[submodule "interface/effect-size-jdm-experiment-interface"]
+	path = interface/effect-size-jdm-experiment-interface
 	url = git@github.com:kalealex/effect-size-jdm-experiment-interface.git
