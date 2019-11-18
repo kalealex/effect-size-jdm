@@ -1,0 +1,398 @@
+---
+title: "Pilot Analysis: Exploratory Visualization"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(RColorBrewer)
+library(ggpubr)
+library(modelr)
+library(tidybayes)
+library(brms)
+```
+
+
+This document is intended to give an overview of the response distributions from our experiment
+
+##Data
+
+###Load Worker Responses
+
+The data is already anonymous and in a tidy format at this stage in the analysis pipeline. We just need to read it in and do some preprocessing.
+
+```{r}
+# read in data 
+full_df <- read_csv("experiment-anonymous.csv")
+
+# preprocessing
+responses_df <- full_df %>%
+  rename( # rename to convert away from camel case
+    worker_id = workerId,
+    account_value = accountValue,
+    ground_truth = groundTruth,
+    sd_diff = sdDiff,
+    p_award_with = pAwardWith,
+    p_award_without = pAwardWithout,
+    p_superiority = pSup,
+    start_time = startTime,
+    resp_time = respTime,
+    trial_dur = trialDur,
+    trial_idx = trialIdx
+  ) %>%
+  filter(trial_idx != "practice", trial_idx != "mock") %>% # remove practice and mock trials from responses dataframe, leave in full version
+  mutate( # mutate to jitter probability of superiority away from boundaries
+    p_superiority = ifelse(p_superiority == 0, 0.5, p_superiority),           # avoid responses equal to zero
+    p_superiority = ifelse(p_superiority == 100, 99.5, p_superiority)         # avoid responses equal to one-hundred
+  ) %>%
+  # mutate rows where intervene == -1 for some reason
+  mutate( 
+    intervene = if_else(intervene == -1,
+                        # repair
+                        if_else((payoff == (award_value - 1) | payoff == -1),
+                                1, # payed for intervention
+                                0), # didn't pay for intervention
+                        # don't repair
+                        as.numeric(intervene) # hack to avoid type error
+                        )
+  ) %>%
+  # add a variable to note whether the chart they viewed showed means
+  mutate(means = as.factor((start_means == "True" & as.numeric(trial) <= (n_trials / 2)) | (start_means == "False" & as.numeric(trial) > (n_trials / 2))))
+
+head(responses_df)
+```
+
+
+##Response Distributions
+
+###Probability of Superiority Judgments
+
+Let's plot histograms of probability of superiority judgments at each level of the ground truth probability of superiority. We show the ground truth in red. This will give us an overview of bias and precision in judgments. We do this separately for each visualization condition to limit the number of faceted subplots in a single view.
+
+```{r}
+for (cond in unique(responses_df$condition)) {
+  plt <- responses_df %>% filter(condition == cond) %>%
+    ggplot(aes(x = p_superiority)) +
+    geom_histogram(aes(y = ..density..), binwidth = 5) +
+    geom_vline(aes(xintercept = ground_truth * 100, linetype = "Ground Truth"), color = "red") +
+    scale_linetype_manual(name = "Line", values = c(2,1), guide=guide_legend(override.aes = list(color = c("red")))) +
+    theme_bw() +
+    labs(
+      caption=cond,
+      x = "Probability of Superiority Responses",
+      y = "Frequency"
+    ) +
+    facet_wrap( ~ ground_truth)
+  print(plt)
+}
+```
+
+As we would expect based on a linear log odds representation of probability, probability of superiority judgments tend to be biased toward 50% relative to the ground truth.
+
+Another more compact way of looking at the relationship between estimated probability of superiority and the ground truth is to just plot them against one another. Let's look at this even though its sort of a mess.
+
+```{r}
+# plot estimated probability of superiority vs the ground truth
+responses_df %>%
+  ggplot(aes(x = ground_truth, y = p_superiority)) +
+  geom_point(alpha = 0.35) +
+  geom_abline(aes(intercept = 0, slope = 100, linetype = "Correct Response"), color = "red") +
+  scale_linetype_manual(name = "Line", values = c(2,1), guide=guide_legend(override.aes = list(color = c("red")))) +
+  theme_bw() +
+  labs(
+    x = "Ground Truth",
+    y = "Probability of Superiority Responses"
+  ) +
+  facet_grid(means ~ condition)
+```
+
+
+###Decisions to Intervene
+
+In order to see how people are doing on the decision task, we want to benchmark their performance against a utility optimal decision rule.
+
+```{r}
+# determine whether or not intervention is utility optimal on each trial
+responses_df <- responses_df %>%
+  mutate(
+    should_intervene = (p_award_with - p_award_without) > 1 / award_value # decision rule
+  )
+```
+
+Let's plot the proportion of users who intervene at each level of ground truth probability of superiority in each visualization condition. People should intervene more often at high probabilities. We show the utility optimal decision threshold in red. This should give us an overview of decision quality.
+
+```{r}
+# summarise the data as the overall proportion of trials where users intervene vs what they should do at each level of ground_truth * condition * means
+responses_df %>%
+  group_by(means, condition, ground_truth) %>%
+  summarise(
+    proportion_intervene = sum(intervene) / n(),
+    optimal_decision = mean(should_intervene)
+  ) %>%
+  ggplot(aes(x = ground_truth, y = proportion_intervene)) +
+  geom_point(alpha = 0.35) +
+  geom_line(aes(y = optimal_decision, linetype="Optimal Decision Rule"), color="red") +
+  scale_linetype_manual(name="Line", values = c(2,1), guide=guide_legend(override.aes=list(color=c("red")))) +
+  theme_bw() +
+  labs(
+    x = "Ground Truth Probability of Superiority",
+    y = "Proportion of Trials Where Users Intervene"
+  ) +
+  facet_grid(means ~ condition)
+```
+
+In the aggregate, differences between conditions are pretty subtle. It looks like there may be a slight discrepancy in performance between visualization conditions. We'll need to tease these effects out using statistical inference.
+
+
+###Probability of Superiority Judgments vs Decisions to Intervene
+
+It might also be interesting to see how decisions corresond to probability of superiority judgments. We omit the ground truth and optimal decision rule from this chart.
+ 
+```{r}
+# summarise the data as the overall proportion of trials where users choose to intervene at each level of condition * means * p_superiority
+responses_df %>%
+  group_by(means, condition, p_superiority) %>%
+  summarise(proportion_intervene = sum(intervene) / n()) %>%
+  ggplot(aes(x = p_superiority, y = proportion_intervene)) +
+  geom_point(alpha = 0.35) +
+  theme_bw() +
+  labs(
+    caption=cond,
+    x = "Estimated Probability of Superiority",
+    y = "Proportion of Trials Where Users Choose to Intervene"
+  ) +
+  facet_grid(means ~ condition)
+```
+
+People's probability of superiority judgments and decisions are correlated in the way that you would expect if they understood the task. However, we can see there is some confusion about whether to intervene when probability of superiority is low, suggesting that people might err on the side of intervention.
+
+###Relationships with Trial Duration
+
+We want to know when, if at all, spending more time on a response results in improved performance.
+
+####Trial Duration vs Probability of Superiority Judgments
+
+Let's look at probability of superiority estimates as a function of trial duration. As before, we show the ground truth in red and separate visualization conditions into different views to limit the number of faceted subplots in a single view.
+
+```{r}
+for (cond in unique(responses_df$condition)) {
+  plt <- responses_df %>% filter(condition == cond) %>%
+    ggplot(aes(x = log(trial_dur), y = p_superiority)) +
+    geom_hline(aes(yintercept = ground_truth * 100, linetype = "Ground Truth"), color = "red") +
+    scale_linetype_manual(name = "Line", values = c(2,1), guide=guide_legend(override.aes = list(color = c("red")))) +
+    geom_point(alpha = 0.35) +
+    theme_bw() +
+    labs(
+        caption=cond,
+        x = "Trial Duration in log(seconds)",
+        y = "Estimated Probability of Superiority"
+    ) +
+    facet_wrap( ~ ground_truth)
+  print(plt)
+}
+```
+
+The accuracy of probability of superiority judgments seem mostly independent of response times.
+
+####Trial Duration vs Decision Quality
+
+A nice metric for decision quality is whether users responded "correctly" or in line with the normative utility optimal decision rule. We calculate whether the user was "correct" or not on each trial.
+
+```{r}
+# determine whether response on each trial is utility optimal
+responses_df <- responses_df %>%
+  mutate(correct = intervene == should_intervene)
+```
+
+Let's look at the proportion correct as a function of trial duration, faceting visualization conditions as above.
+
+```{r}
+# summarise the data as the overall proportion of trials where users make utility optimal decisions at each level of condition * means * trial_dur
+responses_df %>%
+  mutate(trial_dur_binned = round(trial_dur)) %>%
+  group_by(condition, baseline, trial_dur_binned) %>%
+  summarise(proportion_correct = sum(correct) / n()) %>%
+  ggplot(aes(x = log(trial_dur_binned), y = proportion_correct)) +
+  geom_point(alpha = 0.35) +
+  theme_bw() +
+  labs(
+    caption=cond,
+    x = "Binned Trial Duration in log(seconds)",
+    y = "Proportion of Trials Where Users Make Utility Optimal Decisions"
+  ) +
+  facet_grid(. ~ condition)
+```
+
+Trial duration seems to have little to do with decision quality.
+
+
+##Error Analysis
+
+In this section, we look for patterns of interest in response errors. We'll start by adding error and absolute error in probability of superiority judgments to the dataframe. We already have a metric for correctness of decisions.
+
+```{r}
+# add error and absolute error to df
+responses_df <- responses_df %>%
+  mutate(
+    err_p_sup = ground_truth * 100 - p_superiority,
+    abs_err_p_sup = abs(err_p_sup)
+  )
+```
+
+###Mean Absolute Error
+
+Let's look at the average absolute error in probability of superiority judgments in each condition, regardless of the ground truth.
+
+```{r}
+# avg absolute error per condition
+responses_df %>%
+  group_by(means, condition) %>%
+  summarise(avg_abs_err_p_sup = mean(abs_err_p_sup)) %>%
+  ggplot(aes(x = condition, y = avg_abs_err_p_sup, fill = condition)) +
+    geom_bar(stat = "identity") +
+    scale_fill_brewer(type = "qual", palette = 1) +
+    theme_bw() +
+    labs(title = "Average Absolute Error Relative to Ground Truth",
+        x = "Visualization Condition",
+        y = "Average Absolute Error (in years out of 100)"
+    ) +
+  facet_grid(means ~ .)
+```
+
+On average, errors in probability of superiority judgments are high across the board, with the average error equal to about a fifth the range of possible responses. Error rates are noteably higher in the intervals condition.
+
+###Mean Error vs Ground Truth
+
+Let's look at the average signed error in probability of superiority judgments. This time we'll plot error in each condition in relation to ground truth.
+
+```{r}
+# error by ground truth, per condition
+responses_df %>%
+  group_by(ground_truth, means, condition) %>%
+  summarise(avg_err_p_sup = mean(err_p_sup)) %>%
+  ggplot(aes(x = ground_truth, y = avg_err_p_sup, color = condition)) +
+    geom_line() +
+    scale_color_brewer(type = "qual", palette = 1) +
+    theme_bw() +
+    labs(title = "Average Error Relative to Ground Truth",
+        x = "Ground Truth Probability of Superiority",
+        y = "Average Error (out of 100)"
+    ) + 
+  facet_grid(means ~ .)
+```
+
+Again, we can see that errors are large on average, especially at the extreme end of the probability scale near 90%. Higher errors at the extremes of the probability scale are expected based on _the cental tendency of judgments_. We can also see that people make judgments with consistently lower error when using HOPs rather than intervals.
+
+###Proportion of Utility Optimal Decisions
+
+Let's take a similar approach to visualizing decisions by looking at the proportion of utility optimal decisions as a function of ground truth probability of superiority and condition.
+
+```{r}
+# error by ground truth, per condition
+responses_df %>%
+  group_by(ground_truth, means, condition) %>%
+  summarise(proportion_correct = sum(correct) / n()) %>%
+  ggplot(aes(x = ground_truth, y = proportion_correct, color = condition)) +
+    geom_line() +
+    scale_color_brewer(type = "qual", palette = 1) +
+    theme_bw() +
+    labs(title = "Proportion of Utility Optimal Intervention Decisions",
+        x = "Ground Truth Probability of Superiority",
+        y = "Proportion of Utility Optimal Decisions"
+    ) +
+  facet_grid(means ~ .)
+```
+
+We can see that there are dips in performance near 74% probability of superiority. This is expected considering that this is at the decision threshold where the intervention decision is most ambiguous.
+
+
+##Individual Patterns of Behavior
+
+As is often the case with judgments from visualizations, the data seem highly heterogenious. We try to get a sense of this by looking at individual patterns of responses in conjunction with individual characteristics such as gender, age, education, chart use, and numeracy. 
+
+We'll also use these individual views to develop some exclusion criteria. We use two attention checks, one in the middle of each block. If a user understands the decision problem, they should intervene when probability of superiority is 99.9% and should not intervene when probability of superiority is 50%. We also look for participants who responded the same on every trial for either question since these folks were probably speeding. Last, we'll look for people who often respond that probability of superiority is less than 50% since this response reflects a misunderstanding of the response scale.
+
+Below we create an overview of performance and individual characteristics for each participant separately.
+
+```{r}
+for (worker in unique(responses_df$worker_id)) {
+  # get a df for just this worker
+  worker_df <- responses_df %>% filter(worker_id == worker)
+  # plot probability of superiority judgments vs ground truth 
+  p_sup_plt <- worker_df %>%
+    ggplot(aes(x = ground_truth, y = p_superiority)) +
+    geom_point(alpha = 0.35) +
+    geom_abline(aes(intercept = 0, slope = 100, linetype = "Correct Response"), color = "red") +
+    scale_linetype_manual(name = "Line", values = c(2,1), guide=guide_legend(override.aes = list(color = c("red")))) +
+    theme_bw() +
+    ylim(0, 100) +
+    labs(
+      x = "Ground Truth",
+      y = "Estimated Probability of Superiority"
+    ) +
+    facet_grid(means ~ .)
+  # plot intervention decisions vs ground truth, noting which are in line with the utility optimal decision rule
+  decision_plt <- worker_df %>%
+    ggplot(aes(x = ground_truth, y = intervene, color = correct)) +
+    geom_point(alpha = 0.35) +
+    geom_line(aes(y = as.numeric(should_intervene), linetype="Optimal Decision Rule"), color="red") +
+    scale_linetype_manual(name="Line", values = c(2,1), guide=guide_legend(override.aes=list(color=c("red")))) +
+    theme_bw() +
+    labs(
+      x = "Ground Truth Probability of Superiority",
+      y = "Intervention Decision"
+    ) +
+    facet_grid(means ~ .)
+  # create a table summarizing this worker
+  summary_table <- worker_df %>%
+    group_by(worker_id) %>%
+    summarise(
+      condition = unique(condition),
+      gender = unique(gender),
+      age = unique(age),
+      education = unique(education),
+      chart_use = unique(chart_use),
+      numeracy = unique(numeracy)
+    ) %>%
+    select(-worker_id) %>%
+    ggtexttable(rows = NULL, theme = ttheme("blank"))
+  # create table summarizing potential exclusion criteria
+  exclusion_table <- worker_df %>% 
+    # attention check trials where ground truth = c(0.5, 0.999)
+    mutate(failed_check = (ground_truth == 0.5 & intervene != 0) | (ground_truth == 0.999 & intervene != 1)) %>%
+    group_by(worker_id) %>%
+    summarise(
+      failed_attention_checks = sum(failed_check),
+      speeding_p_sup = as.logical(length(unique(p_superiority)) == 1),
+      speeding_intervene = as.logical(length(unique(intervene)) == 1),
+      p_sup_less_than_50 = sum(p_superiority < 50) / n()
+    ) %>%
+    select(-worker_id) %>%
+    ggtexttable(rows = NULL, theme = ttheme("blank"))
+  # stitch together these three views
+  charts <- ggarrange(p_sup_plt, decision_plt, ncol = 2, nrow = 1)
+  figure <- ggarrange(summary_table, exclusion_table, charts, ncol = 1, nrow = 3, heights = c(1, 1, 3))
+  print(figure)
+}
+```
+
+###Exclusions
+
+Overall, how many participants do we have in each condition after exclusions.
+
+```{r}
+responses_df %>%
+  # attention check trials where ground truth = c(0.5, 0.999)
+  mutate(passed_check = (ground_truth == 0.5 & intervene == 0) | (ground_truth == 0.999 & intervene == 1)) %>%
+  # has a worker not passed the attention checks
+  group_by(worker_id, condition) %>%
+  summarise(
+    passed_attention_checks = sum(passed_check) == 2
+    ) %>%
+  group_by(condition) %>%
+  summarise(
+    total_participants = n(),
+    final_sample = sum(passed_attention_checks)
+    )
+```
