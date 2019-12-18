@@ -1,0 +1,2029 @@
+---
+title: "Building a Linear Log Odds Model of Probability of Superiority"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(RColorBrewer)
+library(rstan)
+library(rstanarm)
+library(bayesplot)
+library(modelr)
+library(tidybayes)
+library(ggstance)
+library(brms)
+library(loo)
+
+rstan_options(auto_write = TRUE)
+options(mc.cores = parallel::detectCores())
+devAskNewPage(ask = FALSE)
+```
+
+In this document, we build a linear log odds model of probability of superiority judgments through a process of model expansion, where we will gradually add predictors to our model.
+
+The LLO model follows from [related work](https://www.frontiersin.org/articles/10.3389/fnins.2012.00001/full) suggesting that the human perception of probability is encoded on a log odds scale. On this scale, the slope of a linear model represents the shape and severity of the function describing bias in probability perception. The greater the deviation of from a slope of 1 (i.e., ideal performance), the more biased the judgments of probability. Slopes less than one correspond to the kind of bias predicted by excessive attention to the mean. On the same log odds scale, the intercept is a crossover-point which should be proportional to the number of categories of possible outcomes among which probability is divided. In our case, the intercept should be about 0.5 since workers are judging the probability of a team getting more points with a new player than without.
+
+##Load and Prepare Data
+
+We load worker responses from our experiment and do some preprocessing.
+
+```{r}
+# read in data 
+full_df <- read_csv("experiment-anonymous.csv")
+
+# preprocessing
+responses_df <- full_df %>%
+  rename( # rename to convert away from camel case
+    worker_id = workerId,
+    ground_truth = groundTruth,
+    sd_diff = sdDiff,
+    p_award_with = pAwardWith,
+    p_award_without = pAwardWithout,
+    account_value = accountValue,
+    p_superiority = pSup,
+    start_time = startTime,
+    resp_time = respTime,
+    trial_dur = trialDur,
+    trial_idx = trialIdx
+  ) %>%
+  # remove practice and mock trials from responses dataframe, leave in full version
+  filter(trial_idx != "practice", trial_idx != "mock") %>% 
+  # drop rows where p_superiority == NA for some reason
+  drop_na(p_superiority) %>%
+  # mutate rows where intervene == -1 for some reason
+  mutate(
+    intervene = if_else(intervene == -1,
+                        # repair
+                        if_else((payoff == (award_value - 1) | payoff == -1),
+                                1, # payed for intervention
+                                0), # didn't pay for intervention
+                        # don't repair
+                        as.numeric(intervene) # hack to avoid type error
+                        )
+  ) %>%
+  # set up factors for modeling
+  mutate(
+    # add a variable to note whether the chart they viewed showed means
+    means = as.factor((start_means == "True" & as.numeric(trial) <= (n_trials / 2)) | (start_means == "False" & as.numeric(trial) > (n_trials / 2))),
+    start_means = as.factor(start_means == "True"),
+    sd_diff = as.factor(sd_diff),
+    trial_number = as.numeric(trial)
+  )
+
+head(responses_df)
+```
+
+We need the data in a format where it is prepared for modeling. We censor responses to the range 0.5% to 99.5% where responses at these bounds reflect an intended response at the bound or higher. By rounding responses to the nearest 0.5%, we assume that the response scale has a resolution of 1% in practice. We need to do this to avoid values of positive or negative infinity when we transform responses to a log odds scale. We convert both probability of superiority judgments and the ground truth to a logit scale. 
+
+```{r}
+# create data frame for model
+model_df <- responses_df %>%
+  mutate( 
+    # recode responses greater than 99.5% and less than 0.5% to avoid values of +/- Inf on a logit scale
+    p_superiority = if_else(p_superiority > 99.5, 
+                            99.5,
+                            if_else(p_superiority < 0.5,
+                                    0.5,
+                                    as.numeric(p_superiority))),
+    # apply logit function to p_sup judgments and ground truth
+    lo_p_sup = qlogis(p_superiority / 100),
+    lo_ground_truth = qlogis(ground_truth),
+    # scale and center trial order
+    trial = (trial_number - as.numeric(n_trials) / 2) / as.numeric(n_trials)
+  )
+```
+
+Now, lets apply our exclusion criteria, cutting our sample down to only the subset of participants who passed both attention checks.
+
+```{r}
+# determine exclusions
+exclude_df <- model_df %>% 
+  # attention check trials where ground truth = c(0.5, 0.999)
+  mutate(failed_check = (ground_truth == 0.5 & intervene != 0) | (ground_truth == 0.999 & intervene != 1)) %>%
+  group_by(worker_id) %>%
+  summarise(
+    failed_attention_checks = sum(failed_check),
+    exclude = failed_attention_checks > 0
+  ) %>% 
+  select(worker_id, exclude)
+
+# apply exclusion criteria and remove attention check trials from modeling data set
+model_df <- model_df %>% 
+  left_join(exclude_df, by = "worker_id") %>% 
+  filter(exclude == FALSE) %>%
+  filter(ground_truth > 0.5 & ground_truth < 0.999)
+
+# how many remaining workers per condition?
+model_df %>%
+  group_by(condition, start_means) %>% # between subject manipulations
+  summarise(
+    n_workers = length(unique(worker_id))
+  )
+```
+
+We have one extra worker in three conditions, so well need to drop data from three workers to get to our preregistered sample size of 80 per counterbalancing condition. Since we know that there were dropped responses for some trials, let's prioritize leaving out workers with the greatest number of dropped trials in each counterbalancing condition.
+
+```{r}
+model_df %>% 
+  group_by(condition, start_means, worker_id) %>%
+  summarise(
+    n_trials = n(),
+    dropped_trials = 32 - n_trials
+  ) %>%
+  filter(dropped_trials > 0)
+```
+
+Based on a comparison of the two tables above, we'll drop workers c488db75, 6abb9386, and 79ba00be.
+
+```{r}
+model_df <- model_df %>%
+  filter(!worker_id %in% c("c488db75", "6abb9386", "79ba00be"))
+
+model_df %>%
+  group_by(condition, start_means) %>% # between subject manipulations
+  summarise(
+    n_workers = length(unique(worker_id))
+  )
+```
+
+Now we have our dataset ready for modeling.
+
+```{r}
+# filter to 20 participants per condition for faster model fitting
+model_df <- model_df %>%
+  filter(worker_id %in%
+    c("df358c8b", "e205c965", "e34e8501", "e7c51079", "e985861c", "f3d15689", "f6f02f18", "f8e30f56", "fa22b8bb", "fd3bea1b", # FALSE densities
+      "e5014c02", "e57bcea7", "e5f7a1e4", "e601ebbf", "e6cbb6ab", "e95e5f05",	"ed26e5a7", "f27ed3b6", "f430e2e8", "f4f534e0", # FALSE HOPs
+      "da3c285a",	"dea9f88a", "e3313d06", "e5fdd1bc", "e6cb0591", "f2c42be1", "fa5c5472", "fa9b7673", "fd15ec30", "ff8a2a69", # FALSE intervals
+      "e70fae80", "e88ec725", "eac85f49", "f09b4a48", "f208afd3", "f2b59407",	"f4ac5fd1", "fc7314ce", "fccb21d5", "fee45dce", # FALSE QDPs
+      "d3fd7aaa", "d939ed0a", "dde640ae",	"e07c7c35", "e4b46997",	"e4e2eb7f", "e5447132", "ea58be77", "f7f69f44", "f83e2827", # TRUE densities
+      "e1b40263", "e63d9528", "e6ba8795", "e80d6b5e", "ed851f4b", "ee6e4127", "f08b3aec", "f65ad716", "f796f54d", "fdb8555e", # TRUE HOPs
+      "d5b6d3e8",	"da903ed3", "daf95a13", "e45d61ec", "e95cfc1e", "ea311aea", "eb0c3c6b", "f48a6a93", "fba3405d", "fe8936cd", # TRUE intervals
+      "d77cfa94", "d913c1e4",	"e14bc968",	"e49026d7", "ea49ba27", "f3959d1d", "f5d48035", "f7e5c38b",	"fa0f4b94", "fb616418"  # TRUE QDPs
+    )
+  )
+
+# model_df %>%
+#   group_by(start_means, condition, worker_id) %>%
+#   select(start_means, condition, worker_id) %>%
+#   summarize() %>%
+#   top_n(10)
+
+model_df %>%
+  group_by(condition, start_means) %>% # between subject manipulations
+  summarise(
+    n_workers = length(unique(worker_id))
+  )
+```
+
+
+
+##Distribution of Probability of Superiority Judgments
+
+We start as simply as possible by just modeling the distribution of probability of superiority judgements on the log odds scale.
+
+Before we fit the model to our data, let's check that our priors seem reasonable. We'll use a weakly informative prior for the intercept parameter since we want the population-level centered intercept to be flexible. We set the expected value of the prior on the intercept equal to the mean value of the ground truth that we sampled (in log odds units).
+
+```{r}
+# get mean value of ground truth sampled in log odds units
+model_df %>% select(lo_ground_truth) %>% summarize(mean = mean(lo_ground_truth))
+```
+
+
+```{r}
+# get_prior(data = model_df, family = "gaussian", formula = lo_p_sup ~ 1)
+
+# starting as simple as possible: learn the distribution of lo_p_sup
+prior.lo_p_sup <- brm(data = model_df, family = "gaussian",
+              lo_p_sup ~ 1,
+              prior = c(prior(normal(1.3, 1), class = Intercept),
+                        prior(normal(0, 1), class = sigma)),
+              sample_prior = "only",
+              iter = 3000, warmup = 500, chains = 2, cores = 2)
+```
+
+Let's look at our prior predictive distribution. For this intercept model, it should be skewwed left because we have located our prior near 74% probability of superiority. We should see a peak near the upper bound of the probability scale.
+
+```{r}
+# prior predictive check
+model_df %>%
+  select() %>%
+  add_predicted_draws(prior.lo_p_sup, prediction = "lo_p_sup", seed = 1234) %>%
+  mutate(
+    # transform to probability units
+    prior_p_sup = plogis(lo_p_sup)
+  ) %>%
+  ggplot(aes(x = prior_p_sup)) +
+  geom_density(fill = "black", size = 0) +
+  scale_y_continuous(NULL, breaks = NULL) +
+  labs(subtitle = "Prior predictive distribution for probability of superiority") +
+  theme(panel.grid = element_blank())
+```
+
+Now, let's fit the model to data. This is just trying to estimate the mean response regardless of the ground truth.
+
+```{r}
+# starting as simple as possible: learn the distribution of lo_p_sup
+m.lo_p_sup <- brm(data = model_df, family = "gaussian",
+              lo_p_sup ~ 1,
+              prior = c(prior(normal(1.3, 1), class = Intercept),
+                        prior(normal(0, 1), class = sigma)),
+              iter = 3000, warmup = 500, chains = 2, cores = 2,
+              file = "model-fits/lo_mdl")
+```
+
+Check diagnostics:
+
+- Trace plots
+
+```{r}
+# trace plots
+plot(m.lo_p_sup)
+```
+
+- Pairs plot
+
+```{r}
+# pairs plot
+pairs(m.lo_p_sup)
+```
+
+- Summary
+
+```{r}
+# model summary
+print(m.lo_p_sup)
+```
+
+Let's check our posterior predictive distribution.
+
+```{r}
+# posterior predictive check
+model_df %>%
+  select() %>%
+  add_predicted_draws(m.lo_p_sup, prediction = "lo_p_sup", seed = 1234) %>%
+  mutate(
+    # transform to probability units
+    post_p_sup = plogis(lo_p_sup)
+    ) %>%
+  ggplot(aes(x = post_p_sup)) +
+  geom_density(fill = "black", size = 0) +
+  scale_y_continuous(NULL, breaks = NULL) +
+  labs(subtitle = "Posterior predictive distribution for probability of superiority",
+       post_p_sup = NULL) +
+  theme(panel.grid = element_blank())
+```
+
+How do these predictions compare to the observed data?
+
+```{r}
+# data density
+model_df %>%
+  ggplot(aes(x = p_superiority)) +
+  geom_density(fill = "black", size = 0) +
+  scale_y_continuous(NULL, breaks = NULL) +
+  labs(subtitle = "Data distribution for probability of superiority") +
+  theme(panel.grid = element_blank())
+```
+
+Our model is not sensitive to the ground truth, so we expect to see a mismatch here.
+
+
+##Linear Log Odds Model of Probability of Superiority
+
+Now well add in a slope parameter to make our model sensitive to the ground truth. This is the simplest version of our linear log odds (LLO) model.
+
+Before we fit the model to our data, let's check that our priors seem reasonable. Since we are now including a slope parameter for the ground truth in our model, we can dial down the width of our prior for sigma (i.e., residual variance) to avoid over-dispersion of predicted responses.
+
+```{r}
+# get_prior(data = model_df, family = "gaussian", formula = lo_p_sup ~ lo_ground_truth)
+
+# simple LLO model
+prior.llo_p_sup <- brm(data = model_df, family = "gaussian",
+                       lo_p_sup ~ lo_ground_truth,
+                       prior = c(prior(normal(1, 0.5), class = b),
+                                 prior(normal(1.3, 1), class = Intercept),
+                                 prior(normal(0, 0.5), class = sigma)),
+                       sample_prior = "only",
+                       iter = 3000, warmup = 500, chains = 2, cores = 2)
+```
+
+Let's look at our prior predictive distribution. For this linear model, we should see density spread slightly more evenly across probability values. 
+
+```{r}
+# prior predictive check
+model_df %>%
+  select(lo_ground_truth) %>%
+  add_predicted_draws(prior.llo_p_sup, prediction = "lo_p_sup", seed = 1234) %>%
+  mutate(
+    # transform to probability units
+    prior_p_sup = plogis(lo_p_sup)
+    ) %>%
+  ggplot(aes(x = prior_p_sup)) +
+  geom_density(fill = "black", size = 0) +
+  scale_y_continuous(NULL, breaks = NULL) +
+  labs(subtitle = "Prior predictive distribution for probability of superiority") +
+  theme(panel.grid = element_blank())
+```
+
+Now let's fit the model to data.
+
+```{r}
+# simple LLO model
+m.llo_p_sup <- brm(data = model_df, family = "gaussian",
+                   lo_p_sup ~ lo_ground_truth,
+                   prior = c(prior(normal(1, 0.5), class = b),
+                             prior(normal(1.3, 1), class = Intercept),
+                             prior(normal(0, 0.5), class = sigma)),
+                   iter = 3000, warmup = 500, chains = 2, cores = 2,
+                   file = "model-fits/llo_mdl")
+```
+
+Check diagnostics:
+
+- Trace plots
+
+```{r}
+# trace plots
+plot(m.llo_p_sup)
+```
+
+- Pairs plot
+
+```{r}
+# pairs plot
+pairs(m.llo_p_sup)
+```
+
+Our slope and intercept parameters seem pretty highly correlated. Maybe adding hierarchy to our model will remedy this.
+
+- Summary
+
+```{r}
+# model summary
+print(m.llo_p_sup)
+```
+
+Let's check our posterior predictive distribution.
+
+```{r}
+# posterior predictive check
+model_df %>%
+  select(lo_ground_truth) %>%
+  add_predicted_draws(m.llo_p_sup, prediction = "lo_p_sup", seed = 1234) %>%
+  mutate(
+    # transform to probability units
+    post_p_sup = plogis(lo_p_sup)
+  ) %>%
+  ggplot(aes(x = post_p_sup)) +
+  geom_density(fill = "black", size = 0) +
+  scale_y_continuous(NULL, breaks = NULL) +
+  labs(subtitle = "Posterior predictive distribution for probability of superiority") +
+  theme(panel.grid = element_blank())
+```
+
+How do these predictions compare to the observed data?
+
+```{r}
+# data density
+model_df %>%
+  ggplot(aes(x = p_superiority)) +
+  geom_density(fill = "black", size = 0) +
+  scale_y_continuous(NULL, breaks = NULL) +
+  labs(subtitle = "Data distribution for probability of superiority") +
+  theme(panel.grid = element_blank())
+```
+
+Our model is now sensitive to the ground truth, but it is still having trouble fitting the data. It may be that the model is not capturing the individual variability in response patterns. Next we'll add hierarchy to our model.
+
+
+##Add Hierarchy for Slope, Intercepts, and Sigma
+
+The models we've created thus far fail to account for much of the variability in the data. Here, we attempt to parse some heterogeniety in responses by modeling a random effect of worker on slopes, intercepts, and residual variance. This introduces a hierarchical component to our model in order to account for individual differences in the best fitting linear model for each worker's data.
+
+Before we fit the model to our data, let's check that our priors seem reasonable. We are adding hyperpriors for the standard deviation of slopes, intercepts, and residual variation (i.e., sigma) per worker, as well as the correlation between them. We'll set moderately wide priors on these worker-level slope and intercept effects. We want some regularization, but we don't want to overregularize potentially large individual variability, which is sort of a tough balance. We'll also narrow the priors on sigma parameters since we are now attributing variability to more sources and we want to avoid overdispersion. We'll set a prior on the correlation between slopes and intercepts per worker that avoids large absolute correlations.
+
+```{r}
+# get_prior(data = model_df, family = "gaussian", formula = bf(lo_p_sup ~ (1 + lo_ground_truth|sharecor|worker_id) + lo_ground_truth, sigma ~ (1|sharecor|worker_id)))
+
+# hierarchical LLO model
+prior.wrkr.llo_p_sup <- brm(data = model_df, family = "gaussian",
+                            formula = bf(lo_p_sup ~ (1 + lo_ground_truth|sharecor|worker_id) + lo_ground_truth, 
+                                         sigma ~ (1|sharecor|worker_id)),
+                            prior = c(prior(normal(1, 0.5), class = b),
+                                      prior(normal(1.3, 1), class = Intercept),
+                                      prior(normal(0, 0.15), class = sd, group = worker_id),
+                                      prior(normal(0, 0.15), class = sd, dpar = sigma),
+                                      prior(lkj(4), class = cor)),
+                            sample_prior = "only",
+                            iter = 3000, warmup = 500, chains = 2, cores = 2)
+```
+
+Let's look at our prior predictive distribution. Because this model contains so many more sources of variation, the prior predictive distribution may look a little overdispersed (i.e., lots of mass at the boundaries of the response scale). However, it's probably best to err on the side of not making our priors on individual parameters too narrow.
+
+```{r}
+# prior predictive check
+model_df %>%
+  select(lo_ground_truth, worker_id) %>%
+  add_predicted_draws(prior.wrkr.llo_p_sup, prediction = "lo_p_sup", seed = 1234) %>%
+  mutate(
+    # transform to probability units
+    prior_p_sup = plogis(lo_p_sup)
+    ) %>%
+  ggplot(aes(x = prior_p_sup)) +
+  geom_density(fill = "black", size = 0) +
+  scale_y_continuous(NULL, breaks = NULL) +
+  labs(subtitle = "Prior predictive distribution for probability of superiority") +
+  theme(panel.grid = element_blank())
+```
+
+Now, let's fit the model to our data.
+
+```{r}
+# hierarchical LLO model
+m.wrkr.llo_p_sup <- brm(data = model_df, family = "gaussian",
+                        formula = bf(lo_p_sup ~ (1 + lo_ground_truth|sharecor|worker_id) + lo_ground_truth, 
+                                     sigma ~ (1|sharecor|worker_id)),
+                        prior = c(prior(normal(1, 0.5), class = b),
+                                  prior(normal(1.3, 1), class = Intercept),
+                                  prior(normal(0, 0.15), class = sd, group = worker_id),
+                                  prior(normal(0, 0.15), class = sd, dpar = sigma),
+                                  prior(lkj(4), class = cor)),
+                        iter = 3000, warmup = 500, chains = 2, cores = 2,
+                        control = list(adapt_delta = 0.99, max_treedepth = 12),
+                        file = "model-fits/llo_mdl-wrkr")
+```
+
+Check diagnostics:
+
+- Trace plots
+
+```{r}
+# trace plots
+plot(m.wrkr.llo_p_sup)
+```
+
+- Pairs plot
+
+```{r}
+# pairs plot (fixed effects)
+pairs(m.wrkr.llo_p_sup, exact_match = TRUE, pars = c("b_Intercept", "b_lo_ground_truth", "b_sigma_Intercept"))
+```
+
+```{r}
+# pairs plot (random effects)
+pairs(m.wrkr.llo_p_sup, exact_match = TRUE, pars = c("sd_worker_id__Intercept", "sd_worker_id__lo_ground_truth", "sd_worker_id__sigma_Intercept"))
+```
+
+```{r}
+# pairs plot (random effects covariance)
+pairs(m.wrkr.llo_p_sup, pars = c("cor_worker_id__"))
+```
+
+- Summary
+
+```{r}
+# model summary
+print(m.wrkr.llo_p_sup)
+```
+
+Let's check our posterior predictive distribution.
+
+```{r}
+# posterior predictive check
+model_df %>%
+  select(lo_ground_truth, worker_id) %>%
+  add_predicted_draws(m.wrkr.llo_p_sup, prediction = "lo_p_sup", seed = 1234) %>%
+  mutate(
+    # transform to probability units
+    post_p_sup = plogis(lo_p_sup)
+    ) %>%
+  ggplot(aes(x = post_p_sup)) +
+  geom_density(fill = "black", size = 0) +
+  scale_y_continuous(NULL, breaks = NULL) +
+  labs(subtitle = "Posterior predictive distribution for probability of superiority") +
+  theme(panel.grid = element_blank())
+```
+
+How do these predictions compare to the observed data?
+
+```{r}
+# data density
+model_df %>%
+  ggplot(aes(x = p_superiority)) +
+  geom_density(fill = "black", size = 0) +
+  scale_y_continuous(NULL, breaks = NULL) +
+  labs(subtitle = "Data distribution for probability of superiority") +
+  theme(panel.grid = element_blank())
+```
+ 
+Running a leave one out posterior predictive check, we can see that overall this model has decent predictive validity.
+ 
+```{r}
+# set up data for LOO posterior predictive check
+y <- model_df$lo_p_sup
+yrep <- posterior_predict(m.wrkr.llo_p_sup)
+
+# run LOO to get weights
+loo <- loo(m.wrkr.llo_p_sup, save_psis = TRUE, cores = 2)
+psis <- loo$psis_object
+lw <- weights(psis)
+```
+
+```{r}
+ppc_loo_pit_qq(y, yrep, lw = lw)
+```
+
+Let's look at posterior predictions per worker to get a more detailed sense of fit quality.
+
+```{r}
+model_df %>%
+  group_by(lo_ground_truth, worker_id) %>%
+  add_predicted_draws(m.wrkr.llo_p_sup) %>%
+  ggplot(aes(x = lo_ground_truth, y = lo_p_sup, color = condition, fill = condition)) +
+  geom_abline(intercept = 0, slope = 1, size = 1, alpha = .3, color = "red", linetype = "dashed") + # ground truth
+  stat_lineribbon(aes(y = .prediction), .width = c(.95, .80, .50), alpha = .25) +
+  geom_point(data = model_df) +
+  scale_fill_brewer(type = "qual", palette = 1) +
+  scale_color_brewer(type = "qual", palette = 1) + 
+  coord_cartesian(xlim = quantile(model_df$lo_ground_truth, c(0, 1)),
+                  ylim = quantile(model_df$lo_p_sup, c(0, 1))) +
+  theme_bw() +
+  theme(panel.grid = element_blank()) + 
+  facet_wrap(~ worker_id)
+```
+
+What does this look like in probability units?
+
+```{r}
+model_df %>%
+  group_by(lo_ground_truth, worker_id) %>%
+  add_predicted_draws(m.wrkr.llo_p_sup) %>%
+  ggplot(aes(x = plogis(lo_ground_truth), y = plogis(lo_p_sup), color = condition, fill = condition)) +
+  geom_abline(intercept = 0, slope = 1, size = 1, alpha = .3, color = "red", linetype = "dashed") + # ground truth
+  stat_lineribbon(aes(y = plogis(.prediction)), .width = c(.95, .80, .50), alpha = .25) +
+  geom_point(data = model_df) +
+  scale_fill_brewer(type = "qual", palette = 1) +
+  scale_color_brewer(type = "qual", palette = 1) + 
+  coord_cartesian(xlim = quantile(plogis(model_df$lo_ground_truth), c(0, 1)),
+                  ylim = quantile(plogis(model_df$lo_p_sup), c(0, 1))) +
+  theme_bw() +
+  theme(panel.grid = element_blank()) + 
+  facet_wrap(~ worker_id)
+```
+
+One thing we're trying to gage here is whether our model has predictive validity at the level of each worker. To examine this more closely we'll look at QQ plots for residuals at the worker level. 
+
+```{r}
+model_df %>%
+  add_predicted_draws(m.wrkr.llo_p_sup) %>%
+  group_by(lo_ground_truth, worker_id) %>%
+  summarise(
+    p_residual = mean(.prediction < lo_p_sup), # what proportion of predicted judgments are less than the observed response?
+    z_residual = qnorm(p_residual)             # what are the z-scores of these cumulative probabilities?
+  ) %>%
+  ggplot(aes(sample = z_residual)) +
+  geom_qq() +
+  geom_abline() +
+  theme_bw() +
+  theme(panel.grid = element_blank()) + 
+  facet_wrap(~ worker_id)
+```
+
+These don't look great. We can see that there is some clustering of responses, probably reflecting a preference for round numbers on the response scale.
+
+```{r}
+pp_check(m.wrkr.llo_p_sup)
+```
+
+As long as the location and scale of the predictions look reasonably in line with the empirical data (which they do), we don't really care too much if the model doesn't predict every small anomally. This plot showing predictive densities alongside the observed data is resassuring insofar as we are doing a decent job of modeling the things we care about.
+
+Let's see if our predictive validity improves at the worker level when we add our experimental manipulations as predictors.
+
+
+##Add Predictors to Answer Research Questions
+
+In order to answer our research questions, we need to account for the interaction of the ground truth with whether means are present vs absent, whether visualized uncertainty is high vs low, and what uncertainty visualization condition a user was assigned to. We'll add predictors for each of these factors to our hierarchical model in turn.
+
+###Presence/Absence of the Mean
+
+Our primary research question is how the presence of the mean impacts the slopes of linear models in log odds space. To test this, we'll add an interaction between the presence of the mean and the ground truth.
+
+We use the same priors as we did for the previous model. Now, let's fit the model to our data.
+
+```{r}
+# hierarchical LLO model with fixed effects on slope and residual variance conditioned on the presence/absence of the mean
+m.wrkr.means.llo_p_sup <- brm(data = model_df, family = "gaussian",
+                              formula = bf(lo_p_sup ~  (1 + lo_ground_truth|sharecor|worker_id) + lo_ground_truth*means,
+                                           sigma ~ (1|sharecor|worker_id)),
+                              prior = c(prior(normal(1, 0.5), class = b),
+                                        prior(normal(1.3, 1), class = Intercept),
+                                        prior(normal(0, 0.15), class = sd, group = worker_id),
+                                        prior(normal(0, 0.15), class = sd, dpar = sigma),
+                                        prior(lkj(4), class = cor)),
+                              iter = 3000, warmup = 500, chains = 2, cores = 2,
+                              control = list(adapt_delta = 0.99, max_treedepth = 12),
+                              file = "model-fits/llo_mdl-wrkr_means")
+```
+
+Check diagnostics:
+
+- Trace plots
+
+```{r}
+# trace plots
+plot(m.wrkr.means.llo_p_sup)
+```
+
+- Pairs plot
+
+```{r}
+# pairs plot (fixed effects)
+pairs(m.wrkr.means.llo_p_sup, exact_match = TRUE, pars = c("b_Intercept", 
+                                                           "b_lo_ground_truth",
+                                                           "b_meansTRUE",
+                                                           "b_lo_ground_truth:meansTRUE",
+                                                           "b_sigma_Intercept"))
+```
+
+```{r}
+# pairs plot (random effects)
+pairs(m.wrkr.means.llo_p_sup, exact_match = TRUE, pars = c("sd_worker_id__Intercept", 
+                                                           "sd_worker_id__lo_ground_truth",
+                                                           "sd_worker_id__sigma_Intercept"))
+```
+
+```{r}
+# pairs plot (covariance matrix)
+pairs(m.wrkr.means.llo_p_sup, pars = c("cor_worker_id__"))
+```
+
+- Summary
+
+```{r}
+# model summary
+print(m.wrkr.means.llo_p_sup)
+```
+
+Let's check our posterior predictive distribution.
+
+```{r}
+# posterior predictive check
+model_df %>%
+  select(lo_ground_truth, worker_id, means) %>%
+  add_predicted_draws(m.wrkr.means.llo_p_sup, prediction = "lo_p_sup", seed = 1234) %>%
+  mutate(
+    # transform to probability units
+    post_p_sup = plogis(lo_p_sup)
+  ) %>%
+  ggplot(aes(x = post_p_sup)) +
+  geom_density(fill = "black", size = 0) +
+  scale_y_continuous(NULL, breaks = NULL) +
+  labs(subtitle = "Posterior predictive distribution for probability of superiority") +
+  theme(panel.grid = element_blank())
+```
+
+How do these predictions compare to the observed data?
+
+```{r}
+# data density
+model_df %>%
+  ggplot(aes(x = p_superiority)) +
+  geom_density(fill = "black", size = 0) +
+  scale_y_continuous(NULL, breaks = NULL) +
+  labs(subtitle = "Data distribution for probability of superiority") +
+  theme(panel.grid = element_blank())
+```
+
+Running a leave one out posterior predictive check, we can see that overall this model has decent predictive validity.
+ 
+```{r}
+# set up data for LOO posterior predictive check
+y <- model_df$lo_p_sup
+yrep <- posterior_predict(m.wrkr.means.llo_p_sup)
+
+# run LOO to get weights
+loo <- loo(m.wrkr.means.llo_p_sup, save_psis = TRUE, cores = 2)
+psis <- loo$psis_object
+lw <- weights(psis)
+```
+
+```{r}
+ppc_loo_pit_qq(y, yrep, lw = lw)
+```
+
+Let's take a look at predictions per worker and visualization condition to get a more granular sense of our model fit.
+
+```{r}
+model_df %>%
+  group_by(lo_ground_truth, worker_id, means) %>%
+  add_predicted_draws(m.wrkr.means.llo_p_sup) %>%
+  ggplot(aes(x = lo_ground_truth, y = lo_p_sup, color = condition, fill = condition)) +
+  geom_abline(intercept = 0, slope = 1, size = 1, alpha = .3, color = "red", linetype = "dashed") + # ground truth
+  stat_lineribbon(aes(y = .prediction), .width = c(.95, .80, .50), alpha = .25) +
+  geom_point(data = model_df) +
+  scale_fill_brewer(type = "qual", palette = 1) +
+  scale_color_brewer(type = "qual", palette = 1) + 
+  coord_cartesian(xlim = quantile(model_df$lo_ground_truth, c(0, 1)),
+                  ylim = quantile(model_df$lo_p_sup, c(0, 1))) +
+  theme_bw() +
+  theme(panel.grid = element_blank()) + 
+  facet_wrap(~ worker_id)
+```
+
+What does this look like in probability units?
+
+```{r}
+model_df %>%
+  group_by(lo_ground_truth, worker_id, means) %>%
+  add_predicted_draws(m.wrkr.means.llo_p_sup) %>%
+  ggplot(aes(x = plogis(lo_ground_truth), y = plogis(lo_p_sup), color = condition, fill = condition)) +
+  geom_abline(intercept = 0, slope = 1, size = 1, alpha = .3, color = "red", linetype = "dashed") + # ground truth
+  stat_lineribbon(aes(y = plogis(.prediction)), .width = c(.95, .80, .50), alpha = .25) +
+  geom_point(data = model_df) +
+  scale_fill_brewer(type = "qual", palette = 1) +
+  scale_color_brewer(type = "qual", palette = 1) + 
+  coord_cartesian(xlim = quantile(plogis(model_df$lo_ground_truth), c(0, 1)),
+                  ylim = quantile(plogis(model_df$lo_p_sup), c(0, 1))) +
+  theme_bw() +
+  theme(panel.grid = element_blank()) + 
+  facet_wrap(~ worker_id)
+```
+
+To examine more closely whether our model has predictive validity at the level of each worker, we'll look at QQ plots for residuals at the worker level.
+
+```{r}
+model_df %>%
+  add_predicted_draws(m.wrkr.means.llo_p_sup) %>%
+  group_by(lo_ground_truth, worker_id) %>%
+  summarise(
+    p_residual = mean(.prediction < lo_p_sup), # what proportion of predicted judgments are less than the observed response?
+    z_residual = qnorm(p_residual)             # what are the z-scores of these cumulative probabilities?
+  ) %>%
+  ggplot(aes(sample = z_residual)) +
+  geom_qq() +
+  geom_abline() +
+  theme_bw() +
+  theme(panel.grid = element_blank()) + 
+  facet_wrap(~ worker_id)
+```
+
+These still look pretty terrible.
+
+With this model we can take a first stab at addressing our research question about the presence of extrinsic means. What does the posterior for the slope of the LLO model look like when means are present vs absent, ignoring other manipulations for now? Since we are building a complex model, we'll forego calculating maringal effects by manually combining parameters. Instead we'll use add_fitted_draws and compare_levels from tidybayes to get our slopes, and then we'll take their weighted average grouping by the parameters for which we want marginal effects.
+
+```{r}
+model_df %>%
+  group_by(means) %>%
+  data_grid(lo_ground_truth = c(0, 1)) %>%          # get fitted draws (in log odds units) only for ground truth of 0 and 1
+  add_fitted_draws(m.wrkr.means.llo_p_sup, re_formula = NA) %>%
+  compare_levels(.value, by = lo_ground_truth) %>%  # calculate the difference between fits at 1 and 0 (i.e., slope)
+  rename(slope = .value) %>%
+  group_by(means, .draw) %>%                        # group by predictors to keep
+  summarise(slope = weighted.mean(slope)) %>%       # marginalize out visualization condition by taking a weighted average
+  ggplot(aes(x = slope, group = means, color = means, fill = means)) +
+  geom_density(alpha = 0.35) +
+  scale_x_continuous(expression(slope), expand = c(0, 0)) +
+  scale_y_continuous(NULL, breaks = NULL) +
+  labs(subtitle = "Posterior for slopes for mean present/absent") +
+  theme(panel.grid = element_blank())
+```
+
+Recall that a slope of 1 represents no bias. This chart suggests that people are biased with or without adding means. We should not be surprised to see little to no effect in this model. The mean difference is a good heuristic for probability of superiority when variance of visualized estimates is high, but it is not a good heuristic when variance is low. Thus, we should expect to see the effect we are looking for as an interaction between the presence of the mean and the level of uncertainty.
+
+###Level of Uncertainty Shown
+
+Another factor that we manipulate is the level of uncertainty presented to chart users. We expect level of uncertainty (sd_diff) to determine the impact of extrinsic means on performance. To test this, we'll add an interaction between sd_diff, means, and the ground truth.
+
+We use the same priors as we did for the previous model. Now, let's fit the model to our data.
+
+```{r}
+# hierarchical LLO model
+m.wrkr.means.sd.llo_p_sup <- brm(data = model_df, family = "gaussian",
+                            formula = bf(lo_p_sup ~  (1 + lo_ground_truth|sharecor|worker_id) + lo_ground_truth*means*sd_diff,
+                                         sigma ~ (1|sharecor|worker_id)),
+                            prior = c(prior(normal(1, 0.5), class = b),
+                                      prior(normal(1.3, 1), class = Intercept),
+                                      prior(normal(0, 0.15), class = sd, group = worker_id),
+                                      # prior(normal(0, 0.3), class = b, dpar = sigma),
+                                      prior(normal(0, 0.15), class = sd, dpar = sigma),
+                                      prior(lkj(4), class = cor)),
+                            iter = 3000, warmup = 500, chains = 2, cores = 2,
+                            control = list(adapt_delta = 0.99, max_treedepth = 12),
+                            file = "model-fits/llo_mdl-wrkr_means_sd")
+```
+
+Check diagnostics:
+
+- Trace plots
+
+```{r}
+# trace plots
+plot(m.wrkr.means.sd.llo_p_sup)
+```
+
+- Pairs plot
+
+```{r}
+# pairs plot (LLO params)
+pairs(m.wrkr.means.sd.llo_p_sup, exact_match = TRUE, pars = c("b_Intercept", 
+                                                              "b_lo_ground_truth",
+                                                              "b_meansTRUE",
+                                                              "b_sd_diff15",
+                                                              "b_lo_ground_truth:meansTRUE",
+                                                              "b_lo_ground_truth:sd_diff15",
+                                                              "b_meansTRUE:sd_diff15",
+                                                              "b_lo_ground_truth:meansTRUE:sd_diff15"))
+```
+
+```{r}
+# pairs plot (random effects on lo_p_sup)
+pairs(m.wrkr.means.sd.llo_p_sup, exact_match = TRUE, pars = c("sd_worker_id__Intercept", 
+                                                              "sd_worker_id__lo_ground_truth"))
+```
+
+```{r}
+# pairs plot (sigma params)
+pairs(m.wrkr.means.sd.llo_p_sup, exact_match = TRUE, pars = c("b_sigma_Intercept", 
+                                                              "sd_worker_id__sigma_Intercept"))
+```
+
+```{r}
+pairs(m.wrkr.means.sd.llo_p_sup, pars = c("cor_worker_id__"))
+```
+
+- Summary
+
+```{r}
+# model summary
+print(m.wrkr.means.sd.llo_p_sup)
+```
+
+Let's check our posterior predictive distribution.
+
+```{r}
+# posterior predictive check
+model_df %>%
+  select(lo_ground_truth, worker_id, means) %>%
+  add_predicted_draws(m.wrkr.means.llo_p_sup, prediction = "lo_p_sup", seed = 1234) %>%
+  mutate(
+    # transform to probability units
+    post_p_sup = plogis(lo_p_sup)
+  ) %>%
+  ggplot(aes(x = post_p_sup)) +
+  geom_density(fill = "black", size = 0) +
+  scale_y_continuous(NULL, breaks = NULL) +
+  labs(subtitle = "Posterior predictive distribution for probability of superiority") +
+  theme(panel.grid = element_blank())
+```
+
+How do these predictions compare to the observed data?
+
+```{r}
+# data density
+model_df %>%
+  ggplot(aes(x = p_superiority)) +
+  geom_density(fill = "black", size = 0) +
+  scale_y_continuous(NULL, breaks = NULL) +
+  labs(subtitle = "Data distribution for probability of superiority") +
+  theme(panel.grid = element_blank())
+```
+
+Running a leave one out posterior predictive check, we can see that overall this model has decent predictive validity.
+ 
+```{r}
+# set up data for LOO posterior predictive check
+y <- model_df$lo_p_sup
+yrep <- posterior_predict(m.wrkr.means.sd.llo_p_sup)
+
+# run LOO to get weights
+loo <- loo(m.wrkr.means.sd.llo_p_sup, save_psis = TRUE, cores = 2)
+psis <- loo$psis_object
+lw <- weights(psis)
+```
+
+```{r}
+ppc_loo_pit_qq(y, yrep, lw = lw)
+```
+
+Let's take a look at predictions per worker and visualization condition to get a more granular sense of our model fit.
+
+```{r}
+model_df %>%
+  group_by(lo_ground_truth, worker_id, means, sd_diff) %>%
+  add_predicted_draws(m.wrkr.means.sd.llo_p_sup) %>%
+  ggplot(aes(x = lo_ground_truth, y = lo_p_sup, color = condition, fill = condition)) +
+  geom_abline(intercept = 0, slope = 1, size = 1, alpha = .3, color = "red", linetype = "dashed") + # ground truth
+  stat_lineribbon(aes(y = .prediction), .width = c(.95, .80, .50), alpha = .25) +
+  geom_point(data = model_df) +
+  scale_fill_brewer(type = "qual", palette = 1) +
+  scale_color_brewer(type = "qual", palette = 1) + 
+  coord_cartesian(xlim = quantile(model_df$lo_ground_truth, c(0, 1)),
+                  ylim = quantile(model_df$lo_p_sup, c(0, 1))) +
+  theme_bw() +
+  theme(panel.grid = element_blank()) + 
+  facet_wrap(~ worker_id)
+```
+
+What does this look like in probability units?
+
+```{r}
+model_df %>%
+  group_by(lo_ground_truth, worker_id, means, sd_diff) %>%
+  add_predicted_draws(m.wrkr.means.sd.llo_p_sup) %>%
+  ggplot(aes(x = plogis(lo_ground_truth), y = plogis(lo_p_sup), color = condition, fill = condition)) +
+  geom_abline(intercept = 0, slope = 1, size = 1, alpha = .3, color = "red", linetype = "dashed") + # ground truth
+  stat_lineribbon(aes(y = plogis(.prediction)), .width = c(.95, .80, .50), alpha = .25) +
+  geom_point(data = model_df) +
+  scale_fill_brewer(type = "qual", palette = 1) +
+  scale_color_brewer(type = "qual", palette = 1) + 
+  coord_cartesian(xlim = quantile(plogis(model_df$lo_ground_truth), c(0, 1)),
+                  ylim = quantile(plogis(model_df$lo_p_sup), c(0, 1))) +
+  theme_bw() +
+  theme(panel.grid = element_blank()) + 
+  facet_wrap(~ worker_id)
+```
+
+To examine more closely whether our model has predictive validity at the level of each worker, we'll look at QQ plots for residuals at the worker level.
+
+```{r}
+model_df %>%
+  add_predicted_draws(m.wrkr.llo_p_sup) %>%
+  group_by(lo_ground_truth, worker_id) %>%
+  summarise(
+    p_residual = mean(.prediction < lo_p_sup), # what proportion of predicted judgments are less than the observed response?
+    z_residual = qnorm(p_residual)             # what are the z-scores of these cumulative probabilities?
+  ) %>%
+  ggplot(aes(sample = z_residual)) +
+  geom_qq() +
+  geom_abline() +
+  theme_bw() +
+  theme(panel.grid = element_blank()) + 
+  facet_wrap(~ worker_id)
+```
+
+These still look pretty terrible.
+
+What does the posterior for the slope of the LLO model look like when means are present vs absent at different levels of uncertainty, ignoring other manipulations?
+
+```{r}
+model_df %>%
+  group_by(means, sd_diff) %>%
+  data_grid(lo_ground_truth = c(0, 1)) %>%          # get fitted draws (in log odds units) only for ground truth of 0 and 1
+  add_fitted_draws(m.wrkr.means.sd.llo_p_sup, re_formula = NA) %>%
+  compare_levels(.value, by = lo_ground_truth) %>%  # calculate the difference between fits at 1 and 0 (i.e., slope)
+  rename(slope = .value) %>%
+  group_by(means, sd_diff, .draw) %>%               # group by predictors to keep
+  summarise(slope = weighted.mean(slope)) %>%       # marginalize out visualization condition by taking a weighted average
+  ggplot(aes(x = slope, group = means, color = means, fill = means)) +
+  geom_density(alpha = 0.35) +
+  scale_x_continuous(expression(slope), expand = c(0, 0)) +
+  scale_y_continuous(NULL, breaks = NULL) +
+  labs(subtitle = "Posterior for slopes for mean present/absent") +
+  theme(panel.grid = element_blank()) +
+  facet_grid(. ~ sd_diff)
+```
+
+Recall that a slope of 1 represents no bias. Here we see exactly what we expect. Adding means makes responses more biased when uncertainty is low and less biased when uncertainty is high. Interestingly, people seem less biased at baseline when uncertainty is higher.
+
+###Visualization Condition
+
+The other thing we really want to know about is the impact of visualization condition on the slopes of linear models in log odds space. Do some visualizations lead to more extreme patterns of bias than others? To test this, we'll add an interaction between visualization condition and the ground truth. Now we have all our predictors of interest in one model.
+
+We use the same priors as we did for the previous model. Now, let's fit the model to our data.
+
+```{r}
+# hierarchical LLO model
+m.wrkr.means.sd.vis.llo_p_sup <- brm(data = model_df, family = "gaussian",
+                                     formula = bf(lo_p_sup ~  (1 + lo_ground_truth|sharecor|worker_id) + lo_ground_truth*means*sd_diff*condition,
+                                                  sigma ~ (1|sharecor|worker_id)),
+                                     prior = c(prior(normal(1, 0.5), class = b),
+                                               prior(normal(1.3, 1), class = Intercept),
+                                               prior(normal(0, 0.15), class = sd, group = worker_id),
+                                               # prior(normal(0, 0.3), class = b, dpar = sigma),
+                                               prior(normal(0, 0.15), class = sd, dpar = sigma),
+                                               prior(lkj(4), class = cor)),
+                                     iter = 3000, warmup = 500, chains = 2, cores = 2,
+                                     control = list(adapt_delta = 0.99, max_treedepth = 12),
+                                     file = "model-fits/llo_mdl-wrkr_means_sd_vis")
+```
+
+Check diagnostics:
+
+- Trace plots
+
+```{r}
+# trace plots
+plot(m.wrkr.means.sd.vis.llo_p_sup)
+```
+
+- Pairs plot
+
+```{r}
+# pairs plot (intercepts)
+pairs(m.wrkr.means.sd.vis.llo_p_sup, exact_match = TRUE, pars = c("b_Intercept",
+                                                                  "b_lo_ground_truth",
+                                                                  "b_meansTRUE",
+                                                                  "b_sd_diff15",
+                                                                  "b_conditionintervals",
+                                                                  "b_meansTRUE:sd_diff15",
+                                                                  "b_meansTRUE:conditionintervals",
+                                                                  "b_sd_diff15:conditionintervals",
+                                                                  "b_meansTRUE:sd_diff15:conditionintervals"))
+```
+
+```{r}
+# pairs plot (LLO slopes)
+pairs(m.wrkr.means.sd.vis.llo_p_sup, exact_match = TRUE, pars = c("b_lo_ground_truth:meansTRUE",
+                                                                  "b_lo_ground_truth:sd_diff15",
+                                                                  "b_lo_ground_truth:conditionintervals",
+                                                                  "b_lo_ground_truth:meansTRUE:sd_diff15",
+                                                                  "b_lo_ground_truth:meansTRUE:conditionintervals",
+                                                                  "b_lo_ground_truth:sd_diff15:conditionintervals",
+                                                                  "b_lo_ground_truth:meansTRUE:sd_diff15:conditionintervals"))
+```
+
+```{r}
+# pairs plot (random effects)
+pairs(m.wrkr.means.sd.vis.llo_p_sup, exact_match = TRUE, pars = c("b_sigma_Intercept",
+                                                                  "sd_worker_id__Intercept", 
+                                                                  "sd_worker_id__lo_ground_truth",
+                                                                  "sd_worker_id__sigma_Intercept"))
+```
+
+
+```{r}
+pairs(m.wrkr.means.sd.vis.llo_p_sup, pars = c("cor_worker_id__"))
+```
+
+- Summary
+
+```{r}
+# model summary
+print(m.wrkr.means.sd.vis.llo_p_sup)
+```
+
+Let's check our posterior predictive distribution.
+
+```{r}
+# posterior predictive check
+model_df %>%
+  select(lo_ground_truth, worker_id, means, sd_diff, condition) %>%
+  add_predicted_draws(m.wrkr.means.sd.vis.llo_p_sup, prediction = "lo_p_sup", seed = 1234) %>%
+  mutate(
+    # transform to probability units
+    post_p_sup = plogis(lo_p_sup)
+  ) %>%
+  ggplot(aes(x = post_p_sup)) +
+  geom_density(fill = "black", size = 0) +
+  scale_y_continuous(NULL, breaks = NULL) +
+  labs(subtitle = "Posterior predictive distribution for probability of superiority") +
+  theme(panel.grid = element_blank())
+```
+
+How do these predictions compare to the observed data?
+
+```{r}
+# data density
+model_df %>%
+  ggplot(aes(x = p_superiority)) +
+  geom_density(fill = "black", size = 0) +
+  scale_y_continuous(NULL, breaks = NULL) +
+  labs(subtitle = "Data distribution for probability of superiority") +
+  theme(panel.grid = element_blank())
+```
+
+Running a leave one out posterior predictive check, we can see that overall this model has decent predictive validity.
+ 
+```{r}
+# set up data for LOO posterior predictive check
+y <- model_df$lo_p_sup
+yrep <- posterior_predict(m.wrkr.means.sd.vis.llo_p_sup)
+
+# run LOO to get weights
+loo <- loo(m.wrkr.means.sd.vis.llo_p_sup, save_psis = TRUE, cores = 2)
+psis <- loo$psis_object
+lw <- weights(psis)
+```
+
+```{r}
+ppc_loo_pit_qq(y, yrep, lw = lw)
+```
+
+Let's take a look at predictions per worker and visualization condition to get a more granular sense of our model fit.
+
+```{r}
+model_df %>%
+  group_by(lo_ground_truth, worker_id, means, sd_diff, condition) %>%
+  add_predicted_draws(m.wrkr.means.sd.vis.llo_p_sup) %>%
+  ggplot(aes(x = lo_ground_truth, y = lo_p_sup, color = condition, fill = condition)) +
+  geom_abline(intercept = 0, slope = 1, size = 1, alpha = .3, color = "red", linetype = "dashed") + # ground truth
+  stat_lineribbon(aes(y = .prediction), .width = c(.95, .80, .50), alpha = .25) +
+  geom_point(data = model_df) +
+  scale_fill_brewer(type = "qual", palette = 1) +
+  scale_color_brewer(type = "qual", palette = 1) + 
+  coord_cartesian(xlim = quantile(model_df$lo_ground_truth, c(0, 1)),
+                  ylim = quantile(model_df$lo_p_sup, c(0, 1))) +
+  theme_bw() +
+  theme(panel.grid = element_blank()) + 
+  facet_wrap(~ worker_id)
+```
+
+What does this look like in probability units?
+
+```{r}
+model_df %>%
+  group_by(lo_ground_truth, worker_id, means, sd_diff, condition) %>%
+  add_predicted_draws(m.wrkr.means.sd.vis.llo_p_sup) %>%
+  ggplot(aes(x = plogis(lo_ground_truth), y = plogis(lo_p_sup), color = condition, fill = condition)) +
+  geom_abline(intercept = 0, slope = 1, size = 1, alpha = .3, color = "red", linetype = "dashed") + # ground truth
+  stat_lineribbon(aes(y = plogis(.prediction)), .width = c(.95, .80, .50), alpha = .25) +
+  geom_point(data = model_df) +
+  scale_fill_brewer(type = "qual", palette = 1) +
+  scale_color_brewer(type = "qual", palette = 1) + 
+  coord_cartesian(xlim = quantile(plogis(model_df$lo_ground_truth), c(0, 1)),
+                  ylim = quantile(plogis(model_df$lo_p_sup), c(0, 1))) +
+  theme_bw() +
+  theme(panel.grid = element_blank()) + 
+  facet_wrap(~ worker_id)
+```
+
+To examine more closely whether our model has predictive validity at the level of each worker, we'll look at QQ plots for residuals at the worker level.
+
+```{r}
+model_df %>%
+  add_predicted_draws(m.wrkr.means.sd.vis.llo_p_sup) %>%
+  group_by(lo_ground_truth, worker_id) %>%
+  summarise(
+    p_residual = mean(.prediction < lo_p_sup), # what proportion of predicted judgments are less than the observed response?
+    z_residual = qnorm(p_residual)             # what are the z-scores of these cumulative probabilities?
+  ) %>%
+  ggplot(aes(sample = z_residual)) +
+  geom_qq() +
+  geom_abline() +
+  theme_bw() +
+  theme(panel.grid = element_blank()) + 
+  facet_wrap(~ worker_id)
+```
+
+These still look pretty terrible.
+
+What does the posterior for the slope of the LLO model look like when means are present vs absent at different levels of uncertainty, ignoring other manipulations?
+
+```{r}
+model_df %>%
+  group_by(means, sd_diff, condition) %>%
+  data_grid(lo_ground_truth = c(0, 1)) %>%          # get fitted draws (in log odds units) only for ground truth of 0 and 1
+  add_fitted_draws(m.wrkr.means.sd.vis.llo_p_sup, re_formula = NA) %>%
+  compare_levels(.value, by = lo_ground_truth) %>%  # calculate the difference between fits at 1 and 0 (i.e., slope)
+  rename(slope = .value) %>%
+  group_by(means, sd_diff, .draw) %>%               # group by predictors to keep
+  summarise(slope = weighted.mean(slope)) %>%       # marginalize out visualization condition by taking a weighted average
+  ggplot(aes(x = slope, group = means, color = means, fill = means)) +
+  geom_density(alpha = 0.35) +
+  scale_x_continuous(expression(slope), expand = c(0, 0)) +
+  scale_y_continuous(NULL, breaks = NULL) +
+  labs(subtitle = "Posterior for slopes for mean present/absent") +
+  theme(panel.grid = element_blank()) +
+  facet_grid(. ~ sd_diff)
+```
+
+This effect suggests that adding means has a debiasing effect on average when visualized uncertainty is high and a biasing effect when uncertainty is low (marginalizing across visualization conditions). Again, is exactlty what we expected to see.
+
+Let's look at this difference in a forest plot style display.
+
+```{r}
+model_df %>%
+  group_by(means, sd_diff, condition) %>%
+  data_grid(lo_ground_truth = c(0, 1)) %>%                    # get fitted draws (in log odds units) only for ground truth of 0 and 1
+  add_fitted_draws(m.wrkr.means.sd.vis.llo_p_sup, re_formula = NA) %>%
+  compare_levels(.value, by = lo_ground_truth) %>%            # calculate the difference between fits at 1 and 0 (i.e., slope)
+  compare_levels(.value, by = means) %>%                      # look at differences in slopes between means present vs absent
+  rename(slope_diff = .value) %>%
+  group_by(sd_diff, .draw) %>%                                # group by predictors to keep
+  summarise(slope_diff = weighted.mean(slope_diff)) %>%       # marginalize out means present/absent by taking a weighted average
+  ggplot(aes(x = slope_diff, y = sd_diff)) +
+  stat_halfeyeh() +
+  scale_x_continuous(expression(slope_diff), expand = c(0, 0)) +
+  labs(subtitle = "Posterior differences in slopes for means present vs absent") +
+  theme_bw()
+```
+
+What does the posterior for the slope in each visualization condition look like, marginalizing across other factors?
+
+```{r}
+model_df %>%
+  group_by(means, sd_diff, condition) %>%
+  data_grid(lo_ground_truth = c(0, 1)) %>%          # get fitted draws (in log odds units) only for ground truth of 0 and 1
+  add_fitted_draws(m.wrkr.means.sd.vis.llo_p_sup, re_formula = NA) %>%
+  compare_levels(.value, by = lo_ground_truth) %>%  # calculate the difference between fits at 1 and 0 (i.e., slope)
+  rename(slope = .value) %>%
+  group_by(condition, .draw) %>%                    # group by predictors to keep
+  summarise(slope = weighted.mean(slope)) %>%       # marginalize out means present/absent by taking a weighted average
+  ggplot(aes(x = slope, group = condition, color = condition, fill = condition)) +
+  geom_density(alpha = 0.35) +
+  scale_fill_brewer(type = "qual", palette = 1) +
+  scale_color_brewer(type = "qual", palette = 1) +
+  scale_x_continuous(expression(slope), expand = c(0, 0)) +
+  scale_y_continuous(NULL, breaks = NULL) +
+  labs(subtitle = "Posterior for slopes by visualization condition") +
+  theme(panel.grid = element_blank())
+```
+
+Recall that a slope of 1 on the logit scale reflects no bias. This suggests that users are biased toward responses of 50% on the probability scale in both conditions, but especially with intervals. HOPs seem to have a substantial debiasing effect on effect size judgments when we marginalize across other manipulations.
+
+What if we break these marginal effects down into simple effects for the interaction of the presence/absence of the mean, level of visualized uncertainty, and visualization condition?
+
+```{r}
+model_df %>%
+  group_by(means, sd_diff, condition) %>%
+  data_grid(lo_ground_truth = c(0, 1)) %>%          # get fitted draws (in log odds units) only for ground truth of 0 and 1
+  add_fitted_draws(m.wrkr.means.sd.vis.llo_p_sup, re_formula = NA) %>%
+  compare_levels(.value, by = lo_ground_truth) %>%  # calculate the difference between fits at 1 and 0 (i.e., slope)
+  rename(slope = .value) %>%
+  ggplot(aes(x = slope, group = means, color = means, fill = means)) +
+  geom_density(alpha = 0.35) +
+  scale_x_continuous(expression(slope), expand = c(0, 0)) +
+  scale_y_continuous(NULL, breaks = NULL) +
+  labs(subtitle = "Posterior for slopes for means * sd * visualization condition") +
+  theme(panel.grid = element_blank()) +
+  facet_grid(condition ~ sd_diff)
+```
+
+Again, this is what we expected to see. However, it is not clear form this chart if the effect is reliable.
+
+Let's look at the differences in a forest plot style display.
+
+```{r}
+model_df %>%
+  group_by(means, sd_diff, condition) %>%
+  data_grid(lo_ground_truth = c(0, 1)) %>%          # get fitted draws (in log odds units) only for ground truth of 0 and 1
+  add_fitted_draws(m.wrkr.means.sd.vis.llo_p_sup, re_formula = NA) %>%
+  compare_levels(.value, by = lo_ground_truth) %>%  # calculate the difference between fits at 1 and 0 (i.e., slope)
+  compare_levels(.value, by = means) %>%                 # look at differences in slopes between means present vs absent
+  rename(slope_diff = .value) %>%
+  unite(cond, condition, sd_diff, sep = "_", remove = FALSE) %>%
+  ggplot(aes(x = slope_diff, y = cond)) +
+  stat_halfeyeh() +
+  scale_x_continuous(expression(slope_diff), expand = c(0, 0)) +
+  labs(subtitle = "Posterior differences in slopes for means present vs absent") +
+  theme_bw()
+```
+
+What is the predicted pattern for responses for the average worker in each cell of this interaction?
+
+```{r}
+model_df %>%
+  group_by(lo_ground_truth, means, sd_diff, condition) %>%
+  add_predicted_draws(m.wrkr.means.sd.vis.llo_p_sup, re_formula = NA) %>%
+  ggplot(aes(x = plogis(lo_ground_truth), y = plogis(lo_p_sup), color = means, fill = means)) +
+  geom_abline(intercept = 0, slope = 1, size = 1, alpha = .3, color = "red", linetype = "dashed") + # ground truth
+  stat_lineribbon(aes(y = plogis(.prediction)), .width = c(.95), alpha = .25) +
+  coord_cartesian(xlim = quantile(plogis(model_df$lo_ground_truth), c(0, 1)),
+                  ylim = quantile(plogis(model_df$lo_p_sup), c(0, 1))) +
+  theme_bw() +
+  theme(panel.grid.minor = element_blank()) + 
+  facet_wrap(condition ~ sd_diff)
+```
+
+Next, we'll try to get more precise estimates by expanding our random effects and 
+
+<!-- ```{r} -->
+<!-- model_df %>% -->
+<!--   mutate(response_time = (resp_time - start_time)) %>% -->
+<!--   ggplot(aes(x = trial, y = response_time, group = means, color = means, fill = means)) + -->
+<!--   stat_lineribbon(.width = c(.95), alpha = .25) + -->
+<!--   geom_point() + -->
+<!--   labs(subtitle = "Response times (seconds) by trial order for means present vs absent") + -->
+<!--   theme_bw() + -->
+<!--   facet_grid(start_means ~ .) -->
+<!-- ``` -->
+
+
+##Building Up Random Effects for Within-Subjects Manipulations
+
+In the minimal model to answer our research questions above, estimates for the effect of means are noisier than we would like, and predictive validity within subjects is not great. We'll try to better account for heterogeneity across subjects by adding more random effects to our model for each within subjects manipulation. 
+
+Following a principle of model expansion, we will make this changes cumulatively. We include a series of model specifications that capture plausible structure in the data and fit without any sampling issues.
+
+###Random Effects for the Interaction of Means and Uncertainty Shown
+
+This first model adds random effects for the within-subjects manipulations in our previous model.
+
+```{r}
+# hierarchical LLO model
+m.wrkr.means.sd.vis.llo_p_sup.r.means.sd <- brm(data = model_df, family = "gaussian",
+                                                formula = bf(lo_p_sup ~  (1 + lo_ground_truth*means*sd_diff|sharecor|worker_id) + lo_ground_truth*means*sd_diff*condition,
+                                                            sigma ~ (1|sharecor|worker_id)),
+                                                prior = c(prior(normal(1, 0.5), class = b),
+                                                          prior(normal(1.3, 1), class = Intercept),
+                                                          prior(normal(0, 0.15), class = sd, group = worker_id),
+                                                          # prior(normal(0, 0.3), class = b, dpar = sigma),
+                                                          prior(normal(0, 0.15), class = sd, dpar = sigma),
+                                                          prior(lkj(4), class = cor)),
+                                                iter = 3000, warmup = 500, chains = 2, cores = 2,
+                                                control = list(adapt_delta = 0.99, max_treedepth = 12),
+                                                file = "model-fits/llo_mdl-wrkr_means_sd_vis-r_means_sd")
+```
+
+```{r}
+plot(m.wrkr.means.sd.vis.llo_p_sup.r.means.sd)
+```
+
+###Mixed Effects of Ground Truth on Sigma
+
+In this model, we add fixed and random effects of ground truth to our sigma submodel. This seems appropriate based on the empirical distribution of the individual responses vs ground truth. We add a conservative but informative prior in order to model fixed effects on sigma.
+
+```{r}
+# hierarchical LLO model
+m.wrkr.means.sd.vis.llo_p_sup.r.means.sd.sigma.gt <- brm(data = model_df, family = "gaussian",
+                                                         formula = bf(lo_p_sup ~  (1 + lo_ground_truth*means*sd_diff|sharecor|worker_id) + lo_ground_truth*means*sd_diff*condition,
+                                                                      sigma ~ (1 + lo_ground_truth|sharecor|worker_id) + lo_ground_truth),
+                                                         prior = c(prior(normal(1, 0.5), class = b),
+                                                                   prior(normal(1.3, 1), class = Intercept),
+                                                                   prior(normal(0, 0.15), class = sd, group = worker_id),
+                                                                   prior(normal(0, 0.3), class = b, dpar = sigma),
+                                                                   prior(normal(0, 0.15), class = sd, dpar = sigma),
+                                                                   prior(lkj(4), class = cor)),
+                                                         iter = 3000, warmup = 500, chains = 2, cores = 2,
+                                                         control = list(adapt_delta = 0.99, max_treedepth = 12),
+                                                         file = "model-fits/llo_mdl-wrkr_means_sd_vis-r_means_sd_sigma_gt")
+```
+
+```{r}
+plot(m.wrkr.means.sd.vis.llo_p_sup.r.means.sd.sigma.gt)
+```
+
+###Mixed Effects of the Interaction of Means and Uncertainty Shown on Sigma
+
+This model adds mixed effects on residual variance (sigma) for the interaction of extrinsic means and uncertainty shown. Note that we do not model this as a three way interaction with the ground truth because of fit issues.
+
+```{r}
+# hierarchical LLO model
+m.wrkr.means.sd.vis.llo_p_sup.r.means.sd.sigma.gt.means.sd <- brm(
+  data = model_df, family = "gaussian",
+  formula = bf(lo_p_sup ~  (1 + lo_ground_truth*means*sd_diff|sharecor|worker_id) + lo_ground_truth*means*sd_diff*condition,
+  sigma ~ (1 + lo_ground_truth + means*sd_diff|sharecor|worker_id) + lo_ground_truth + means*sd_diff),
+  prior = c(prior(normal(1, 0.5), class = b),
+            prior(normal(1.3, 1), class = Intercept),
+            prior(normal(0, 0.15), class = sd, group = worker_id),
+            prior(normal(0, 0.3), class = b, dpar = sigma),
+            prior(normal(0, 0.15), class = sd, dpar = sigma),
+            prior(lkj(4), class = cor)),
+  iter = 3000, warmup = 500, chains = 2, cores = 2,
+  control = list(adapt_delta = 0.99, max_treedepth = 12),
+  file = "model-fits/llo_mdl-wrkr_means_sd_vis-r_means_sd_sigma_gt_means_sd")
+```
+
+```{r}
+plot(m.wrkr.means.sd.vis.llo_p_sup.r.means.sd.sigma.gt.means.sd)
+```
+
+###Mixed Effects of Trial Order on Mean Response
+
+This model adds mixed effects of trial order to the LLO model. This is effectively modeling a learning effect on the pattern of mean response at each level of ground truth.
+
+```{r}
+# hierarchical LLO model
+m.wrkr.means.sd.vis.llo_p_sup.r.means.sd.trial.sigma.gt.means.sd <- brm(
+  data = model_df, family = "gaussian",
+  formula = bf(lo_p_sup ~  (1 + lo_ground_truth*means*sd_diff + trial|sharecor|worker_id) + lo_ground_truth*means*sd_diff*condition + trial,
+               sigma ~ (1 + lo_ground_truth + means*sd_diff|sharecor|worker_id) + lo_ground_truth + means*sd_diff),
+  prior = c(prior(normal(1, 0.5), class = b),
+            prior(normal(1.3, 1), class = Intercept),
+            prior(normal(0, 0.15), class = sd, group = worker_id),
+            prior(normal(0, 0.3), class = b, dpar = sigma),
+            prior(normal(0, 0.15), class = sd, dpar = sigma),
+            prior(lkj(4), class = cor)),
+  iter = 3000, warmup = 500, chains = 2, cores = 2,
+  control = list(adapt_delta = 0.99, max_treedepth = 12),
+  file = "model-fits/llo_mdl-wrkr_means_sd_vis-r_means_sd_trial_sigma_gt_means_sd")
+```
+
+```{r}
+plot(m.wrkr.means.sd.vis.llo_p_sup.r.means.sd.trial.sigma.gt.means.sd)
+```
+
+###Mixed Effects of Trial Order on Sigma
+
+This model adds fixed and random intercepts of trial order to sigma submodel. This is a a learning effect on residual variance.
+
+```{r}
+# hierarchical LLO model
+m.wrkr.means.sd.vis.llo_p_sup.r.means.sd.trial.sigma.gt.means.sd.trial <- brm(
+  data = model_df, family = "gaussian",
+  formula = bf(lo_p_sup ~  (1 + lo_ground_truth*means*sd_diff + trial|sharecor|worker_id) + lo_ground_truth*means*sd_diff*condition + trial,
+               sigma ~ (1 + lo_ground_truth + means*sd_diff + trial|sharecor|worker_id) + lo_ground_truth + means*sd_diff + trial),
+  prior = c(prior(normal(1, 0.5), class = b),
+            prior(normal(1.3, 1), class = Intercept),
+            prior(normal(0, 0.15), class = sd, group = worker_id),
+            prior(normal(0, 0.3), class = b, dpar = sigma),
+            prior(normal(0, 0.15), class = sd, dpar = sigma),
+            prior(lkj(4), class = cor)),
+  iter = 3000, warmup = 500, chains = 2, cores = 2,
+  control = list(adapt_delta = 0.99, max_treedepth = 12),
+  file = "model-fits/llo_mdl-wrkr_means_sd_vis-r_means_sd_trial_sigma_gt_means_sd_trial")
+```
+
+```{r}
+plot(m.wrkr.means.sd.vis.llo_p_sup.r.means.sd.trial.sigma.gt.means.sd.trial)
+```
+
+
+###Model Comparison
+
+Each time we add a random effect, the number of parameters multiplies, especially since all random effects share a covariance matrix. We want to make sure these parameters are contributing to the predictive validity of the model more than they risk overfitting. We'll evaluate this by using WAIC to compare models. Whichever model has the smallest value of WAIC is the one that has the best predictive validity for the fewest parameters.
+
+```{r}
+waic(
+  m.wrkr.means.sd.vis.llo_p_sup, 
+  m.wrkr.means.sd.vis.llo_p_sup.r.means.sd,
+  m.wrkr.means.sd.vis.llo_p_sup.r.means.sd.sigma.gt,
+  m.wrkr.means.sd.vis.llo_p_sup.r.means.sd.sigma.gt.means.sd,
+  m.wrkr.means.sd.vis.llo_p_sup.r.means.sd.trial.sigma.gt.means.sd,
+  m.wrkr.means.sd.vis.llo_p_sup.r.means.sd.trial.sigma.gt.means.sd.trial)
+```
+
+The maximal model has the best WAIC value.
+
+###Predictive Checks
+
+Let's check our posterior predictive distribution.
+
+```{r}
+# posterior predictive check
+model_df %>%
+  select(lo_ground_truth, worker_id, means, sd_diff, condition, trial) %>%
+  add_predicted_draws(m.wrkr.means.sd.vis.llo_p_sup.r.means.sd.trial.sigma.gt.means.sd.trial, prediction = "lo_p_sup", seed = 1234) %>%
+  mutate(
+    # transform to probability units
+    post_p_sup = plogis(lo_p_sup)
+  ) %>%
+  ggplot(aes(x = post_p_sup)) +
+  geom_density(fill = "black", size = 0) +
+  scale_y_continuous(NULL, breaks = NULL) +
+  labs(subtitle = "Posterior predictive distribution for probability of superiority") +
+  theme(panel.grid = element_blank())
+```
+
+How do these predictions compare to the observed data?
+
+```{r}
+# data density
+model_df %>%
+  ggplot(aes(x = p_superiority)) +
+  geom_density(fill = "black", size = 0) +
+  scale_y_continuous(NULL, breaks = NULL) +
+  labs(subtitle = "Data distribution for probability of superiority") +
+  theme(panel.grid = element_blank())
+```
+
+Running a leave one out posterior predictive check, we can see that overall this model has decent predictive validity.
+ 
+```{r}
+# set up data for LOO posterior predictive check
+y <- model_df$lo_p_sup
+yrep <- posterior_predict(m.wrkr.means.sd.vis.llo_p_sup.r.means.sd.trial.sigma.gt.means.sd.trial)
+
+# run LOO to get weights
+loo <- loo(m.wrkr.means.sd.vis.llo_p_sup.r.means.sd.trial.sigma.gt.means.sd.trial, save_psis = TRUE, cores = 2)
+psis <- loo$psis_object
+lw <- weights(psis)
+```
+
+```{r}
+ppc_loo_pit_qq(y, yrep, lw = lw)
+```
+
+Let's take a look at predictions per worker and visualization condition to get a more granular sense of our model fit.
+
+```{r}
+model_df %>%
+  group_by(lo_ground_truth, worker_id, means, sd_diff, condition) %>%
+  add_predicted_draws(m.wrkr.means.sd.vis.llo_p_sup) %>%
+  ggplot(aes(x = lo_ground_truth, y = lo_p_sup, color = condition, fill = condition)) +
+  geom_abline(intercept = 0, slope = 1, size = 1, alpha = .3, color = "red", linetype = "dashed") + # ground truth
+  stat_lineribbon(aes(y = .prediction), .width = c(.95, .80, .50), alpha = .25) +
+  geom_point(data = model_df) +
+  scale_fill_brewer(type = "qual", palette = 1) +
+  scale_color_brewer(type = "qual", palette = 1) + 
+  coord_cartesian(xlim = quantile(model_df$lo_ground_truth, c(0, 1)),
+                  ylim = quantile(model_df$lo_p_sup, c(0, 1))) +
+  theme_bw() +
+  theme(panel.grid = element_blank()) + 
+  facet_wrap(~ worker_id)
+```
+
+What does this look like in probability units?
+
+```{r}
+model_df %>%
+  group_by(lo_ground_truth, worker_id, means, sd_diff, condition) %>%
+  add_predicted_draws(m.wrkr.means.sd.vis.llo_p_sup) %>%
+  ggplot(aes(x = plogis(lo_ground_truth), y = plogis(lo_p_sup), color = condition, fill = condition)) +
+  geom_abline(intercept = 0, slope = 1, size = 1, alpha = .3, color = "red", linetype = "dashed") + # ground truth
+  stat_lineribbon(aes(y = plogis(.prediction)), .width = c(.95, .80, .50), alpha = .25) +
+  geom_point(data = model_df) +
+  scale_fill_brewer(type = "qual", palette = 1) +
+  scale_color_brewer(type = "qual", palette = 1) + 
+  coord_cartesian(xlim = quantile(plogis(model_df$lo_ground_truth), c(0, 1)),
+                  ylim = quantile(plogis(model_df$lo_p_sup), c(0, 1))) +
+  theme_bw() +
+  theme(panel.grid = element_blank()) + 
+  facet_wrap(~ worker_id)
+```
+
+To examine more closely whether our model has predictive validity at the level of each worker, we'll look at QQ plots for residuals at the worker level.
+
+```{r}
+model_df %>%
+  add_predicted_draws(m.wrkr.means.sd.vis.llo_p_sup) %>%
+  group_by(lo_ground_truth, worker_id) %>%
+  summarise(
+    p_residual = mean(.prediction < lo_p_sup), # what proportion of predicted judgments are less than the observed response?
+    z_residual = qnorm(p_residual)             # what are the z-scores of these cumulative probabilities?
+  ) %>%
+  ggplot(aes(sample = z_residual)) +
+  geom_qq() +
+  geom_abline() +
+  theme_bw() +
+  theme(panel.grid = element_blank()) + 
+  facet_wrap(~ worker_id)
+```
+
+These still look pretty terrible.
+
+What does the posterior for the slope of the LLO model look like when means are present vs absent at different levels of uncertainty, ignoring other manipulations?
+
+```{r}
+model_df %>%
+  group_by(means, sd_diff, condition, trial) %>%
+  data_grid(lo_ground_truth = c(0, 1)) %>%          # get fitted draws (in log odds units) only for ground truth of 0 and 1
+  add_fitted_draws(m.wrkr.means.sd.vis.llo_p_sup.r.means.sd.trial.sigma.gt.means.sd.trial, re_formula = NA) %>%
+  compare_levels(.value, by = lo_ground_truth) %>%  # calculate the difference between fits at 1 and 0 (i.e., slope)
+  rename(slope = .value) %>%
+  group_by(means, sd_diff, .draw) %>%               # group by predictors to keep
+  summarise(slope = weighted.mean(slope)) %>%       # marginalize out visualization condition by taking a weighted average
+  ggplot(aes(x = slope, group = means, color = means, fill = means)) +
+  geom_density(alpha = 0.35) +
+  scale_x_continuous(expression(slope), expand = c(0, 0)) +
+  scale_y_continuous(NULL, breaks = NULL) +
+  labs(subtitle = "Posterior for slopes for mean present/absent") +
+  theme(panel.grid = element_blank()) +
+  facet_grid(. ~ sd_diff)
+```
+
+This effect suggests that adding means has a debiasing effect on average when visualized uncertainty is high and a biasing effect when uncertainty is low (marginalizing across visualization conditions). Our estimate is more precise with the more complex model.
+
+Let's look at this difference in a forest plot style display.
+
+```{r}
+model_df %>%
+  group_by(means, sd_diff, condition) %>%
+  data_grid(lo_ground_truth = c(0, 1)) %>%                    # get fitted draws (in log odds units) only for ground truth of 0 and 1
+  add_fitted_draws(m.wrkr.means.sd.vis.llo_p_sup, re_formula = NA) %>%
+  compare_levels(.value, by = lo_ground_truth) %>%            # calculate the difference between fits at 1 and 0 (i.e., slope)
+  compare_levels(.value, by = means) %>%                      # look at differences in slopes between means present vs absent
+  rename(slope_diff = .value) %>%
+  group_by(sd_diff, .draw) %>%                                # group by predictors to keep
+  summarise(slope_diff = weighted.mean(slope_diff)) %>%       # marginalize out means present/absent by taking a weighted average
+  ggplot(aes(x = slope_diff, y = sd_diff)) +
+  stat_halfeyeh() +
+  scale_x_continuous(expression(slope_diff), expand = c(0, 0)) +
+  labs(subtitle = "Posterior differences in slopes for means present vs absent") +
+  theme_bw()
+```
+
+What does the posterior for the slope in each visualization condition look like, marginalizing across other factors?
+
+```{r}
+model_df %>%
+  group_by(means, sd_diff, condition) %>%
+  data_grid(lo_ground_truth = c(0, 1)) %>%          # get fitted draws (in log odds units) only for ground truth of 0 and 1
+  add_fitted_draws(m.wrkr.means.sd.vis.llo_p_sup, re_formula = NA) %>%
+  compare_levels(.value, by = lo_ground_truth) %>%  # calculate the difference between fits at 1 and 0 (i.e., slope)
+  rename(slope = .value) %>%
+  group_by(condition, .draw) %>%                    # group by predictors to keep
+  summarise(slope = weighted.mean(slope)) %>%       # marginalize out means present/absent by taking a weighted average
+  ggplot(aes(x = slope, group = condition, color = condition, fill = condition)) +
+  geom_density(alpha = 0.35) +
+  scale_fill_brewer(type = "qual", palette = 1) +
+  scale_color_brewer(type = "qual", palette = 1) +
+  scale_x_continuous(expression(slope), expand = c(0, 0)) +
+  scale_y_continuous(NULL, breaks = NULL) +
+  labs(subtitle = "Posterior for slopes by visualization condition") +
+  theme(panel.grid = element_blank())
+```
+
+Recall that a slope of 1 on the logit scale reflects no bias. This suggests that users are biased toward responses of 50% on the probability scale in both conditions, but especially with intervals. HOPs seem to have a substantial debiasing effect on effect size judgments when we marginalize across other manipulations.
+
+What if we break these marginal effects down into simple effects for the interaction of the presence/absence of the mean, level of visualized uncertainty, and visualization condition?
+
+```{r}
+model_df %>%
+  group_by(means, sd_diff, condition, trial) %>%
+  data_grid(lo_ground_truth = c(0, 1)) %>%          # get fitted draws (in log odds units) only for ground truth of 0 and 1
+  add_fitted_draws(m.wrkr.means.sd.vis.llo_p_sup.r.means.sd.trial.sigma.gt.means.sd.trial, re_formula = NA) %>%
+  compare_levels(.value, by = lo_ground_truth) %>%  # calculate the difference between fits at 1 and 0 (i.e., slope)
+  rename(slope = .value) %>%
+  group_by(means, sd_diff, condition, .draw) %>%    # group by predictors to keep
+  summarise(slope = weighted.mean(slope)) %>%       # marginalize out means present/absent by taking a weighted average
+  ggplot(aes(x = slope, group = means, color = means, fill = means)) +
+  geom_density(alpha = 0.35) +
+  scale_x_continuous(expression(slope), expand = c(0, 0)) +
+  scale_y_continuous(NULL, breaks = NULL) +
+  labs(subtitle = "Posterior for slopes for means * sd * visualization condition") +
+  theme(panel.grid = element_blank()) +
+  facet_grid(condition ~ sd_diff)
+```
+
+Again, this is what we expected to see. However, it is not clear form this chart if the effect is reliable.
+
+Let's look at the differences in a forest plot style display.
+
+```{r}
+model_df %>%
+  group_by(means, sd_diff, condition, trial) %>%
+  data_grid(lo_ground_truth = c(0, 1)) %>%          # get fitted draws (in log odds units) only for ground truth of 0 and 1
+  add_fitted_draws(m.wrkr.means.sd.vis.llo_p_sup.r.means.sd.trial.sigma.gt.means.sd.trial, re_formula = NA) %>%
+  compare_levels(.value, by = lo_ground_truth) %>%  # calculate the difference between fits at 1 and 0 (i.e., slope)
+  rename(slope = .value) %>%
+  group_by(means, sd_diff, condition, .draw) %>%     # group by predictors to keep
+  summarise(slope = weighted.mean(slope)) %>%       # marginalize by taking a weighted average
+  compare_levels(slope, by = means) %>%             # look at differences in slopes between means present vs absent
+  rename(slope_diff = slope) %>%
+  unite(cond, condition, sd_diff, sep = "_", remove = FALSE) %>%
+  ggplot(aes(x = slope_diff, y = cond)) +
+  stat_halfeyeh() +
+  scale_x_continuous(expression(slope_diff), expand = c(0, 0)) +
+  labs(subtitle = "Posterior differences in slopes for means present vs absent") +
+  theme_bw()
+```
+
+What is the predicted pattern for responses for the average worker in each cell of this interaction?
+
+```{r}
+model_df %>%
+  group_by(lo_ground_truth, means, sd_diff, condition, trial) %>%
+  add_predicted_draws(m.wrkr.means.sd.vis.llo_p_sup.r.means.sd.trial.sigma.gt.means.sd.trial, re_formula = NA) %>%
+  ggplot(aes(x = plogis(lo_ground_truth), y = plogis(lo_p_sup), color = means, fill = means)) +
+  geom_abline(intercept = 0, slope = 1, size = 1, alpha = .3, color = "red", linetype = "dashed") + # ground truth
+  stat_lineribbon(aes(y = plogis(.prediction)), .width = c(.95), alpha = .25) +
+  coord_cartesian(xlim = quantile(plogis(model_df$lo_ground_truth), c(0, 1)),
+                  ylim = quantile(plogis(model_df$lo_p_sup), c(0, 1))) +
+  theme_bw() +
+  theme(panel.grid.minor = element_blank()) + 
+  facet_wrap(condition ~ sd_diff)
+```
+
+
+##Add Predictors for Block Order
+
+Let's add block order to our previous model, just to check if the effect of the mean on judgments depends on block order. We'll model this as a fixed effects interaction between block order and the presence absence of means.
+
+We use the same priors as we did for the previous model. Now, let's fit the model to our data.
+
+```{r}
+# hierarchical LLO model
+m.max <- brm(
+  data = model_df, family = "gaussian",
+  formula = bf(lo_p_sup ~  (1 + lo_ground_truth*means*sd_diff + trial|sharecor|worker_id) + lo_ground_truth*means*sd_diff*condition*start_means + trial,
+               sigma ~ (1 + lo_ground_truth + means*sd_diff + trial|sharecor|worker_id) + lo_ground_truth + means*sd_diff*start_means + trial),
+  prior = c(prior(normal(1, 0.5), class = b),
+            prior(normal(1.3, 1), class = Intercept),
+            prior(normal(0, 0.15), class = sd, group = worker_id),
+            prior(normal(0, 0.3), class = b, dpar = sigma),
+            prior(normal(0, 0.15), class = sd, dpar = sigma),
+            prior(lkj(4), class = cor)),
+  iter = 3000, warmup = 500, chains = 2, cores = 2,
+  control = list(adapt_delta = 0.99, max_treedepth = 12),
+  file = "model-fits/llo_mdl-max")
+```
+
+Check diagnostics:
+
+- Trace plots
+
+```{r}
+# trace plots
+plot(m.max)
+```
+
+###Model Comparison
+
+Let's see how this maximal model compares with our previous model.
+
+```{r}
+waic(m.wrkr.means.sd.vis.llo_p_sup.r.means.sd.trial.sigma.gt.means.sd.trial, m.max)
+```
+
+It looks like adding predictors for block order helps marginally.
+
+###Predictive Checks
+
+Let's check our posterior predictive distribution.
+
+```{r}
+# posterior predictive check
+model_df %>%
+  select(lo_ground_truth, worker_id, means, sd_diff, condition, trial, start_means) %>%
+  add_predicted_draws(m.max, prediction = "lo_p_sup", seed = 1234) %>%
+  mutate(
+    # transform to probability units
+    post_p_sup = plogis(lo_p_sup)
+  ) %>%
+  ggplot(aes(x = post_p_sup)) +
+  geom_density(fill = "black", size = 0) +
+  scale_y_continuous(NULL, breaks = NULL) +
+  labs(subtitle = "Posterior predictive distribution for probability of superiority") +
+  theme(panel.grid = element_blank())
+```
+
+How do these predictions compare to the observed data?
+
+```{r}
+# data density
+model_df %>%
+  ggplot(aes(x = p_superiority)) +
+  geom_density(fill = "black", size = 0) +
+  scale_y_continuous(NULL, breaks = NULL) +
+  labs(subtitle = "Data distribution for probability of superiority") +
+  theme(panel.grid = element_blank())
+```
+
+What does the posterior for the slope look like when means are present vs absent? We'll split this based on uncertainty shown and block order (marginalizing across visualization conditions) to see if there is a difference in the effect of extrinsic means per block.
+
+```{r}
+model_df %>%
+  group_by(means, sd_diff, condition, trial, start_means) %>%
+  data_grid(lo_ground_truth = c(0, 1)) %>%          # get fitted draws (in log odds units) only for ground truth of 0 and 1
+  add_fitted_draws(m.max, re_formula = NA) %>%
+  compare_levels(.value, by = lo_ground_truth) %>%  # calculate the difference between fits at 1 and 0 (i.e., slope)
+  rename(slope = .value) %>%
+  group_by(means, sd_diff, start_means, .draw) %>%  # group by predictors to keep
+  summarise(slope = weighted.mean(slope)) %>%       # marginalize out visualization condition by taking a weighted average
+  ggplot(aes(x = slope, group = means, color = means, fill = means)) +
+  geom_density(alpha = 0.35) +
+  scale_x_continuous(expression(slope), expand = c(0, 0)) +
+  scale_y_continuous(NULL, breaks = NULL) +
+  labs(subtitle = "Posterior for slopes for mean present/absent") +
+  theme(panel.grid = element_blank()) +
+  facet_grid(start_means ~ sd_diff)
+```
+
+This effect suggests that adding means only helps in when they are used in the first block of trials.
+
+What does the posterior for the slope in each visualization condition look like, marginalizing across the presence/absence of the mean? Again, we'll facet by block order.
+
+```{r}
+model_df %>%
+  group_by(means, sd_diff, condition, trial, start_means) %>%
+  data_grid(lo_ground_truth = c(0, 1)) %>%          # get fitted draws (in log odds units) only for ground truth of 0 and 1
+  add_fitted_draws(m.max, re_formula = NA) %>%
+  compare_levels(.value, by = lo_ground_truth) %>%  # calculate the difference between fits at 1 and 0 (i.e., slope)
+  rename(slope = .value) %>%
+  group_by(condition, start_means, .draw) %>%       # group by predictors to keep
+  summarise(slope = weighted.mean(slope)) %>%       # marginalize out means present/absent by taking a weighted average
+  ggplot(aes(x = slope, group = condition, color = condition, fill = condition)) +
+  geom_density(alpha = 0.35) +
+  scale_fill_brewer(type = "qual", palette = 1) +
+  scale_color_brewer(type = "qual", palette = 1) +
+  scale_x_continuous(expression(slope), expand = c(0, 0)) +
+  scale_y_continuous(NULL, breaks = NULL) +
+  labs(subtitle = "Posterior for slopes by visualization condition") +
+  theme(panel.grid = element_blank()) +
+  facet_grid(start_means ~ .)
+```
+
+The difference between visualization conditions is stable regardless of block order.
+
+What if we break these marginal effects down into simple effects for the interaction of the presence/absence of the mean, uncertainty shown, block order, and visualization condition?
+
+```{r}
+model_df %>%
+  group_by(means, sd_diff, condition, trial, start_means) %>%
+  data_grid(lo_ground_truth = c(0, 1)) %>%                      # get fitted draws (in log odds units) only for ground truth of 0 and 1
+  add_fitted_draws(m.max, re_formula = NA) %>%
+  compare_levels(.value, by = lo_ground_truth) %>%              # calculate the difference between fits at 1 and 0 (i.e., slope)
+  rename(slope = .value) %>%
+  group_by(means, sd_diff, condition, start_means, .draw) %>%   # group by predictors to keep
+  summarise(slope = weighted.mean(slope)) %>%                   # marginalize out means present/absent by taking a weighted average
+  unite(vis_cond, condition, sd_diff, remove = FALSE) %>%
+  ggplot(aes(x = slope, group = means, color = means, fill = means)) +
+  geom_density(alpha = 0.35) +
+  scale_x_continuous(expression(slope), expand = c(0, 0)) +
+  scale_y_continuous(NULL, breaks = NULL) +
+  labs(subtitle = "Posterior for slopes for means * sd * block order * visualization condition") +
+  theme(panel.grid = element_blank()) +
+  facet_grid(start_means ~ vis_cond)
+```
+
+```{r}
+model_df %>%
+  group_by(means, sd_diff, condition, trial, start_means) %>%
+  data_grid(lo_ground_truth = c(0, 1)) %>%                      # get fitted draws (in log odds units) only for ground truth of 0 and 1
+  add_fitted_draws(m.max, re_formula = NA) %>%
+  compare_levels(.value, by = lo_ground_truth) %>%              # calculate the difference between fits at 1 and 0 (i.e., slope)
+  rename(slope = .value) %>%
+  group_by(means, sd_diff, condition, .draw) %>%   # group by predictors to keep
+  summarise(slope = weighted.mean(slope)) %>%      # marginalize out other predictors by taking a weighted average
+  ggplot(aes(x = slope, y = condition, group = means, fill = means)) +
+  stat_slabh(alpha = 0.35) +
+  labs(
+    title = "Posterior Slopes in Linear Log Odds Model",
+    x = "Slope",
+    y = "Visualization",
+    fill = "Means Present"
+  ) +
+  theme_bw() +
+  theme(panel.grid.minor = element_blank()) +
+  facet_grid(sd_diff ~ .)
+```
+
+```{r}
+model_df %>%
+  group_by(means, sd_diff, condition, trial, start_means) %>%
+  data_grid(lo_ground_truth = c(0, 1)) %>%                      # get fitted draws (in log odds units) only for ground truth of 0 and 1
+  add_fitted_draws(m.max, re_formula = NA) %>%
+  compare_levels(.value, by = lo_ground_truth) %>%              # calculate the difference between fits at 1 and 0 (i.e., slope)
+  rename(slope = .value) %>%
+  group_by(means, sd_diff, condition, .draw) %>%   # group by predictors to keep
+  summarise(slope = weighted.mean(slope)) %>%      # marginalize out other predictors by taking a weighted average
+  compare_levels(slope, by = means) %>%
+  ggplot(aes(x = slope, y = condition)) +
+  stat_slabh(alpha = 0.35) +
+  labs(
+    title = "Posterior Slopes in Linear Log Odds Model",
+    x = "Slope Difference",
+    y = "Visualization"
+  ) +
+  theme_bw() +
+  theme(panel.grid.minor = element_blank()) +
+  facet_grid(sd_diff ~ .)
+```
+
+The effect of the mean seems to be the most reliable in the intervals condition, especially when the mean is added in the second block.
+
+Let's take a look at predictions per worker and visualization condition to get a more granular sense of our model fit.
+
+```{r}
+model_df %>%
+  group_by(lo_ground_truth, worker_id, means, sd_diff, condition, trial, start_means) %>%
+  add_predicted_draws(m.max) %>%
+  ggplot(aes(x = lo_ground_truth, y = lo_p_sup, color = condition, fill = condition)) +
+  geom_abline(intercept = 0, slope = 1, size = 1, alpha = .3, color = "red", linetype = "dashed") + # ground truth
+  stat_lineribbon(aes(y = .prediction), .width = c(.95, .80, .50), alpha = .25) +
+  geom_point(data = model_df) +
+  scale_fill_brewer(type = "qual", palette = 1) +
+  scale_color_brewer(type = "qual", palette = 1) + 
+  coord_cartesian(xlim = quantile(model_df$lo_ground_truth, c(0, 1)),
+                  ylim = quantile(model_df$lo_p_sup, c(0, 1))) +
+  theme_bw() +
+  theme(panel.grid = element_blank()) + 
+  facet_wrap(~ worker_id)
+```
+
+What does this look like in probability units?
+
+```{r}
+model_df %>%
+  group_by(lo_ground_truth, worker_id, means, sd_diff, condition, trial, start_means) %>%
+  add_predicted_draws(m.max) %>%
+  ggplot(aes(x = plogis(lo_ground_truth), y = plogis(lo_p_sup), color = condition, fill = condition)) +
+  geom_abline(intercept = 0, slope = 1, size = 1, alpha = .3, color = "red", linetype = "dashed") + # ground truth
+  stat_lineribbon(aes(y = plogis(.prediction)), .width = c(.95, .80, .50), alpha = .25) +
+  geom_point(data = model_df) +
+  scale_fill_brewer(type = "qual", palette = 1) +
+  scale_color_brewer(type = "qual", palette = 1) + 
+  coord_cartesian(xlim = quantile(plogis(model_df$lo_ground_truth), c(0, 1)),
+                  ylim = quantile(plogis(model_df$lo_p_sup), c(0, 1))) +
+  theme_bw() +
+  theme(panel.grid = element_blank()) + 
+  facet_wrap(~ worker_id)
+```
+
+```{r}
+# select six workers
+figure_df <- model_df %>%
+  filter(worker_id %in% c("290ad208", "82f7f688", "2c3eef84", "a9717db2", "acce7534", "f59de0b5")) #%>%
+  # arrange(match(worker_id, as.factor(c("290ad208", "da271ae5", "82f7f688", "a9717db2", "5bc9e7de", "acce7534"))))
+
+figure_df %>%
+  group_by(lo_ground_truth, worker_id, means, sd_diff, condition, trial, start_means) %>%
+  add_predicted_draws(m.max) %>%
+  # group_by(lo_ground_truth, worker_id, condition) %>%     # group by predictors to keep
+  # summarise(.prediction = weighted.mean(.prediction)) %>% # marginalize across other factors
+  ggplot(aes(x = plogis(lo_ground_truth), y = plogis(lo_p_sup), color = condition, fill = condition)) +
+  geom_abline(intercept = 0, slope = 1, size = 1, alpha = .3, color = "red", linetype = "dashed") + # ground truth
+  stat_lineribbon(aes(y = plogis(.prediction)), .width = c(.95, .80, .50), alpha = .25) +
+  geom_point(data = figure_df) +
+  scale_fill_brewer(type = "qual", palette = 1) +
+  scale_color_brewer(type = "qual", palette = 1) + 
+  coord_cartesian(
+    xlim = quantile(plogis(model_df$lo_ground_truth), c(0, 1)),
+    ylim = quantile(plogis(model_df$lo_p_sup), c(0, 1))
+  ) +
+  labs(
+    title = "Probability of Superiority Judgments",
+    x = "Ground Truth",
+    y = "User Estimate"
+  ) +
+  theme_bw() +
+  theme(panel.grid.minor = element_blank()) + 
+  facet_wrap(. ~ worker_id, nrow = 2, ncol = 3)
+```
+
+Perhaps the best way to understand predictions from this model is to plot posterior predictions for each condition, instead of just slopes. Let's take a look at predictions per condition in probability units for the average worker.
+
+```{r}
+model_df %>%
+  group_by(lo_ground_truth, means, sd_diff, condition, trial, start_means) %>%
+  add_predicted_draws(m.max, re_formula = NA) %>%
+  unite(vis_cond, condition, sd_diff) %>%
+  unite(means_present, means, start_means) %>%
+  ggplot(aes(x = plogis(lo_ground_truth), y = plogis(lo_p_sup))) +
+  geom_abline(intercept = 0, slope = 1, size = 1, alpha = .3, color = "red", linetype = "dashed") + # ground truth
+  stat_lineribbon(aes(y = plogis(.prediction)), .width = c(.95), alpha = .25, fill = "black", show.legend = FALSE) +
+  coord_cartesian(xlim = quantile(plogis(model_df$lo_ground_truth), c(0, 1)),
+                  ylim = quantile(plogis(model_df$lo_p_sup), c(0, 1))) +
+  theme_bw() +
+  theme(panel.grid.minor = element_blank()) + 
+  facet_grid(means_present ~ vis_cond)
+```
+
+We can see that intervals lead to less biased perceptions, especially when means are added in the second block.
+
+Let's also look at a spaghetti plot of average predictions per worker.
+
+```{r}
+model_df %>%
+  add_predicted_draws(m.max) %>%
+  group_by(lo_ground_truth, worker_id, means, sd_diff, condition, start_means) %>% # marginalize over trial order
+  summarize(avg_pred = weighted.mean(.prediction)) %>%
+  unite(vis_cond, condition, sd_diff) %>%
+  unite(means_present, means, start_means) %>%
+  ggplot(aes(x = plogis(lo_ground_truth), y = plogis(lo_p_sup), group = worker_id)) +
+  geom_abline(intercept = 0, slope = 1, size = 1, alpha = .3, color = "red", linetype = "dashed") + # ground truth
+  geom_line(aes(y = plogis(avg_pred)), alpha = .65) +
+  geom_point(data = model_df, alpha = 0.25) +
+  coord_cartesian(xlim = quantile(plogis(model_df$lo_ground_truth), c(0, 1)),
+                  ylim = quantile(plogis(model_df$lo_p_sup), c(0, 1))) +
+  theme_bw() +
+  theme(panel.grid.minor = element_blank()) + 
+  facet_grid(means_present ~ vis_cond)
+```
+
+
+
+
+<!-- Pairs plots for maximal random effects -->
+
+<!-- ```{r} -->
+<!-- # pairs plot (LLO params) -->
+<!-- pairs(m.wrkr.means.sd.llo_p_sup, exact_match = TRUE, pars = c("b_Intercept",  -->
+<!--                                                               "b_lo_ground_truth", -->
+<!--                                                               "b_meansTRUE", -->
+<!--                                                               "b_sd_diff15", -->
+<!--                                                               "b_lo_ground_truth:meansTRUE", -->
+<!--                                                               "b_lo_ground_truth:sd_diff15", -->
+<!--                                                               "b_meansTRUE:sd_diff15", -->
+<!--                                                               "b_lo_ground_truth:meansTRUE:sd_diff15")) -->
+<!-- ``` -->
+
+<!-- ```{r} -->
+<!-- # pairs plot (random effects on lo_p_sup LLO model) -->
+<!-- pairs(m.wrkr.means.sd.llo_p_sup, exact_match = TRUE, pars = c("sd_worker_id__Intercept",  -->
+<!--                                                               "sd_worker_id__lo_ground_truth", -->
+<!--                                                               "sd_worker_id__meansTRUE", -->
+<!--                                                               "sd_worker_id__sd_diff15", -->
+<!--                                                               "sd_worker_id__lo_ground_truth:meansTRUE", -->
+<!--                                                               "sd_worker_id__lo_ground_truth:sd_diff15", -->
+<!--                                                               "sd_worker_id__meansTRUE:sd_diff15", -->
+<!--                                                               "sd_worker_id__lo_ground_truth:meansTRUE:sd_diff15")) -->
+<!-- ``` -->
+
+<!-- ```{r} -->
+<!-- # pairs plot (sigma params) -->
+<!-- pairs(m.wrkr.means.sd.llo_p_sup, exact_match = TRUE, pars = c("b_sigma_Intercept",  -->
+<!--                                                               "b_sigma_lo_ground_truth", -->
+<!--                                                               "b_sigma_meansTRUE", -->
+<!--                                                               "b_sigma_sd_diff15", -->
+<!--                                                               "b_sigma_lo_ground_truth:meansTRUE", -->
+<!--                                                               "b_sigma_lo_ground_truth:sd_diff15", -->
+<!--                                                               "b_sigma_meansTRUE:sd_diff15", -->
+<!--                                                               "b_sigma_lo_ground_truth:meansTRUE:sd_diff15")) -->
+<!-- ``` -->
+
+<!-- ```{r} -->
+<!-- # pairs plot (random effects on sigma) -->
+<!-- pairs(m.wrkr.means.sd.llo_p_sup, exact_match = TRUE, pars = c("sd_worker_id__sigma_Intercept",  -->
+<!--                                                               "sd_worker_id__sigma_lo_ground_truth", -->
+<!--                                                               "sd_worker_id__sigma_meansTRUE", -->
+<!--                                                               "sd_worker_id__sigma_sd_diff15", -->
+<!--                                                               "sd_worker_id__sigma_lo_ground_truth:meansTRUE", -->
+<!--                                                               "sd_worker_id__sigma_lo_ground_truth:sd_diff15", -->
+<!--                                                               "sd_worker_id__sigma_meansTRUE:sd_diff15", -->
+<!--                                                               "sd_worker_id__sigma_lo_ground_truth:meansTRUE:sd_diff15")) -->
+<!-- ``` -->

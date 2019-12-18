@@ -1,5 +1,5 @@
 ---
-title: "Pilot Analysis: Exploratory Visualization"
+title: "Exploratory Visualization"
 output: html_document
 ---
 
@@ -14,7 +14,7 @@ library(brms)
 ```
 
 
-This document is intended to give an overview of the response distributions from our experiment
+This document is intended to give an overview of the response distributions from our experiment.
 
 ##Data
 
@@ -46,6 +46,8 @@ responses_df <- full_df %>%
     p_superiority = ifelse(p_superiority == 0, 0.5, p_superiority),           # avoid responses equal to zero
     p_superiority = ifelse(p_superiority == 100, 99.5, p_superiority)         # avoid responses equal to one-hundred
   ) %>%
+  # drop row where p_superiority == NA for some reason
+  drop_na(p_superiority) %>%
   # mutate rows where intervene == -1 for some reason
   mutate( 
     intervene = if_else(intervene == -1,
@@ -96,7 +98,7 @@ Another more compact way of looking at the relationship between estimated probab
 # plot estimated probability of superiority vs the ground truth
 responses_df %>%
   ggplot(aes(x = ground_truth, y = p_superiority)) +
-  geom_point(alpha = 0.35) +
+  geom_point(alpha = 0.15) +
   geom_abline(aes(intercept = 0, slope = 100, linetype = "Correct Response"), color = "red") +
   scale_linetype_manual(name = "Line", values = c(2,1), guide=guide_legend(override.aes = list(color = c("red")))) +
   theme_bw() +
@@ -158,14 +160,13 @@ responses_df %>%
   geom_point(alpha = 0.35) +
   theme_bw() +
   labs(
-    caption=cond,
     x = "Estimated Probability of Superiority",
     y = "Proportion of Trials Where Users Choose to Intervene"
   ) +
   facet_grid(means ~ condition)
 ```
 
-People's probability of superiority judgments and decisions are correlated in the way that you would expect if they understood the task. However, we can see there is some confusion about whether to intervene when probability of superiority is low, suggesting that people might err on the side of intervention.
+People's probability of superiority judgments and decisions are correlated in the way that you would expect if they understood the task. However, we can see there is some confusion about whether to intervene, particularly when probability of superiority is low, suggesting that people might err on the side of intervention in some conditions.
 
 ###Relationships with Trial Duration
 
@@ -251,7 +252,7 @@ responses_df %>%
   summarise(avg_abs_err_p_sup = mean(abs_err_p_sup)) %>%
   ggplot(aes(x = condition, y = avg_abs_err_p_sup, fill = condition)) +
     geom_bar(stat = "identity") +
-    scale_fill_brewer(type = "qual", palette = 1) +
+    scale_fill_brewer(type = "qual", palette = 2) +
     theme_bw() +
     labs(title = "Average Absolute Error Relative to Ground Truth",
         x = "Visualization Condition",
@@ -260,7 +261,7 @@ responses_df %>%
   facet_grid(means ~ .)
 ```
 
-On average, errors in probability of superiority judgments are high across the board, with the average error equal to about a fifth the range of possible responses. Error rates are noteably higher in the intervals condition.
+On average, errors in probability of superiority judgments are high across the board, with the average error just under a fifth the range of possible responses. Error rates are noteably higher in the intervals condition than with densities or quantile dotplots.
 
 ###Mean Error vs Ground Truth
 
@@ -269,11 +270,12 @@ Let's look at the average signed error in probability of superiority judgments. 
 ```{r}
 # error by ground truth, per condition
 responses_df %>%
+  filter(ground_truth > 0.5 & ground_truth < 0.999) %>% # remove attention checks
   group_by(ground_truth, means, condition) %>%
   summarise(avg_err_p_sup = mean(err_p_sup)) %>%
   ggplot(aes(x = ground_truth, y = avg_err_p_sup, color = condition)) +
     geom_line() +
-    scale_color_brewer(type = "qual", palette = 1) +
+    scale_color_brewer(type = "qual", palette = 2) +
     theme_bw() +
     labs(title = "Average Error Relative to Ground Truth",
         x = "Ground Truth Probability of Superiority",
@@ -282,7 +284,7 @@ responses_df %>%
   facet_grid(means ~ .)
 ```
 
-Again, we can see that errors are large on average, especially at the extreme end of the probability scale near 90%. Higher errors at the extremes of the probability scale are expected based on _the cental tendency of judgments_. We can also see that people make judgments with consistently lower error when using HOPs rather than intervals.
+Again, we can see that errors are large on average, especially at the extreme end of the probability scale around 90%. We can also see that people make judgments with consistently higher error when using intervals compared to other conditions.
 
 ###Proportion of Utility Optimal Decisions
 
@@ -291,11 +293,12 @@ Let's take a similar approach to visualizing decisions by looking at the proport
 ```{r}
 # error by ground truth, per condition
 responses_df %>%
+  filter(ground_truth > 0.5 & ground_truth < 0.999) %>% # remove attention checks
   group_by(ground_truth, means, condition) %>%
   summarise(proportion_correct = sum(correct) / n()) %>%
   ggplot(aes(x = ground_truth, y = proportion_correct, color = condition)) +
     geom_line() +
-    scale_color_brewer(type = "qual", palette = 1) +
+    scale_color_brewer(type = "qual", palette = 2) +
     theme_bw() +
     labs(title = "Proportion of Utility Optimal Intervention Decisions",
         x = "Ground Truth Probability of Superiority",
@@ -304,7 +307,7 @@ responses_df %>%
   facet_grid(means ~ .)
 ```
 
-We can see that there are dips in performance near 74% probability of superiority. This is expected considering that this is at the decision threshold where the intervention decision is most ambiguous.
+We can see that there are dips in performance near 74% probability of superiority. This is expected considering that this is at the decision threshold where the intervention decision is most ambiguous. It's interesting that there seems to be a reversal of which visualization condition leads to the highest proportion of utility optimal decisions depending on whether the user should or should not intervene, especially in the conditions without means (i.e., means == FALSE).
 
 
 ##Individual Patterns of Behavior
@@ -355,7 +358,7 @@ for (worker in unique(responses_df$worker_id)) {
       chart_use = unique(chart_use),
       numeracy = unique(numeracy)
     ) %>%
-    select(-worker_id) %>%
+    dplyr::select(-worker_id) %>%
     ggtexttable(rows = NULL, theme = ttheme("blank"))
   # create table summarizing potential exclusion criteria
   exclusion_table <- worker_df %>% 
@@ -368,7 +371,7 @@ for (worker in unique(responses_df$worker_id)) {
       speeding_intervene = as.logical(length(unique(intervene)) == 1),
       p_sup_less_than_50 = sum(p_superiority < 50) / n()
     ) %>%
-    select(-worker_id) %>%
+    dplyr::select(-worker_id) %>%
     ggtexttable(rows = NULL, theme = ttheme("blank"))
   # stitch together these three views
   charts <- ggarrange(p_sup_plt, decision_plt, ncol = 2, nrow = 1)
@@ -386,6 +389,24 @@ responses_df %>%
   # attention check trials where ground truth = c(0.5, 0.999)
   mutate(passed_check = (ground_truth == 0.5 & intervene == 0) | (ground_truth == 0.999 & intervene == 1)) %>%
   # has a worker not passed the attention checks
+  group_by(worker_id, batch, condition) %>%
+  summarise(
+    passed_attention_checks = sum(passed_check) == 2
+    ) %>%
+  group_by(batch, condition) %>%
+  summarise(
+    total_participants = n(),
+    final_sample = sum(passed_attention_checks)
+    )
+```
+
+What is the exclusion rate in each condition if we collapse across batches?
+
+```{r}
+responses_df %>%
+  # attention check trials where ground truth = c(0.5, 0.999)
+  mutate(passed_check = (ground_truth == 0.5 & intervene == 0) | (ground_truth == 0.999 & intervene == 1)) %>%
+  # has a worker not passed the attention checks
   group_by(worker_id, condition) %>%
   summarise(
     passed_attention_checks = sum(passed_check) == 2
@@ -393,6 +414,7 @@ responses_df %>%
   group_by(condition) %>%
   summarise(
     total_participants = n(),
-    final_sample = sum(passed_attention_checks)
+    final_sample = sum(passed_attention_checks),
+    exclusion_rate = (total_participants - final_sample) / total_participants
     )
 ```
