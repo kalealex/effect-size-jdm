@@ -4,3 +4,6 @@
 [submodule "interface/effect-size-jdm-experiment-interface"]
 	path = interface/effect-size-jdm-experiment-interface
 	url = git@github.com:kalealex/effect-size-jdm-experiment-interface.git
+[submodule "experiment/analysis/remote-model-fitting"]
+	path = experiment/analysis/remote-model-fitting
+	url = https://github.com/kalealex/es-jdm-remote-model-fitting.git
