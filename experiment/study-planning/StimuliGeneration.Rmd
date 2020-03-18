@@ -7,7 +7,6 @@ output: html_document
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE, fig.width=10.26667, fig.height=6.16000)
-library(tidyverse)
 library(modelr)
 library(gganimate)
 library(tidybayes) # devtools::install_github("mjskay/tidybayes@dev")
@@ -15,6 +14,7 @@ library(RColorBrewer)
 library(gridExtra)
 library(grid)
 library(randtoolbox)
+library(tidyverse)
 ```
 
 This file contains code to generate stimuli for our effect size judgment and decision-making experiment.
@@ -323,8 +323,8 @@ intervals_w_means <- function(df, data_domain, title, x_label, caption, decision
   
   if (label_mean) {
     # get mean positions for each dists
-    mean_with <- df %>% filter(Team == "With the New Player") %>% select(mean) %>% as.numeric()
-    mean_without <- df %>% filter(Team == "Without the New Player") %>% select(mean) %>% as.numeric()
+    mean_with <- df %>% filter(Team == "With the New Player") %>% dplyr::select(mean) %>% as.numeric()
+    mean_without <- df %>% filter(Team == "Without the New Player") %>% dplyr::select(mean) %>% as.numeric()
     
     plt <- plt + 
       geom_segment(x = 2.175, xend = 2.175, y = mean_with, yend = 97, size = 0.5, linetype = "dotted", color = "black") +
@@ -456,8 +456,8 @@ hops_w_means <- function(df, n_draws, frames_per_second, data_domain, title, x_l
   
   if (label_mean) {
     # get mean positions for each dists
-    mean_with <- df %>% filter(Team == "With the New Player") %>% select(mean) %>% as.numeric()
-    mean_without <- df %>% filter(Team == "Without the New Player") %>% select(mean) %>% as.numeric()
+    mean_with <- df %>% filter(Team == "With the New Player") %>% dplyr::select(mean) %>% as.numeric()
+    mean_without <- df %>% filter(Team == "Without the New Player") %>% dplyr::select(mean) %>% as.numeric()
     
     plt <- plt + 
       geom_segment(x = 2.175, xend = 2.175, y = mean_with, yend = 97, size = 0.5, linetype = "dotted", color = "black") +
@@ -467,7 +467,7 @@ hops_w_means <- function(df, n_draws, frames_per_second, data_domain, title, x_l
   }
   
   animation <- animate(plt, fps = frames_per_second, nframes = n_draws, res = 100, width = dimensions[1]*100, height = dimensions[2]*100)
-  
+
   return(animation)
 }
 
@@ -481,7 +481,7 @@ hops_w_means(df = prac_df,
              decision_threshold = 100, 
              threshold_label = "Above this threshold,\nyou win the award.",
              dimensions = c(10.26667, 6.16000),
-             label_mean = TRUE)
+             label_mean = FALSE)
 ```
 
 ###Quantile Dotplots
@@ -567,8 +567,8 @@ quantile_dotplots_w_means <- function(df, n_dots, data_domain, title, x_label, c
   
   if (label_mean) {
     # get mean positions for each dists
-    mean_with <- df %>% filter(Team == "With the New Player") %>% select(mean) %>% as.numeric()
-    mean_without <- df %>% filter(Team == "Without the New Player") %>% select(mean) %>% as.numeric()
+    mean_with <- df %>% filter(Team == "With the New Player") %>% dplyr::select(mean) %>% as.numeric()
+    mean_without <- df %>% filter(Team == "Without the New Player") %>% dplyr::select(mean) %>% as.numeric()
     
     plt <- plt + 
       geom_segment(y = 2.6, yend = 2.6, x = mean_with, xend = 95, size = 0.5, linetype = "dotted", color = "black") +
@@ -673,8 +673,8 @@ densities_w_means <- function(df, data_domain, title, x_label, caption, decision
   
   if (label_mean) {
     # get mean positions for each dists
-    mean_with <- df %>% filter(Team == "With the New Player") %>% select(mean) %>% as.numeric()
-    mean_without <- df %>% filter(Team == "Without the New Player") %>% select(mean) %>% as.numeric()
+    mean_with <- df %>% filter(Team == "With the New Player") %>% dplyr::select(mean) %>% as.numeric()
+    mean_without <- df %>% filter(Team == "Without the New Player") %>% dplyr::select(mean) %>% as.numeric()
     
     plt <- plt + 
       geom_segment(y = 2.6, yend = 2.6, x = mean_with, xend = 95, size = 0.5, linetype = "dotted", color = "black") +

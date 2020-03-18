@@ -65,6 +65,29 @@ responses_df <- full_df %>%
 head(responses_df)
 ```
 
+<!-- Let's filter to the subset of participants we are using to resolve model fit issues. -->
+
+<!-- ```{r} -->
+<!-- # filter to 20 participants per condition for faster model fitting -->
+<!-- responses_df <- responses_df %>% -->
+<!--   filter(worker_id %in% -->
+<!--     c("df358c8b", "e205c965", "e34e8501", "e7c51079", "e985861c", "f3d15689", "f6f02f18", "f8e30f56", "fa22b8bb", "fd3bea1b", # FALSE densities -->
+<!--       "e5014c02", "e57bcea7", "e5f7a1e4", "e601ebbf", "e6cbb6ab", "e95e5f05",	"ed26e5a7", "f27ed3b6", "f430e2e8", "f4f534e0", # FALSE HOPs -->
+<!--       "da3c285a",	"dea9f88a", "e3313d06", "e5fdd1bc", "e6cb0591", "f2c42be1", "fa5c5472", "fa9b7673", "fd15ec30", "ff8a2a69", # FALSE intervals -->
+<!--       "e70fae80", "e88ec725", "eac85f49", "f09b4a48", "f208afd3", "f2b59407",	"f4ac5fd1", "fc7314ce", "fccb21d5", "fee45dce", # FALSE QDPs -->
+<!--       "d3fd7aaa", "d939ed0a", "dde640ae",	"e07c7c35", "e4b46997",	"e4e2eb7f", "e5447132", "ea58be77", "f7f69f44", "f83e2827", # TRUE densities -->
+<!--       "e1b40263", "e63d9528", "e6ba8795", "e80d6b5e", "ed851f4b", "ee6e4127", "f08b3aec", "f65ad716", "f796f54d", "fdb8555e", # TRUE HOPs -->
+<!--       "d5b6d3e8",	"da903ed3", "daf95a13", "e45d61ec", "e95cfc1e", "ea311aea", "eb0c3c6b", "f48a6a93", "fba3405d", "fe8936cd", # TRUE intervals -->
+<!--       "d77cfa94", "d913c1e4",	"e14bc968",	"e49026d7", "ea49ba27", "f3959d1d", "f5d48035", "f7e5c38b",	"fa0f4b94", "fb616418"  # TRUE QDPs -->
+<!--     ) -->
+<!--   ) -->
+
+<!-- responses_df %>% -->
+<!--   group_by(condition, start_means) %>% # between subject manipulations -->
+<!--   summarise( -->
+<!--     n_workers = length(unique(worker_id)) -->
+<!--   ) -->
+<!-- ``` -->
 
 ##Response Distributions
 
@@ -358,7 +381,7 @@ for (worker in unique(responses_df$worker_id)) {
       chart_use = unique(chart_use),
       numeracy = unique(numeracy)
     ) %>%
-    dplyr::select(-worker_id) %>%
+    # dplyr::select(-worker_id) %>%
     ggtexttable(rows = NULL, theme = ttheme("blank"))
   # create table summarizing potential exclusion criteria
   exclusion_table <- worker_df %>% 
@@ -367,20 +390,40 @@ for (worker in unique(responses_df$worker_id)) {
     group_by(worker_id) %>%
     summarise(
       failed_attention_checks = sum(failed_check),
-      speeding_p_sup = as.logical(length(unique(p_superiority)) == 1),
+      unique_p_sup = length(unique(p_superiority)),
       speeding_intervene = as.logical(length(unique(intervene)) == 1),
       p_sup_less_than_50 = sum(p_superiority < 50) / n()
     ) %>%
     dplyr::select(-worker_id) %>%
     ggtexttable(rows = NULL, theme = ttheme("blank"))
+  # create tables summarizing strategies
+  strategy_without_means_table <- worker_df %>% 
+    group_by(worker_id) %>%
+    summarise(
+      strategy_without_means = str_wrap(unique(strategy_without_means), 100)
+    ) %>%
+    dplyr::select(-worker_id) %>%
+    ggtexttable(rows = NULL, theme = ttheme("blank"))
+  strategy_with_means_table <- worker_df %>% 
+    group_by(worker_id) %>%
+    summarise(
+      strategy_with_means = str_wrap(unique(strategy_with_means), 100)
+    ) %>%
+    dplyr::select(-worker_id) %>%
+    ggtexttable(rows = NULL, theme = ttheme("blank"))
   # stitch together these three views
   charts <- ggarrange(p_sup_plt, decision_plt, ncol = 2, nrow = 1)
-  figure <- ggarrange(summary_table, exclusion_table, charts, ncol = 1, nrow = 3, heights = c(1, 1, 3))
+  figure <- ggarrange(summary_table, exclusion_table, strategy_without_means_table, strategy_with_means_table, charts, ncol = 1, nrow = 5, heights = c(2, 2, 3, 3, 10))
   print(figure)
 }
 ```
 
 ###Exclusions
+
+```{r}
+responses_df %>% group_by(worker_id) %>% summarise(unique_p_sup = length(unique(p_superiority))) %>% filter(unique_p_sup < 2)
+```
+
 
 Overall, how many participants do we have in each condition after exclusions.
 
@@ -408,9 +451,10 @@ responses_df %>%
   mutate(passed_check = (ground_truth == 0.5 & intervene == 0) | (ground_truth == 0.999 & intervene == 1)) %>%
   # has a worker not passed the attention checks
   group_by(worker_id, condition) %>%
+  # group_by(worker_id) %>%
   summarise(
     passed_attention_checks = sum(passed_check) == 2
-    ) %>%
+  ) %>%
   group_by(condition) %>%
   summarise(
     total_participants = n(),

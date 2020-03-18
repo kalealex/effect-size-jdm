@@ -6,3 +6,4 @@ stimuli.zip
 raw-data/
 *.rds
 model-fits/
+*.ai

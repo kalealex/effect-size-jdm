@@ -1,5 +1,5 @@
 ---
-title: "Pilot Analysis: Building a Logistic Regression Model of Decisions"
+title: "Building a Logistic Regression Model of Decisions"
 output: html_document
 ---
 
@@ -26,7 +26,7 @@ We load worker responses from our pilot and do some preprocessing.
 
 ```{r}
 # read in data 
-full_df <- read_csv("pilot-anonymous.csv")
+full_df <- read_csv("experiment-anonymous.csv")
 
 # preprocessing
 responses_df <- full_df %>%
@@ -59,8 +59,8 @@ responses_df <- full_df %>%
   # set up factors for modeling
   mutate(
     # add a variable to note whether the chart they viewed showed means
-    means = as.factor((start_means == "True" & as.numeric(trial) <= (n_trials / 2)) | (start_means == "False" & as.numeric(trial) > (n_trials / 2))),
-    start_means = as.factor(start_means == "True"),
+    means = as.factor((start_means & as.numeric(trial) <= (n_trials / 2)) | (!start_means & as.numeric(trial) > (n_trials / 2))),
+    start_means = as.factor(start_means),
     sd_diff = as.factor(sd_diff),
     trial_number = as.numeric(trial)
   )
@@ -103,7 +103,7 @@ model_df %>% ggplot(aes(x = evidence)) +
   theme(panel.grid = element_blank())
 ```
 
-Now, lets apply our exclusion criteria.
+Now, lets apply our exclusion criteria, cutting our sample down to only the subset of participants who passed both attention checks.
 
 ```{r}
 # determine exclusions
@@ -113,19 +113,19 @@ exclude_df <- model_df %>%
   group_by(worker_id) %>%
   summarise(
     failed_attention_checks = sum(failed_check),
-    exclude = failed_attention_checks > 0
-    # p_sup_less_than_50 = sum(p_superiority < 50) / n(),
-    # exclude = (failed_attention_checks > 0 | p_sup_less_than_50 > 0.3)
+    unique_p_sup = length(unique(p_superiority)),
+    # excluded if they failed either attention check or used fewer than three levels of the response scale
+    exclude = failed_attention_checks > 0 | unique_p_sup < 3
   ) %>% 
-  select(worker_id, exclude)
+  dplyr::select(worker_id, exclude)
 
-# apply exclusion criteria and remove attention checks to modeling data set
+# apply exclusion criteria and remove attention check trials from modeling data set
 model_df <- model_df %>% 
   left_join(exclude_df, by = "worker_id") %>% 
   filter(exclude == FALSE) %>%
   filter(ground_truth > 0.5 & ground_truth < 0.999)
 
-# how many remaining workers per condition
+# how many remaining workers per condition?
 model_df %>%
   group_by(condition, start_means) %>% # between subject manipulations
   summarise(
@@ -133,7 +133,35 @@ model_df %>%
   )
 ```
 
-The table above shows the number of included workers in each between-subjects condition.
+In addition to excluding participants who failed at least one of the two attention checks in the experiment, which is our preregistered exclusion criterion, we also exclude a handful of workers whose data lead to model fit issues. These are workers who responded with only one or two levels of the probability of superiority scale. We could make the case that these workers might not have been trying very hard when responding, but the reason for excluding them is much more practical: It is not possible for the modeling process we are using to estimate random effects on response variability for these participants (i.e., you cannot calculate the variance of a set with only one or two distinct values). These random effects on variance are very important, because our data almost certaintly violate a homogeneity of variance assumption. 
+
+Because of these exclusions, we are a few participants short of our target samples size of 80. We should still have more than enough data to support statistical inferences. Here we drop a handful of additional participants to maintain counterbalancing of block order. Since we know that there were some participants with dropped responses, let's prioritize leaving out workers with the greatest number of dropped trials in each counterbalancing condition.
+
+```{r}
+model_df %>%
+  group_by(condition, start_means, worker_id) %>%
+  summarise(
+    n_trials = n(),
+    dropped_trials = 32 - n_trials
+  ) %>%
+  filter(dropped_trials > 0)
+```
+
+Based on a comparison of the two tables above, we'll drop workers c488db75, ce016e09, and f430e2e8.
+
+```{r}
+# remove workers with missing data, plus one where condition = densities, start_means = FALSE
+model_df <- model_df %>%
+filter(!worker_id %in% c("c488db75", "ce016e09", "f430e2e8", "c337674a"))
+
+model_df %>%
+  group_by(condition, start_means) %>% # between subject manipulations
+  summarise(
+    n_workers = length(unique(worker_id))
+  )
+```
+
+Now we have our dataset ready for modeling.
 
 
 ##Distribution of Decisions
@@ -202,7 +230,7 @@ Let's check out a posterior predictive distribution for intervention decisions.
 # posterior predictive check
 model_df %>%
   select(-intervene) %>% # this model should not be sensitive to evidence
-  add_predicted_draws(m.logistic_intercept, prediction = "intervene", seed = 1234, n = 200) %>%
+  add_predicted_draws(m.logistic_intercept, prediction = "intervene", seed = 1234, n = 500) %>%
   ggplot(aes(x = intervene)) +
   geom_density(fill = "black", size = 0) +
   scale_y_continuous(NULL, breaks = NULL) +
@@ -231,7 +259,7 @@ Let's take a look at the estimated psychometric function. This should not have a
 ```{r}
 model_df %>%
   select(evidence, intervene) %>%
-  add_fitted_draws(m.logistic_intercept, value = "pf", n = 200) %>%
+  add_fitted_draws(m.logistic_intercept, value = "pf", n = 500) %>%
   ggplot(aes(x = evidence, y = intervene)) +
   geom_vline(xintercept = 0, size = 1, alpha = .3, color = "red", linetype = "dashed") + # utility optimal decision rule
   # geom_line(aes(y = pf, group = .draw)) +
@@ -268,7 +296,7 @@ Let's look at our prior predictive distribution. This should still be an even sp
 # prior predictive check
 model_df %>%
   select(evidence) %>%
-  add_predicted_draws(prior.logistic, prediction = "intervene", seed = 1234) %>%
+  add_predicted_draws(prior.logistic, prediction = "intervene", seed = 1234, n = 500) %>%
   ggplot(aes(x = intervene)) +
   geom_density(fill = "black", size = 0) +
   scale_y_continuous(NULL, breaks = NULL) +
@@ -282,7 +310,7 @@ Perhaps a better way of seeing this is the predicted fit. We'll look at this ins
 # prior predictive check
 model_df %>%
   select(evidence) %>%
-  add_fitted_draws(prior.logistic, value = "pf", seed = 1234) %>%
+  add_fitted_draws(prior.logistic, value = "pf", seed = 1234, n = 500) %>%
   ggplot(aes(x = evidence, y = pf)) +
   stat_lineribbon(.width = c(.95, .80, .50), alpha = .25, fill = "black") +
   coord_cartesian(xlim = quantile(model_df$evidence, c(0, 1)),
@@ -330,7 +358,7 @@ Let's take a look at the estimated psychometric function.
 
 ```{r}
 model_df %>%
-  add_fitted_draws(m.logistic, value = "pf", n = 200) %>%
+  add_fitted_draws(m.logistic, value = "pf", n = 500) %>%
   ggplot(aes(x = evidence, y = intervene)) +
   geom_vline(xintercept = 0, size = 1, alpha = .3, color = "red", linetype = "dashed") + # utility optimal decision rule
   # geom_line(aes(y = pf, group = .draw)) +
@@ -369,7 +397,7 @@ Let's look at predicted model fits to see the space of possible models predicted
 # prior predictive check
 model_df %>%
   select(evidence, worker_id) %>%
-  add_fitted_draws(prior.wrkr.logistic, value = "pf", seed = 1234) %>%
+  add_fitted_draws(prior.wrkr.logistic, value = "pf", seed = 1234, n = 500) %>%
   ggplot(aes(x = evidence, y = pf)) +
   stat_lineribbon(.width = c(.95, .80, .50), alpha = .25, fill = "black") +
   coord_cartesian(xlim = quantile(model_df$evidence, c(0, 1)),
@@ -413,10 +441,25 @@ pairs(m.wrkr.logistic)
 print(m.wrkr.logistic)
 ```
 
-Let's take a look at the estimated psychometric functions for each worker.
+Let's take a look at the estimated psychometric functions for each worker. When we make this kind of plot for model checks at the level of individual workers, we'll look at a subset of workers to keep the number of charts generated to a reasonable number.
 
 ```{r}
-model_df %>%
+# two workers from each counterbalancing condition
+model_check_set <- model_df %>% 
+  group_by(start_means, condition, worker_id) %>%
+  summarise() %>%
+  top_n(2)
+model_check_set <- model_check_set$worker_id
+model_check_df <- model_df %>%
+  filter(worker_id %in% model_check_set)
+
+model_check_df %>% 
+  group_by(worker_id) %>%
+  summarise()
+```
+
+```{r}
+model_check_df %>%
   group_by(evidence, worker_id) %>%
   add_fitted_draws(m.wrkr.logistic, value = "pf", n = 200) %>%
   ggplot(aes(x = evidence, y = intervene, color = condition, fill = condition)) +
@@ -463,7 +506,7 @@ Let's look at predicted model fits to see the space of possible models predicted
 # prior predictive check
 model_df %>%
   select(evidence, worker_id, means) %>%
-  add_fitted_draws(prior.wrkr.means.logistic, value = "pf", seed = 1234) %>%
+  add_fitted_draws(prior.wrkr.means.logistic, value = "pf", seed = 1234, n = 500) %>%
   ggplot(aes(x = evidence, y = pf)) +
   stat_lineribbon(.width = c(.95, .80, .50), alpha = .25, fill = "black") +
   coord_cartesian(xlim = quantile(model_df$evidence, c(0, 1)),
@@ -511,7 +554,7 @@ print(m.wrkr.means.logistic)
 Let's take a look at the estimated psychometric functions for each worker.
 
 ```{r}
-model_df %>%
+model_check_df %>%
   group_by(evidence, worker_id, means) %>%
   add_fitted_draws(m.wrkr.means.logistic, value = "pf", n = 200) %>%
   ggplot(aes(x = evidence, y = intervene, color = condition, fill = condition)) +
@@ -596,7 +639,7 @@ We expect that the level of uncertainty shown will impact judgments of effect si
 We'll use the same priors as in our previous model, so we'll jump right to fitting the model.
 
 ```{r}
-# hierarchical linear model with logit link and predictors for the presence/absence of means
+# hierarchical linear model with logit link and predictors for the presence/absence of means, level of uncertainty shown
 m.wrkr.means.sd.logistic <- brm(data = model_df, family = bernoulli(link = "logit"),
                                 formula = bf(intervene ~ (1 + evidence|worker_id) + evidence*means*sd_diff),
                                 prior = c(prior(normal(0, 1), class = Intercept),
@@ -632,14 +675,13 @@ pairs(m.wrkr.means.sd.logistic, pars = c("sd_worker_id", "cor_worker_id"))
 - Summary
 
 ```{r}
-# model summary
 print(m.wrkr.means.sd.logistic)
 ```
 
 Let's take a look at the estimated psychometric functions for each worker.
 
 ```{r}
-model_df %>%
+model_check_df %>%
   group_by(evidence, worker_id, means, sd_diff) %>%
   add_fitted_draws(m.wrkr.means.sd.logistic, value = "pf", n = 200) %>%
   ggplot(aes(x = evidence, y = intervene, color = condition, fill = condition)) +
@@ -721,21 +763,21 @@ It looks like the point of subjective equality slightly biased when means are pr
 
 ###Visualization Conditions
 
-We also want to know whether different visualizations conditions bias the point of subjective equality or change sensitivity to utility on average. Just like we did for the effect of extrinsic means, we model these effects as a fixed intercept and a fixed slope (i.e., an interaction with the level of evidence).
+We also want to know whether different visualizations conditions bias the point of subjective equality or change sensitivity to utility on average. Just like we did for the effect of extrinsic means, we model these effects as a fixed intercept and a fixed slope (i.e., an interaction with the level of evidence). This is the first model on our decision data that includes all the predictors which are required to answer our research questions (i.e., the minimal model on our path of model expansion).
 
 We'll use the same priors as we did for our previous model. Now, let's fit our model.
 
 ```{r}
 # hierarchical linear model with logit link and predictors per visualization condition
-m.wrkr.means.sd.vis.logistic <- brm(data = model_df, family = bernoulli(link = "logit"),
-                                    formula = bf(intervene ~ (1 + evidence|worker_id) + evidence*means*sd_diff*condition),
-                                    prior = c(prior(normal(0, 1), class = Intercept),
-                                              prior(normal(1, 1), class = b, coef = evidence),
-                                              prior(normal(0, 0.5), class = b),
-                                              prior(normal(0, 0.5), class = sd),
-                                              prior(lkj(4), class = cor)),
-                                    iter = 3000, warmup = 500, chains = 2, cores = 2,
-                                    file = "model-fits/logistic_mdl-wrkr_means_sd_vis")
+m.m.logistic <- brm(data = model_df, family = bernoulli(link = "logit"),
+                    formula = bf(intervene ~ (1 + evidence|worker_id) + evidence*means*sd_diff*condition),
+                    prior = c(prior(normal(0, 1), class = Intercept),
+                              prior(normal(1, 1), class = b, coef = evidence),
+                              prior(normal(0, 0.5), class = b),
+                              prior(normal(0, 0.5), class = sd),
+                              prior(lkj(4), class = cor)),
+                    iter = 5000, warmup = 2000, chains = 2, cores = 2, thin = 2,
+                    file = "model-fits/logistic_mdl-minimal")
 ```
 
 Check diagnostics:
@@ -744,22 +786,22 @@ Check diagnostics:
 
 ```{r}
 # trace plots
-plot(m.wrkr.means.sd.vis.logistic)
+plot(m.m.logistic)
 ```
 
 - Summary
 
 ```{r}
 # model summary
-print(m.wrkr.means.sd.vis.logistic)
+print(m.m.logistic)
 ```
 
 Let's take a look at the estimated psychometric functions for each worker.
 
 ```{r}
-model_df %>%
+model_check_df %>%
   group_by(evidence, worker_id, means, sd_diff, condition) %>%
-  add_fitted_draws(m.wrkr.means.sd.vis.logistic, value = "pf", n = 200) %>%
+  add_fitted_draws(m.m.logistic, value = "pf", n = 500) %>%
   ggplot(aes(x = evidence, y = intervene, color = condition, fill = condition)) +
   geom_vline(xintercept = 0, size = 1, alpha = .3, color = "red", linetype = "dashed") + # utility optimal decision rule
   stat_lineribbon(aes(y = pf), .width = c(.95), alpha = .25) +
@@ -780,7 +822,7 @@ What do the posteriors for just-noticable differences (JND) and points of subjec
 slopes_df <- model_df %>%
   group_by(means, sd_diff, condition) %>%
   data_grid(evidence = c(0, 1)) %>%
-  add_fitted_draws(m.wrkr.means.sd.vis.logistic, re_formula = NA, scale = "linear") %>%
+  add_fitted_draws(m.m.logistic, re_formula = NA, scale = "linear") %>%
   compare_levels(.value, by = evidence) %>%
   rename(slope = .value)
 
@@ -788,7 +830,7 @@ slopes_df <- model_df %>%
 intercepts_df <- model_df %>%
   group_by(means, sd_diff, condition) %>%
   data_grid(evidence = 0) %>%
-  add_fitted_draws(m.wrkr.means.sd.vis.logistic, re_formula = NA, scale = "linear") %>%
+  add_fitted_draws(m.m.logistic, re_formula = NA, scale = "linear") %>%
   rename(intercept = .value) 
 
 # join dataframes for slopes and intercepts, calculate PSE and JND
@@ -808,17 +850,17 @@ stats_df %>%
   summarise(jnd = weighted.mean(jnd)) %>%
   ggplot(aes(x = jnd, group = condition, color = condition, fill = condition)) +
   geom_density(alpha = 0.35) +
-  scale_fill_brewer(type = "qual", palette = 1) + 
-  scale_color_brewer(type = "qual", palette = 1) +
+  scale_fill_brewer(type = "qual", palette = 2) + 
+  scale_color_brewer(type = "qual", palette = 2) +
   scale_x_continuous(expression(jnd), expand = c(0, 0)) +
   scale_y_continuous(NULL, breaks = NULL) +
   labs(subtitle = "Posterior JND per visualization") +
   theme(panel.grid = element_blank())
 ```
 
-It looks like users are slightly more sensitive to evidence (i.e., JNDs are slightly smaller) in the HOPs condition.
+It looks like users most sensitive to evidence (i.e., JNDs are smaller) with quantile dotplots and least sensitive with HOPs.
 
-What if we look at the full interaction effect on JNDs?
+What if we look at the full interaction of extrinsic means, level of uncertainty, and visualization condition on JNDs?
 
 ```{r}
 stats_df %>%
@@ -831,7 +873,7 @@ stats_df %>%
   facet_grid(condition ~ sd_diff)
 ```
 
-It seems like means help improve sensitivity to evidence a little bit, especially with HOPs when uncertainty is high.
+It seems like means improve sensitivity to evidence a little bit for intervals but reduce sensitivity for every other visualization condition, especially HOPs when uncertainty is high.
 
 Next, we'll look at the point of subjective equality for each visualization condition, marginalizing out other manipulations.
 
@@ -841,17 +883,17 @@ stats_df %>%
   summarise(pse = weighted.mean(pse)) %>%
   ggplot(aes(x = pse, group = condition, color = condition, fill = condition)) +
   geom_density(alpha = 0.35) +
-  scale_fill_brewer(type = "qual", palette = 1) + 
-  scale_color_brewer(type = "qual", palette = 1) +
+  scale_fill_brewer(type = "qual", palette = 2) + 
+  scale_color_brewer(type = "qual", palette = 2) +
   scale_x_continuous(expression(pse), expand = c(0, 0)) +
   scale_y_continuous(NULL, breaks = NULL) +
   labs(subtitle = "Posterior PSE per visualization") +
   theme(panel.grid = element_blank())
 ```
 
-It looks like the point of subjective equality is least biased with HOPs.
+It looks like users are biased towars intervening in all conditions but least so with intervals.
 
-What if we look at the full interaction effect on PSE?
+What if we look at the full interaction of extrinsic means, level of uncertainty, and visualization condition on PSE?
 
 ```{r}
 stats_df %>%
@@ -859,12 +901,12 @@ stats_df %>%
   geom_density(alpha = 0.35) +
   scale_x_continuous(expression(pse), expand = c(0, 0)) +
   scale_y_continuous(NULL, breaks = NULL) +
-  labs(subtitle = "Posterior JND per condition") +
+  labs(subtitle = "Posterior PSE per condition") +
   theme(panel.grid = element_blank()) +
   facet_grid(condition ~ sd_diff)
 ```
 
-In both conditions, adding means seems to bias people against intervention relative to the utility optimal strategy when uncertainty is high.
+In all conditions, adding means biases people toward intervening when uncertainty is low and away from intervening when uncertainty is high. This only seems to result in more optimal decisions for densities and quantile dotplots when uncertainty is low.
 
 
 ##Building Up Random Effects for Within-Subjects Manipulations
@@ -875,25 +917,28 @@ Following a principle of model expansion, we will make this changes cumulatively
 
 ###Random Effects for the Interaction of Means and Uncertainty Shown
 
-This model adds random effects for the presence/absence of the mean and the level of uncertainty to mirror the structure of the fixed effects for these variables. This tells our model that each individual can respond differently to these factors, which may help to parse heterogeneity in responses.
+This model adds random effects for the presence/absence of the mean and the level of uncertainty. This tells our model that each individual can respond differently to these factors, which may help to parse heterogeneity in responses. Note that we are unable to identify the random effect of evidence, means, and level of uncertainty because we have only one observation per unique combintation of these variables per worker. This is why the random effects formula does not match the fixed effects formula.
 
 ```{r}
-# hierarchical logistic regression
-m.wrkr.means.sd.vis.logistic.r.means.sd <- brm(
+m.m.logistic.r_means.sd <- brm(
   data = model_df, family = bernoulli(link = "logit"),
-  formula = bf(intervene ~ (1 + evidence*means*sd_diff|worker_id) + evidence*means*sd_diff*condition),
+  formula = bf(intervene ~ (1 + evidence + means*sd_diff|worker_id) + evidence*means*sd_diff*condition),
   prior = c(prior(normal(0, 1), class = Intercept),
             prior(normal(1, 1), class = b, coef = evidence),
             prior(normal(0, 0.5), class = b),
             prior(normal(0, 0.5), class = sd),
             prior(lkj(4), class = cor)),
-  iter = 3000, warmup = 500, chains = 2, cores = 2,
-  file = "model-fits/logistic_mdl-wrkr_means_sd_vis-r_means_sd")
+  iter = 5000, warmup = 2000, chains = 2, cores = 2, thin = 2,
+  file = "model-fits/logistic_mdl-min-r_means_sd")
 ```
 
 ```{r}
 # trace plots
-plot(m.wrkr.means.sd.vis.logistic.r.means.sd)
+plot(m.m.logistic.r_means.sd)
+```
+
+```{r}
+summary(m.m.logistic.r_means.sd)
 ```
 
 ###Mixed Effects of Trial Order on JND and PSE
@@ -902,7 +947,7 @@ This model adds mixed effects of trial order on JNDs and PSEs. This functionally
 
 ```{r}
 # hierarchical logistic regression
-m.wrkr.means.sd.vis.logistic.r.means.sd.trial <- brm(
+m.m.logistic.r_means.sd.trial <- brm(
   data = model_df, family = bernoulli(link = "logit"),
   formula = bf(intervene ~ (1 + evidence*means*sd_diff + evidence*trial|worker_id) + evidence*means*sd_diff*condition + evidence*trial),
   prior = c(prior(normal(0, 1), class = Intercept),
@@ -910,13 +955,17 @@ m.wrkr.means.sd.vis.logistic.r.means.sd.trial <- brm(
             prior(normal(0, 0.5), class = b),
             prior(normal(0, 0.5), class = sd),
             prior(lkj(4), class = cor)),
-  iter = 3000, warmup = 500, chains = 2, cores = 2,
-  file = "model-fits/logistic_mdl-wrkr_means_sd_vis-r_means_sd_trial")
+  iter = 5000, warmup = 2000, chains = 2, cores = 2, thin = 2,
+  file = "model-fits/logistic_mdl-min-r_means_sd_trial")
 ```
 
 ```{r}
 # trace plots
-plot(m.wrkr.means.sd.vis.logistic.r.means.sd.trial)
+plot(m.m.logistic.r_means.sd.trial)
+```
+
+```{r}
+summary(m.m.logistic.r_means.sd.trial)
 ```
 
 ###Model Comparison
@@ -924,10 +973,24 @@ plot(m.wrkr.means.sd.vis.logistic.r.means.sd.trial)
 Each time we add a random effect, the number of parameters multiplies. We want to make sure these parameters are contributing to the predictive validity of the model more than they risk overfitting. We'll evaluate this by using WAIC to compare models. Whichever model has the smallest value of WAIC is the one that has the best predictive validity for the fewest parameters.
 
 ```{r}
-waic(m.wrkr.means.sd.vis.logistic, m.wrkr.means.sd.vis.logistic.r.means.sd, m.wrkr.means.sd.vis.logistic.r.means.sd.trial)
+waic(m.m.logistic, m.m.logistic.r_means.sd, m.m.logistic.r_means.sd.trial)
 ```
 
-It looks like predictors for trial order don't make much of a difference in WAIC. We'll leave that effect in our models going forward in the spirit of expanding our model to represent a maximal amount of structure in the data.
+It looks like the model with random effects predictors for means, level of uncertainty, and trial has the lowest value of WAIC, so we'll move forward with that model.
+
+<!-- It looks like WAIC will be insufficient for comparing these models, so we'll try using leave-one-out cross validation instead. -->
+
+<!-- ```{r} -->
+<!-- # run LOO cross-validation to estimate prediction error for each model -->
+<!-- m.m.logistic_loo <- loo(m.m.logistic, cores = 2) -->
+<!-- m.m.logistic.r_means.sd_loo <- loo(m.m.logistic.r_means.sd, cores = 2) -->
+<!-- m.m.logistic.r_means.sd.trial_loo <- loo(m.m.logistic.r_means.sd.trial, cores = 2) -->
+<!-- ``` -->
+
+<!-- ```{r} -->
+<!-- # compare prediction error across models -->
+<!-- loo_compare(m.m.logistic_loo, m.m.logistic.r_means.sd_loo, m.m.logistic.r_means.sd.trial_loo, digits = 2) -->
+<!-- ``` -->
 
 
 ##Add Predictor for Block Order
@@ -937,8 +1000,7 @@ Does it matter whether participants start the study using means? Here we add fix
 Again, we'll use the same priors as we did for our previous models. Now, let's fit our model.
 
 ```{r}
-# hierarchical logistic regression
-m.wrkr.means.sd.vis.order.logistic.r.means.sd.trial <- brm(
+m.m_order.logistic.r_means.sd.trial <- brm(
   data = model_df, family = bernoulli(link = "logit"),
   formula = bf(intervene ~ (1 + evidence*means*sd_diff + evidence*trial|worker_id) + evidence*means*sd_diff*condition*start_means + evidence*trial),
   prior = c(prior(normal(0, 1), class = Intercept),
@@ -946,39 +1008,43 @@ m.wrkr.means.sd.vis.order.logistic.r.means.sd.trial <- brm(
             prior(normal(0, 0.5), class = b),
             prior(normal(0, 0.5), class = sd),
             prior(lkj(4), class = cor)),
-  iter = 3000, warmup = 500, chains = 2, cores = 2,
-  file = "model-fits/logistic_mdl-wrkr_means_sd_vis_order-r_means_sd_trial")
+  iter = 5000, warmup = 2000, chains = 2, cores = 2, thin = 2,
+  file = "model-fits/logistic_mdl-min_order-r_means_sd_trial")
 ```
 
 ```{r}
 # trace plots
-plot(m.wrkr.means.sd.vis.order.logistic.r.means.sd.trial)
+plot(m.m_order.logistic.r_means.sd.trial)
+```
+
+```{r}
+summary(m.m_order.logistic.r_means.sd.trial)
 ```
 
 ###Model Comparison
 
-Does adding block order to our previous model improve WAIC?
+Does adding block order to our previous model improve WAIC over our best model so far?
 
 ```{r}
-waic(m.wrkr.means.sd.vis.logistic.r.means.sd.trial, m.wrkr.means.sd.vis.order.logistic.r.means.sd.trial)
+waic(m.m.logistic.r_means.sd.trial, m.m_order.logistic.r_means.sd.trial)
 ```
 
-Block order reduces WAIC slightly but less than the margin of error of the difference. Again, we will use the more maximal model in the spirit of model expansion.
+Block order reduces WAIC, so we'll run with this maximal model for the purpose of statistical inference.
 
 ###Predictive Checks
 
 Let's take a look at the estimated psychometric functions for each worker.
 
 ```{r}
-model_df %>%
+model_check_df %>%
   group_by(evidence, worker_id, means, sd_diff, condition, trial, start_means) %>%
-  add_fitted_draws(m.wrkr.means.sd.vis.order.logistic.r.means.sd.trial, value = "pf", n = 200) %>%
+  add_fitted_draws(m.m_order.logistic.r_means.sd.trial, value = "pf", n = 500) %>%
   ggplot(aes(x = evidence, y = intervene, color = condition, fill = condition)) +
   geom_vline(xintercept = 0, size = 1, alpha = .3, color = "red", linetype = "dashed") + # utility optimal decision rule
   stat_lineribbon(aes(y = pf), .width = c(.95), alpha = .25) +
   geom_point(alpha = .15) +
-  scale_fill_brewer(type = "qual", palette = 1) +
-  scale_color_brewer(type = "qual", palette = 1) + 
+  scale_fill_brewer(type = "qual", palette = 2) +
+  scale_color_brewer(type = "qual", palette = 2) + 
   coord_cartesian(xlim = quantile(model_df$evidence, c(0, 1)),
                   ylim = quantile(model_df$intervene, c(0, 1))) +
   theme_bw() +
@@ -995,7 +1061,7 @@ What do the posteriors for just-noticable differences (JND) and points of subjec
 slopes_df <- model_df %>%
   group_by(means, sd_diff, condition, trial, start_means) %>%
   data_grid(evidence = c(0, 1)) %>%
-  add_fitted_draws(m.wrkr.means.sd.vis.order.logistic.r.means.sd.trial, re_formula = NA, scale = "linear") %>%
+  add_fitted_draws(m.m_order.logistic.r_means.sd.trial, re_formula = NA, scale = "linear") %>%
   compare_levels(.value, by = evidence) %>%
   rename(slope = .value)
 
@@ -1003,7 +1069,7 @@ slopes_df <- model_df %>%
 intercepts_df <- model_df %>%
   group_by(means, sd_diff, condition, trial, start_means) %>%
   data_grid(evidence = 0) %>%
-  add_fitted_draws(m.wrkr.means.sd.vis.order.logistic.r.means.sd.trial, re_formula = NA, scale = "linear") %>%
+  add_fitted_draws(m.m_order.logistic.r_means.sd.trial, re_formula = NA, scale = "linear") %>%
   rename(intercept = .value) 
 
 # join dataframes for slopes and intercepts, calculate PSE and JND
@@ -1023,15 +1089,15 @@ stats_df %>%
   summarise(jnd = weighted.mean(jnd)) %>%
   ggplot(aes(x = jnd, group = condition, color = condition, fill = condition)) +
   geom_density(alpha = 0.35) +
-  scale_fill_brewer(type = "qual", palette = 1) + 
-  scale_color_brewer(type = "qual", palette = 1) +
+  scale_fill_brewer(type = "qual", palette = 2) + 
+  scale_color_brewer(type = "qual", palette = 2) +
   scale_x_continuous(expression(jnd), expand = c(0, 0)) +
   scale_y_continuous(NULL, breaks = NULL) +
   labs(subtitle = "Posterior JND per visualization") +
   theme(panel.grid = element_blank())
 ```
 
-It looks like users are slightly more sensitive to evidence (i.e., JNDs are slightly smaller) in the HOPs condition, but not by much.
+It looks like users are most sensitive to evidence (i.e., JNDs are smaller) in the quantile dotplots condition and are least sensitive with HOPs.
 
 What if we look at the interaction effect on JNDs, marginalizing out block and trial order?
 
@@ -1043,13 +1109,12 @@ stats_df %>%
   # unite(means_present, means, start_means) %>%
   ggplot(aes(x = jnd, y = vis_cond)) +
   stat_halfeyeh() +
-  coord_cartesian(xlim = c(-1, 5)) +
   labs(subtitle = "Posterior JND per condition") +
   theme_bw() +
   facet_grid(means ~ .)
 ```
 
-It seems like means help improve sensitivity to evidence a little bit, especially with HOPs when uncertainty is high.
+Users are consistently more sensitive to evidence when uncertainty is high. Means seem to improve sensitivity a bit most notably with intervals.
 
 Next, we'll look at the point of subjective equality for each visualization condition, marginalizing out other manipulations.
 
@@ -1059,15 +1124,15 @@ stats_df %>%
   summarise(pse = weighted.mean(pse)) %>%
   ggplot(aes(x = pse, group = condition, color = condition, fill = condition)) +
   geom_density(alpha = 0.35) +
-  scale_fill_brewer(type = "qual", palette = 1) + 
-  scale_color_brewer(type = "qual", palette = 1) +
+  scale_fill_brewer(type = "qual", palette = 2) + 
+  scale_color_brewer(type = "qual", palette = 2) +
   scale_x_continuous(expression(pse), expand = c(0, 0)) +
   scale_y_continuous(NULL, breaks = NULL) +
   labs(subtitle = "Posterior PSE per visualization") +
   theme(panel.grid = element_blank())
 ```
 
-It looks like the point of subjective equality is least biased with HOPs.
+It looks like the point of subjective equality is least biased with intervals, with increasing bias toward intervening (i.e., negative PSE) with HOPs, densities, and quantile dotplots, respectively.
 
 What if we look at the interaction effect on PSE, marginalizing out block and trial order?
 
@@ -1078,7 +1143,6 @@ stats_df %>%
   unite(vis_cond, condition, sd_diff) %>%
   ggplot(aes(x = pse, y = vis_cond)) +
   stat_halfeyeh() +
-  coord_cartesian(xlim = c(-3, 3)) +
   labs(subtitle = "Posterior PSE per condition") +
   theme_bw() +
   facet_grid(means ~ .)
@@ -1086,11 +1150,10 @@ stats_df %>%
 
 There are couple interesting things going on here: 
 
-1. People are more risk seeking when uncertainty is low. 
-2. People are more risk averse with HOPs.
-3. Adding means might help a little when uncertainty is low, but it leads to excessive risk aversion when uncertainty is high, especially in the intervals condition.
+1. People intervene more than they should when uncertainty is high in all visualization conditions. 
+2. Adding means biases PSE away from zero leading to less utility optimal decisions in all conditions except quantile dotplots.
 
-Let's see if we can make versions of these charts that are easier to interpret since we expect our main findings to have a similar format. It should help to plot these as differences between means present minus absent. We'll also convert JND and PSE estimates into units of the probability of winning the award.
+Let's see if we can make versions of interaction charts that are easier to interpret. It should help to plot these as differences between means present minus absent. We'll also convert JND and PSE estimates into units of the probability of winning the award.
 
 ```{r}
 stats_df %>%
@@ -1101,14 +1164,13 @@ stats_df %>%
   unite(vis_cond, condition, sd_diff, remove = FALSE) %>%
   ggplot(aes(x = jnd_p_award, y = vis_cond)) +
   stat_halfeyeh() +
-  coord_cartesian(xlim = c(-0.2, 0.1)) +
   labs(subtitle = "Posterior difference in JND for means present - absent per condition") +
   theme_bw()
 ```
 
-Here we can see that on average adding means reduces JNDs by about 0.025 in terms of the probability of winning the award. This means people will notice a difference in the odds of winning that is up to 2.5% less than the difference they would notice without means. This is a small difference, but it could be helpful for borderline cases where the effect size is near the decision threshold.
+Here we can see that adding means doesn't really change JNDs, with one exception. In the intervals condition when uncertainty is high means reduces JNDs by about 0.015 in terms of the probability of winning the award. This means that on average people will notice a difference in the probability of winning that about to 1.5% less than the difference they would notice without means. This is such a small difference that it could only be helpful for borderline cases where the effect size is near the decision threshold.
 
-Let's do something similar for the effect of extrinsic means on PSE.
+Let's do something similar to plot the effect of extrinsic means on PSE.
 
 ```{r}
 stats_df %>%
@@ -1119,14 +1181,13 @@ stats_df %>%
   unite(vis_cond, condition, sd_diff, remove = FALSE) %>%
   ggplot(aes(x = pse_p_award, y = vis_cond)) +
   stat_halfeyeh() +
-  coord_cartesian(xlim = c(-0.3, 0.2)) +
   labs(subtitle = "Posterior differences in PSE for means present - absent per condition") +
   theme_bw()
 ```
 
-On average, adding means leads to more risk averse decisions. Specifically, people see the better option as having 3% to 7% less probability of producing a desirable outcome with mean compared to without means. This could lead to suboptimal decisions or reflect a debiasing effect depending on the baseline PSE in each condition.
+On average, adding means leads to more intervention when uncertainty is high and less intervention when uncertainty is low. This seems to be the case for all visualization conditions to varying degrees. Specifically, with means compared to without means, people see intervening as having about 2% more probability of producing a desirable outcome when uncertainty is high and 2% less probability of producing a desirable outcome when uncertainty is high. This could lead to suboptimal decisions or reflect a debiasing effect depending on the PSE without means in each condition.
 
-What is the baseline PSE in each condition?
+What is the PSE without means in each condition?
 
 ```{r}
 stats_df %>%
@@ -1137,10 +1198,13 @@ stats_df %>%
   unite(vis_cond, condition, sd_diff, remove = FALSE) %>%
   ggplot(aes(x = pse_p_award, y = vis_cond)) +
   stat_halfeyeh() +
-  # coord_cartesian(xlim = c(-0.3, 0.2)) +
   labs(subtitle = "Posterior PSE without means per condition") +
   theme_bw()
 ```
+
+Since users are biased toward intervention when uncerainty is high (i.e., they act as if intervening has about 7% to 12% high chance of resulting in a desirable outcome than it actually does, depending on the visualization condition), adding means just exacerbates this bias. Similarly, adding means increases bias against intervention when uncertainty is low in the HOPs and intervals conditions.
+
+What if we look at the marginal PSE for each visualization condition, adjusting for other predictors?
 
 ```{r}
 stats_df %>%
@@ -1150,52 +1214,33 @@ stats_df %>%
   mutate(pse_p_award = exp(pse) / (1 / (unique(model_df$baseline) + 1 / unique(model_df$award_value)) - 1 + exp(pse)) - unique(model_df$baseline) - 1 / unique(model_df$award_value)) %>%
   ggplot(aes(x = pse_p_award, y = condition)) +
   stat_halfeyeh() +
-  # coord_cartesian(xlim = c(-0.3, 0.2)) +
   labs(subtitle = "Posterior PSE without means per condition") +
   theme_bw()
 ```
 
-```{r}
-stats_df %>%
-  filter(means == FALSE) %>%
-  group_by(condition, .draw) %>%          # maginalize out other manipulations
-  summarise(pse = weighted.mean(pse)) %>%
-  mutate(pse_p_award = exp(pse) / (1 / (unique(model_df$baseline) + 1 / unique(model_df$award_value)) - 1 + exp(pse)) - unique(model_df$baseline) - 1 / unique(model_df$award_value)) %>%
-  compare_levels(pse_p_award, by = condition) %>%
-  ggplot(aes(x = pse_p_award, y = condition)) +
-  stat_halfeyeh() +
-  # coord_cartesian(xlim = c(-0.3, 0.2)) +
-  labs(subtitle = "Posterior difference in PSE between visualization conditions without means") +
-  theme_bw()
-```
+It does look like intervals result in the least bias toward intervening when it is not utility optimal to do so.
 
-This suggests that means have a debaising effect for intervals and a biasing effect on HOPs.
+<!-- What if we look at the expected utility in each visualization condition? -->
 
-What if we look at the expected utility in each condition?
+<!-- ```{r} -->
+<!-- model_df %>% -->
+<!--   add_predicted_draws(m.m_order.logistic.r_means.sd.trial, re_formula = NA, n = 500) %>% -->
+<!--   group_by(evidence, means, sd_diff, condition, trial, start_means, .draw) %>% -->
+<!--   mutate( -->
+<!--     expected_payoff = if_else(.prediction == 1, -->
+<!--                                award_value * p_award_with - 1, -->
+<!--                                award_value * p_award_without) -->
+<!--   ) %>% -->
+<!--   group_by(condition, .draw) %>% # aggregate across within-subjects predictors -->
+<!--   summarise( -->
+<!--     total_expected_utility = weighted.mean(starting_value + sum(expected_payoff)), -->
+<!--     cutoff = mean(cutoff) -->
+<!--   ) %>% -->
+<!--   ggplot(aes(x = total_expected_utility, y = condition)) + -->
+<!--   geom_vline(aes(xintercept = cutoff), color = "red", alpha = 0.35) + -->
+<!--   stat_halfeyeh() + -->
+<!--   scale_x_continuous(expression(total_expected_utility), expand = c(0, 0)) + -->
+<!--   labs(subtitle = "Posterior predition of expected utility for average worker in each condition") + -->
+<!--   theme_bw() -->
+<!-- ``` -->
 
-```{r}
-model_df %>%
-  add_predicted_draws(m.wrkr.means.sd.vis.order.logistic.r.means.sd.trial, re_formula = NA, n = 200) %>%
-  group_by(evidence, means, sd_diff, condition, trial, start_means, .draw) %>%
-  mutate(
-    expected_payoff = if_else(.prediction == 1,
-                               award_value * p_award_with - 1,
-                               award_value * p_award_without)
-  ) %>%
-  group_by(evidence, means, sd_diff, condition, .draw) %>% # aggregate across trials and block order
-  summarize(
-    total_expected_utility = weighted.mean(account_value + sum(expected_payoff)),
-    cutoff = mean(cutoff)
-  ) %>%
-  unite(vis_cond, condition, sd_diff, remove = FALSE) %>%
-  # unite(means_present, means, start_means, remove = FALSE) %>%
-  ggplot(aes(x = total_expected_utility, y = vis_cond)) +
-  geom_vline(aes(xintercept = cutoff), color = "red", alpha = 0.35) +
-  stat_halfeyeh() +
-  scale_x_continuous(expression(total_expected_utility), expand = c(0, 0)) +
-  labs(subtitle = "Posterior predition of expected utility for average worker in each condition") +
-  theme_bw() +
-  facet_grid(means ~ .)
-```
-
-This might look a little off because of the improper counterbalancing of block order, but this kind of thing will eventually be a good way to communicate results in aggregate.
