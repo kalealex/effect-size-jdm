@@ -147,7 +147,7 @@ model_df %>%
   filter(dropped_trials > 0)
 ```
 
-Based on a comparison of the two tables above, we'll drop workers c488db75, ce016e09, and f430e2e8.
+Based on a comparison of the two tables above, we'll drop workers c488db75, ce016e09, f430e2e8, and c337674a to ensure our ability to fit our model and to maintain counterbalancing of block order.
 
 ```{r}
 # remove workers with missing data, plus one where condition = densities, start_means = FALSE

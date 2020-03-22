@@ -164,11 +164,7 @@ llo_interaction_plt <- llo_slopes_df %>%
   summarise(slope = weighted.mean(slope)) %>%      # marginalize out other predictors by taking a weighted average
   ggplot(aes(x = slope, y = condition, group = means, fill = means)) +
   stat_slabh(alpha = 0.35) +
-  labs(
-    x = "Slope",
-    y = "Visualization",
-    fill = "Means Added"
-  ) +
+  coord_cartesian(xlim = c(0.2, 0.7)) +
   theme_minimal() +
   facet_grid(. ~ sd_diff)
 # save
@@ -181,10 +177,24 @@ llo_vis_plt <- llo_slopes_df %>%
   ggplot(aes(x = slope, y = condition, fill = condition)) +
   stat_slabh(alpha = 0.35) +
   scale_fill_brewer(type = "qual", palette = 2) +
+  coord_cartesian(xlim = c(0.2, 0.7)) +
   theme_minimal() +
   theme(legend.position = "none")
 # save
 ggsave(file = "components/llo_slopes-vis_conditions.svg", plot = llo_vis_plt, width=2.5, height=1.33)
+
+# marginal effect of means at each level of variance
+llo_means.sd_plt <- llo_slopes_df %>%
+  group_by(means, sd_diff, .draw) %>%               # group by predictors to keep
+  summarise(slope = weighted.mean(slope)) %>%       # marginalize out means present/absent by taking a weighted average
+  ggplot(aes(x = slope, y = "Overall", group = means, fill = means)) +
+  stat_slabh(alpha = 0.35) +
+  coord_cartesian(xlim = c(0.2, 0.7)) +
+  theme_minimal() +
+  facet_grid(. ~ sd_diff)
+# save
+ggsave(file = "components/llo_slopes-means_sd.svg", plot = llo_means.sd_plt, width=5, height=1)
+
 
 ##Results: PSE
 
@@ -223,6 +233,7 @@ pse_vis_plt <- pse_df %>%
   ggplot(aes(x = pse, y = condition, fill = condition)) +
   stat_slabh(alpha = 0.35) +
   scale_fill_brewer(type = "qual", palette = 2) + 
+  coord_cartesian(xlim = c(-1, 1)) +
   theme_minimal() +
   theme(legend.position = "none")
 # save
@@ -238,7 +249,7 @@ pse_means.sd_plt <- pse_df %>%
   theme_minimal() +
   facet_grid(. ~ sd_diff)
 # save
-ggsave(file = "components/pse-means_sd.svg", plot = pse_means.sd_plt, width=5, height=0.4)
+ggsave(file = "components/pse-means_sd.svg", plot = pse_means.sd_plt, width=5, height=1)
 
 
 ##Other figures generated from images saved in StimuliGeneration.Rmd
