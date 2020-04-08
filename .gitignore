@@ -7,3 +7,5 @@ raw-data/
 *.rds
 model-fits/
 *.ai
+*.svg
+*.png

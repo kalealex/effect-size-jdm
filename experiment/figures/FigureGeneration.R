@@ -41,14 +41,14 @@ m.p_sup <- brm(data = model_df, family = "gaussian",
 # intervention decision model
 m.decisions <- brm(
   data = model_df, family = bernoulli(link = "logit"),
-  formula = bf(intervene ~ (1 + evidence*means*sd_diff + evidence*trial|worker_id) + evidence*means*sd_diff*condition*start_means + evidence*trial),
+  formula = bf(intervene ~ (1 + evidence*means*sd_diff + evidence*trial|worker_id) + evidence*means*sd_diff*condition*start_means + evidence*condition*trial),
   prior = c(prior(normal(0, 1), class = Intercept),
             prior(normal(1, 1), class = b, coef = evidence),
             prior(normal(0, 0.5), class = b),
             prior(normal(0, 0.5), class = sd),
             prior(lkj(4), class = cor)),
   iter = 8000, warmup = 2000, chains = 2, cores = 2, thin = 2,
-  file = "../analysis/model-fits/logistic_mdl-min_order-r_means_sd_trial-long_chains")
+  file = "../analysis/model-fits/logistic_mdl-min_order-r_means_sd_trial2-long_chains")
 
 
 ##LLO explainer
@@ -82,10 +82,10 @@ vis_fits_df <- data.frame(
     slope = as.ordered(slope)
   )
 
-# fit for one worker
+# llo fit for one worker
 wrkr_df <- model_df %>%
   filter(worker_id == "fd3bea1b")
-wrkr_fit_df <- wrkr_df %>%
+llo_wrkr_fit_df <- wrkr_df %>%
   group_by(worker_id, means, sd_diff, condition, trial, start_means) %>%
   data_grid(lo_ground_truth = seq(-3, 3, length.out = 51)) %>%
   add_predicted_draws(model = m.p_sup, n = 500, seed = 1234) %>%
@@ -120,7 +120,7 @@ p_plt1 <- fake_llo_df %>%
   theme_minimal() +
   theme(panel.grid.minor = element_blank())
 # fit for individual worker
-lo_plt2 <- wrkr_fit_df %>%
+lo_plt2 <- llo_wrkr_fit_df %>%
   ggplot(aes(x = lo_ground_truth, y = lo_prediction)) +
   geom_abline(intercept = 0, slope = 1, size = 1, alpha = .25, linetype = "dashed") + # ground truth
   stat_lineribbon(.width = c(.95, .80, .50), fill = "gray", alpha = .25) +
@@ -131,7 +131,7 @@ lo_plt2 <- wrkr_fit_df %>%
   ) +
   theme_minimal() +
   theme(panel.grid.minor = element_blank())
-p_plt2 <- wrkr_fit_df %>%
+p_plt2 <- llo_wrkr_fit_df %>%
   ggplot(aes(x = ground_truth, y = prediction)) +
   geom_abline(intercept = 0, slope = 1, size = 1, alpha = .25, linetype = "dashed") + # ground truth
   stat_lineribbon(.width = c(.95, .80, .50), fill = "gray", alpha = .25) +
@@ -148,6 +148,30 @@ llo_explainer <- ggarrange(lo_plt1, p_plt1, lo_plt2, p_plt2, ncol = 2, nrow = 2)
 ggsave(file = "components/llo_explainer.svg", plot = llo_explainer, width=10, height=8)
 
 
+## Logistic Stats Explainer
+
+# get fit for one worker
+logistic_wrkr_fit_df <- wrkr_df %>%
+  group_by(worker_id, means, sd_diff, condition, trial, start_means) %>%
+  data_grid(evidence = seq(-5, 5, length.out = 51)) %>%
+  add_fitted_draws(model = m.decisions, n = 500, seed = 1234) %>%
+  rename(p_intervene = .value)
+
+# plot
+logistic_explainer <- logistic_wrkr_fit_df %>%
+  ggplot(aes(x = evidence, y = p_intervene)) +
+  geom_vline(xintercept = 0, size = 1, linetype = "dashed") + # utility optimal
+  stat_lineribbon(.width = c(.95, .80, .50), fill = "gray", alpha = .25) +
+  geom_point(data = wrkr_df, aes(y = intervene)) +
+  coord_cartesian(
+    xlim = c(-5, 5),
+    ylim = c(0, 1)
+  ) +
+  theme_minimal() +
+  theme(panel.grid.minor = element_blank())
+ggsave(file = "components/logistic_explainer.svg", plot = logistic_explainer, width=10, height=8)
+
+
 ##Results: LLO Slopes
 
 # get expected slopes
@@ -158,42 +182,71 @@ llo_slopes_df <- model_df %>%
   compare_levels(.value, by = lo_ground_truth) %>%              # calculate the difference between fits at 1 and 0 (i.e., slope)
   rename(slope = .value)
 
-# interaction effect
-llo_interaction_plt <- llo_slopes_df %>%
+# interaction effect, low variance
+llo_interaction_low_plt <- llo_slopes_df %>%
+  filter(sd_diff == 5) %>%
   group_by(means, sd_diff, condition, .draw) %>%   # group by predictors to keep
   summarise(slope = weighted.mean(slope)) %>%      # marginalize out other predictors by taking a weighted average
   ggplot(aes(x = slope, y = condition, group = means, fill = means)) +
   stat_slabh(alpha = 0.35) +
   coord_cartesian(xlim = c(0.2, 0.7)) +
   theme_minimal() +
-  facet_grid(. ~ sd_diff)
+  theme(legend.position = "none")
 # save
-ggsave(file = "components/llo_slopes-interaction.svg", plot = llo_interaction_plt, width=5, height=1.33)
+ggsave(file = "components/llo_slopes-interaction_low.svg", plot = llo_interaction_low_plt, width=2.5, height=1.33)
 
-# marginal effect of visualization
-llo_vis_plt <- llo_slopes_df %>%
-  group_by(condition, .draw) %>%                    # group by predictors to keep
-  summarise(slope = weighted.mean(slope)) %>%       # marginalize out means present/absent by taking a weighted average
-  ggplot(aes(x = slope, y = condition, fill = condition)) +
+# interaction effect, high variance
+llo_interaction_high_plt <- llo_slopes_df %>%
+  filter(sd_diff == 15) %>%
+  group_by(means, sd_diff, condition, .draw) %>%   # group by predictors to keep
+  summarise(slope = weighted.mean(slope)) %>%      # marginalize out other predictors by taking a weighted average
+  ggplot(aes(x = slope, y = condition, group = means, fill = means)) +
   stat_slabh(alpha = 0.35) +
-  scale_fill_brewer(type = "qual", palette = 2) +
   coord_cartesian(xlim = c(0.2, 0.7)) +
   theme_minimal() +
   theme(legend.position = "none")
 # save
-ggsave(file = "components/llo_slopes-vis_conditions.svg", plot = llo_vis_plt, width=2.5, height=1.33)
+ggsave(file = "components/llo_slopes-interaction_high.svg", plot = llo_interaction_high_plt, width=2.5, height=1.33)
 
-# marginal effect of means at each level of variance
-llo_means.sd_plt <- llo_slopes_df %>%
+# # marginal effect of visualization
+# llo_vis_plt <- llo_slopes_df %>%
+#   group_by(condition, .draw) %>%                    # group by predictors to keep
+#   summarise(slope = weighted.mean(slope)) %>%       # marginalize out means present/absent by taking a weighted average
+#   ggplot(aes(x = slope, y = condition, fill = condition)) +
+#   stat_slabh(alpha = 0.35) +
+#   scale_fill_brewer(type = "qual", palette = 2) +
+#   coord_cartesian(xlim = c(0.2, 0.7)) +
+#   theme_minimal() +
+#   theme(legend.position = "none")
+# # save
+# ggsave(file = "components/llo_slopes-vis_conditions.svg", plot = llo_vis_plt, width=2.5, height=1.33)
+
+# marginal effect of means at low variance
+llo_means.low_sd_plt <- llo_slopes_df %>%
+  filter(sd_diff == 5) %>%
   group_by(means, sd_diff, .draw) %>%               # group by predictors to keep
   summarise(slope = weighted.mean(slope)) %>%       # marginalize out means present/absent by taking a weighted average
   ggplot(aes(x = slope, y = "Overall", group = means, fill = means)) +
   stat_slabh(alpha = 0.35) +
   coord_cartesian(xlim = c(0.2, 0.7)) +
   theme_minimal() +
-  facet_grid(. ~ sd_diff)
+  theme(legend.position = "none")
 # save
-ggsave(file = "components/llo_slopes-means_sd.svg", plot = llo_means.sd_plt, width=5, height=1)
+ggsave(file = "components/llo_slopes-means_low-sd.svg", plot = llo_means.low_sd_plt, width=2.5, height=1)
+
+# marginal effect of means at high variance
+llo_means.high_sd_plt <- llo_slopes_df %>%
+  filter(sd_diff == 15) %>%
+  group_by(means, sd_diff, .draw) %>%               # group by predictors to keep
+  summarise(slope = weighted.mean(slope)) %>%       # marginalize out means present/absent by taking a weighted average
+  ggplot(aes(x = slope, y = "Overall", group = means, fill = means)) +
+  stat_slabh(alpha = 0.35) +
+  coord_cartesian(xlim = c(0.2, 0.7)) +
+  theme_minimal() +
+  theme(legend.position = "none")
+# save
+ggsave(file = "components/llo_slopes-means_high-sd.svg", plot = llo_means.high_sd_plt, width=2.5, height=1)
+
 
 
 ##Results: PSE
@@ -214,42 +267,221 @@ pse_df <- slopes_df %>%
   full_join(intercepts_df, by = c("means", "sd_diff", "condition", "trial", "start_means", ".draw")) %>%
   mutate(pse = -intercept / slope)
 
-# interaction effect
-pse_interaction_plt <- pse_df %>%
+# interaction effect, low variance
+pse_interaction_low_plt <- pse_df %>%
+  filter(sd_diff == 5) %>%
   group_by(means, sd_diff, condition, .draw) %>%          # maginalize out other manipulations
   summarise(pse = mean(pse)) %>%
   ggplot(aes(x = pse, y = condition, group = means, fill = means)) +
   stat_slabh(alpha = 0.35) +
   coord_cartesian(xlim = c(-1, 1)) +
   theme_minimal() +
-  facet_grid(. ~ sd_diff)
+  theme(legend.position = "none")
 # save
-ggsave(file = "components/pse-interaction.svg", plot = pse_interaction_plt, width=5, height=1.33)
+ggsave(file = "components/pse-interaction_low.svg", plot = pse_interaction_low_plt, width=2.5, height=1.33)
 
-# marginal effect of visualization
-pse_vis_plt <- pse_df %>%
-  group_by(condition, .draw) %>%          # maginalize out other manipulations
+# interaction effect, high variance
+pse_interaction_high_plt <- pse_df %>%
+  filter(sd_diff == 15) %>%
+  group_by(means, sd_diff, condition, .draw) %>%          # maginalize out other manipulations
   summarise(pse = mean(pse)) %>%
-  ggplot(aes(x = pse, y = condition, fill = condition)) +
+  ggplot(aes(x = pse, y = condition, group = means, fill = means)) +
   stat_slabh(alpha = 0.35) +
-  scale_fill_brewer(type = "qual", palette = 2) + 
   coord_cartesian(xlim = c(-1, 1)) +
   theme_minimal() +
   theme(legend.position = "none")
 # save
-ggsave(file = "components/pse-vis_conditions.svg", plot = pse_vis_plt, width=2.5, height=1.33)
+ggsave(file = "components/pse-interaction_high.svg", plot = pse_interaction_high_plt, width=2.5, height=1.33)
 
-# marginal effect of means at each level of variance
-pse_means.sd_plt <- pse_df %>%
+# # marginal effect of visualization
+# pse_vis_plt <- pse_df %>%
+#   group_by(condition, .draw) %>%          # maginalize out other manipulations
+#   summarise(pse = mean(pse)) %>%
+#   ggplot(aes(x = pse, y = condition, fill = condition)) +
+#   stat_slabh(alpha = 0.35) +
+#   scale_fill_brewer(type = "qual", palette = 2) + 
+#   coord_cartesian(xlim = c(-1, 1)) +
+#   theme_minimal() +
+#   theme(legend.position = "none")
+# # save
+# ggsave(file = "components/pse-vis_conditions.svg", plot = pse_vis_plt, width=2.5, height=1.33)
+
+# marginal effect of means, low variance
+pse_means.low_sd_plt <- pse_df %>%
+  filter(sd_diff == 5) %>%
   group_by(means, sd_diff, .draw) %>%          # maginalize out other manipulations
   summarise(pse = mean(pse)) %>%
   ggplot(aes(x = pse, y = "Overall", group = means, fill = means)) +
   stat_slabh(alpha = 0.35) +
   coord_cartesian(xlim = c(-1, 1)) +
   theme_minimal() +
-  facet_grid(. ~ sd_diff)
+  theme(legend.position = "none")
 # save
-ggsave(file = "components/pse-means_sd.svg", plot = pse_means.sd_plt, width=5, height=1)
+ggsave(file = "components/pse-means_low-sd.svg", plot = pse_means.low_sd_plt, width=2.5, height=1)
+
+# marginal effect of means, high variance
+pse_means.high_sd_plt <- pse_df %>%
+  filter(sd_diff == 15) %>%
+  group_by(means, sd_diff, .draw) %>%          # maginalize out other manipulations
+  summarise(pse = mean(pse)) %>%
+  ggplot(aes(x = pse, y = "Overall", group = means, fill = means)) +
+  stat_slabh(alpha = 0.35) +
+  coord_cartesian(xlim = c(-1, 1)) +
+  theme_minimal() +
+  theme(legend.position = "none")
+# save
+ggsave(file = "components/pse-means_high-sd.svg", plot = pse_means.high_sd_plt, width=2.5, height=1)
+
+
+##Results: JNDs
+
+# calculate JND from slopes and intercepts of logisitic model
+jnd_df <- slopes_df %>% 
+  full_join(intercepts_df, by = c("means", "sd_diff", "condition", "trial", "start_means", ".draw")) %>%
+  mutate(jnd = qlogis(0.75) / slope)
+
+# interaction effect, low variance
+jnd_interaction_low_plt <- jnd_df %>%
+  filter(sd_diff == 5) %>%
+  group_by(means, sd_diff, condition, .draw) %>%          # maginalize out other manipulations
+  summarise(jnd = mean(jnd)) %>%
+  ggplot(aes(x = jnd, y = condition, group = means, fill = means)) +
+  stat_slabh(alpha = 0.35) +
+  coord_cartesian(xlim = c(0.2, 0.9)) +
+  theme_minimal() +
+  theme(legend.position = "none")
+# save
+ggsave(file = "components/jnd-interaction_low.svg", plot = jnd_interaction_low_plt, width=2.5, height=1.33)
+
+# interaction effect, high variance
+jnd_interaction_high_plt <- jnd_df %>%
+  filter(sd_diff == 15) %>%
+  group_by(means, sd_diff, condition, .draw) %>%          # maginalize out other manipulations
+  summarise(jnd = mean(jnd)) %>%
+  ggplot(aes(x = jnd, y = condition, group = means, fill = means)) +
+  stat_slabh(alpha = 0.35) +
+  coord_cartesian(xlim = c(0.2, 0.9)) +
+  theme_minimal() +
+  theme(legend.position = "none")
+# save
+ggsave(file = "components/jnd-interaction_high.svg", plot = jnd_interaction_high_plt, width=2.5, height=1.33)
+
+# # marginal effect of visualization
+# jnd_vis_plt <- jnd_df %>%
+#   group_by(condition, .draw) %>%          # maginalize out other manipulations
+#   summarise(jnd = mean(jnd)) %>%
+#   ggplot(aes(x = jnd, y = condition, fill = condition)) +
+#   stat_slabh(alpha = 0.35) +
+#   scale_fill_brewer(type = "qual", palette = 2) + 
+#   coord_cartesian(xlim = c(0.25, 0.9)) +
+#   theme_minimal() +
+#   theme(legend.position = "none")
+# # save
+# ggsave(file = "components/jnd-vis_conditions.svg", plot = jnd_vis_plt, width=2.5, height=1.33)
+
+# marginal effect of means, low variance
+jnd_means.low_sd_plt <- jnd_df %>%
+  filter(sd_diff == 5) %>%
+  group_by(means, sd_diff, .draw) %>%          # maginalize out other manipulations
+  summarise(jnd = mean(jnd)) %>%
+  ggplot(aes(x = jnd, y = "Overall", group = means, fill = means)) +
+  stat_slabh(alpha = 0.35) +
+  coord_cartesian(xlim = c(0.2, 0.9)) +
+  theme_minimal() +
+  theme(legend.position = "none")
+# save
+ggsave(file = "components/jnd-means_low-sd.svg", plot = jnd_means.low_sd_plt, width=2.5, height=1)
+
+# marginal effect of means, high variance
+jnd_means.high_sd_plt <- jnd_df %>%
+  filter(sd_diff == 15) %>%
+  group_by(means, sd_diff, .draw) %>%          # maginalize out other manipulations
+  summarise(jnd = mean(jnd)) %>%
+  ggplot(aes(x = jnd, y = "Overall", group = means, fill = means)) +
+  stat_slabh(alpha = 0.35) +
+  coord_cartesian(xlim = c(0.2, 0.9)) +
+  theme_minimal() +
+  theme(legend.position = "none")
+# save
+ggsave(file = "components/jnd-means_high-sd.svg", plot = jnd_means.high_sd_plt, width=2.5, height=1)
+
+
+## Decoupling of Estimation and Decisions
+
+# get linear log odds (LLO) slopes per worker
+wrkr_llo_slopes_df <- model_df %>%
+  group_by(worker_id, means, sd_diff, condition, trial, start_means) %>%
+  data_grid(lo_ground_truth = c(0, 1)) %>%          # get fitted draws (in log odds units) only for ground truth of 0 and 1
+  add_fitted_draws(m.p_sup, n = 500) %>%
+  compare_levels(.value, by = lo_ground_truth) %>%  # calculate the difference between fits at 1 and 0 (i.e., slope)
+  rename(llo_slope = .value) %>%
+  group_by(worker_id, condition) %>%                # calculate point estimate of marginal LLO slope per worker
+  summarise(llo_slope = weighted.mean(llo_slope))
+
+# get logistic regression slopes per worker
+wrkr_logistic_slopes_df <- model_df %>%
+  group_by(worker_id, means, sd_diff, condition, trial, start_means) %>%
+  data_grid(evidence = c(0, 1)) %>%
+  add_fitted_draws(m.decisions, scale = "linear", n = 500, seed = 1234) %>%
+  compare_levels(.value, by = evidence) %>%
+  rename(slope = .value)
+
+# get logistic regression intercepts per worker
+wrkr_logistic_intercepts_df <- model_df %>%
+  group_by(worker_id ,means, sd_diff, condition, trial, start_means) %>%
+  data_grid(evidence = 0) %>%
+  add_fitted_draws(m.decisions, scale = "linear", n = 500, seed = 1234) %>%
+  rename(intercept = .value) 
+
+# join dataframes for logistic slopes and intercepts, calculate PSE and JND
+wrkr_logistic_stats_df <- wrkr_logistic_slopes_df %>% 
+  full_join(wrkr_logistic_intercepts_df, by = c("worker_id", "means", "sd_diff", "condition", "trial", "start_means", ".draw")) %>%
+  mutate(
+    pse = -intercept / slope,
+    jnd = qlogis(0.75) / slope
+  ) %>%
+  group_by(worker_id, condition) %>%  # calculate point estimate of marginal JND and PSE per worker
+  summarise(
+    pse = weighted.mean(pse),
+    jnd = weighted.mean(jnd)
+  )
+
+# join the dataframes of summary statistics per worker
+wrkr_stats_df <- wrkr_llo_slopes_df %>%
+  full_join(wrkr_logistic_stats_df, by = c("worker_id", "condition"))
+
+# JNDs vs PSE
+jnd_pse <- wrkr_stats_df %>%
+  filter(jnd > 0) %>%
+  ggplot(aes(x = jnd, y = pse)) +
+  geom_point(alpha = 0.35) +
+  coord_cartesian(
+    xlim = c(0, 5),
+    ylim = c(-15, 15)
+  ) +
+  theme_minimal() +
+  theme(panel.grid.minor = element_blank())
+# save
+ggsave(file = "components/jnds-pse.svg", plot = jnd_pse, width=5, height=4)
+
+# LLO Slopes vs JNDs
+llo_jnds <- wrkr_stats_df %>%
+  filter(jnd > 0) %>%
+  ggplot(aes(x = llo_slope, y = jnd)) +
+  geom_point(alpha = 0.35) +
+  coord_cartesian(ylim = c(0, 10)) +
+  theme_minimal()
+# save
+ggsave(file = "components/llo_slopes-jnds.svg", plot = llo_jnds, width=5, height=4)
+
+# LLO Slopes vs PSE
+llo_pse <- wrkr_stats_df %>%
+  ggplot(aes(x = llo_slope, y = pse)) +
+  geom_point(alpha = 0.35) +
+  coord_cartesian(ylim = c(-20, 20)) +
+  theme_minimal()
+# save
+ggsave(file = "components/llo_slopes-pse.svg", plot = llo_pse, width=5, height=4)
 
 
 ##Other figures generated from images saved in StimuliGeneration.Rmd

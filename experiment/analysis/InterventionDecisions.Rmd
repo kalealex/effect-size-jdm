@@ -82,7 +82,7 @@ model_df <- responses_df %>%
 
 model_df %>%
   ggplot(aes(p_diff, evidence)) +
-  geom_point() +
+  geom_line() +
   geom_vline(xintercept = 0, size = 1, alpha = .3, color = "red", linetype = "dashed") + # utility optimal decision rule
   geom_hline(yintercept = 0, size = 1, alpha = .3, color = "red", linetype = "dashed") +
   theme_bw() +
@@ -949,7 +949,7 @@ This model adds mixed effects of trial order on JNDs and PSEs. This functionally
 # hierarchical logistic regression
 m.m.logistic.r_means.sd.trial <- brm(
   data = model_df, family = bernoulli(link = "logit"),
-  formula = bf(intervene ~ (1 + evidence*means*sd_diff + evidence*trial|worker_id) + evidence*means*sd_diff*condition + evidence*trial),
+  formula = bf(intervene ~ (1 + evidence*means*sd_diff + evidence*trial|worker_id) + evidence*means*sd_diff*condition + evidence*condition*trial),
   prior = c(prior(normal(0, 1), class = Intercept),
             prior(normal(1, 1), class = b, coef = evidence),
             prior(normal(0, 0.5), class = b),
@@ -1002,7 +1002,7 @@ Again, we'll use the same priors as we did for our previous models. Now, let's f
 ```{r}
 m.m_order.logistic.r_means.sd.trial <- brm(
   data = model_df, family = bernoulli(link = "logit"),
-  formula = bf(intervene ~ (1 + evidence*means*sd_diff + evidence*trial|worker_id) + evidence*means*sd_diff*condition*start_means + evidence*trial),
+  formula = bf(intervene ~ (1 + evidence*means*sd_diff + evidence*trial|worker_id) + evidence*means*sd_diff*condition*start_means + evidence*condition*trial),
   prior = c(prior(normal(0, 1), class = Intercept),
             prior(normal(1, 1), class = b, coef = evidence),
             prior(normal(0, 0.5), class = b),
@@ -1029,7 +1029,7 @@ Does adding block order to our previous model improve WAIC over our best model s
 waic(m.m.logistic.r_means.sd.trial, m.m_order.logistic.r_means.sd.trial)
 ```
 
-Block order reduces WAIC, so we'll run with this maximal model for the purpose of statistical inference.
+Block order reduces WAIC somewhat, so we'll run with this maximal model for the purpose of statistical inference.
 
 ###Predictive Checks
 
@@ -1153,72 +1153,72 @@ There are couple interesting things going on here:
 1. People intervene more than they should when uncertainty is high in all visualization conditions. 
 2. Adding means biases PSE away from zero leading to less utility optimal decisions in all conditions except quantile dotplots.
 
-Let's see if we can make versions of interaction charts that are easier to interpret. It should help to plot these as differences between means present minus absent. We'll also convert JND and PSE estimates into units of the probability of winning the award.
+<!-- Let's see if we can make versions of interaction charts that are easier to interpret. It should help to plot these as differences between means present minus absent. We'll also convert JND and PSE estimates into units of the probability of winning the award. -->
 
-```{r}
-stats_df %>%
-  group_by(means, sd_diff, condition, .draw) %>%          # maginalize out other manipulations
-  summarise(jnd = weighted.mean(jnd)) %>%
-  compare_levels(jnd, by = means) %>%
-  mutate(jnd_p_award = exp(jnd) / (1 / (unique(model_df$baseline) + 1 / unique(model_df$award_value)) - 1 + exp(jnd)) - unique(model_df$baseline) - 1 / unique(model_df$award_value)) %>%
-  unite(vis_cond, condition, sd_diff, remove = FALSE) %>%
-  ggplot(aes(x = jnd_p_award, y = vis_cond)) +
-  stat_halfeyeh() +
-  labs(subtitle = "Posterior difference in JND for means present - absent per condition") +
-  theme_bw()
-```
+<!-- ```{r} -->
+<!-- stats_df %>% -->
+<!--   group_by(means, sd_diff, condition, .draw) %>%          # maginalize out other manipulations -->
+<!--   summarise(jnd = weighted.mean(jnd)) %>% -->
+<!--   compare_levels(jnd, by = means) %>% -->
+<!--   mutate(jnd_p_award = exp(jnd) / (1 / (unique(model_df$baseline) + 1 / unique(model_df$award_value)) - 1 + exp(jnd)) - unique(model_df$baseline) - 1 / unique(model_df$award_value)) %>% -->
+<!--   unite(vis_cond, condition, sd_diff, remove = FALSE) %>% -->
+<!--   ggplot(aes(x = jnd_p_award, y = vis_cond)) + -->
+<!--   stat_halfeyeh() + -->
+<!--   labs(subtitle = "Posterior difference in JND for means present - absent per condition") + -->
+<!--   theme_bw() -->
+<!-- ``` -->
 
-Here we can see that adding means doesn't really change JNDs, with one exception. In the intervals condition when uncertainty is high means reduces JNDs by about 0.015 in terms of the probability of winning the award. This means that on average people will notice a difference in the probability of winning that about to 1.5% less than the difference they would notice without means. This is such a small difference that it could only be helpful for borderline cases where the effect size is near the decision threshold.
+<!-- Here we can see that adding means doesn't really change JNDs, with one exception. In the intervals condition when uncertainty is high means reduces JNDs by about 0.015 in terms of the probability of winning the award. This means that on average people will notice a difference in the probability of winning that about to 1.5% less than the difference they would notice without means. This is such a small difference that it could only be helpful for borderline cases where the effect size is near the decision threshold. -->
 
-Let's do something similar to plot the effect of extrinsic means on PSE.
+<!-- Let's do something similar to plot the effect of extrinsic means on PSE. -->
 
-```{r}
-stats_df %>%
-  group_by(means, sd_diff, condition, .draw) %>%          # maginalize out other manipulations
-  summarise(pse = weighted.mean(pse)) %>%
-  compare_levels(pse, by = means) %>%
-  mutate(pse_p_award = exp(pse) / (1 / (unique(model_df$baseline) + 1 / unique(model_df$award_value)) - 1 + exp(pse)) - unique(model_df$baseline) - 1 / unique(model_df$award_value)) %>%
-  unite(vis_cond, condition, sd_diff, remove = FALSE) %>%
-  ggplot(aes(x = pse_p_award, y = vis_cond)) +
-  stat_halfeyeh() +
-  labs(subtitle = "Posterior differences in PSE for means present - absent per condition") +
-  theme_bw()
-```
+<!-- ```{r} -->
+<!-- stats_df %>% -->
+<!--   group_by(means, sd_diff, condition, .draw) %>%          # maginalize out other manipulations -->
+<!--   summarise(pse = weighted.mean(pse)) %>% -->
+<!--   compare_levels(pse, by = means) %>% -->
+<!--   mutate(pse_p_award = exp(pse) / (1 / (unique(model_df$baseline) + 1 / unique(model_df$award_value)) - 1 + exp(pse)) - unique(model_df$baseline) - 1 / unique(model_df$award_value)) %>% -->
+<!--   unite(vis_cond, condition, sd_diff, remove = FALSE) %>% -->
+<!--   ggplot(aes(x = pse_p_award, y = vis_cond)) + -->
+<!--   stat_halfeyeh() + -->
+<!--   labs(subtitle = "Posterior differences in PSE for means present - absent per condition") + -->
+<!--   theme_bw() -->
+<!-- ``` -->
 
-On average, adding means leads to more intervention when uncertainty is high and less intervention when uncertainty is low. This seems to be the case for all visualization conditions to varying degrees. Specifically, with means compared to without means, people see intervening as having about 2% more probability of producing a desirable outcome when uncertainty is high and 2% less probability of producing a desirable outcome when uncertainty is high. This could lead to suboptimal decisions or reflect a debiasing effect depending on the PSE without means in each condition.
+<!-- On average, adding means leads to more intervention when uncertainty is high and less intervention when uncertainty is low. This seems to be the case for all visualization conditions to varying degrees. Specifically, with means compared to without means, people see intervening as having about 2% more probability of producing a desirable outcome when uncertainty is high and 2% less probability of producing a desirable outcome when uncertainty is high. This could lead to suboptimal decisions or reflect a debiasing effect depending on the PSE without means in each condition. -->
 
-What is the PSE without means in each condition?
+<!-- What is the PSE without means in each condition? -->
 
-```{r}
-stats_df %>%
-  filter(means == FALSE) %>%
-  group_by(sd_diff, condition, .draw) %>%          # maginalize out other manipulations
-  summarise(pse = weighted.mean(pse)) %>%
-  mutate(pse_p_award = exp(pse) / (1 / (unique(model_df$baseline) + 1 / unique(model_df$award_value)) - 1 + exp(pse)) - unique(model_df$baseline) - 1 / unique(model_df$award_value)) %>%
-  unite(vis_cond, condition, sd_diff, remove = FALSE) %>%
-  ggplot(aes(x = pse_p_award, y = vis_cond)) +
-  stat_halfeyeh() +
-  labs(subtitle = "Posterior PSE without means per condition") +
-  theme_bw()
-```
+<!-- ```{r} -->
+<!-- stats_df %>% -->
+<!--   filter(means == FALSE) %>% -->
+<!--   group_by(sd_diff, condition, .draw) %>%          # maginalize out other manipulations -->
+<!--   summarise(pse = weighted.mean(pse)) %>% -->
+<!--   mutate(pse_p_award = exp(pse) / (1 / (unique(model_df$baseline) + 1 / unique(model_df$award_value)) - 1 + exp(pse)) - unique(model_df$baseline) - 1 / unique(model_df$award_value)) %>% -->
+<!--   unite(vis_cond, condition, sd_diff, remove = FALSE) %>% -->
+<!--   ggplot(aes(x = pse_p_award, y = vis_cond)) + -->
+<!--   stat_halfeyeh() + -->
+<!--   labs(subtitle = "Posterior PSE without means per condition") + -->
+<!--   theme_bw() -->
+<!-- ``` -->
 
-Since users are biased toward intervention when uncerainty is high (i.e., they act as if intervening has about 7% to 12% high chance of resulting in a desirable outcome than it actually does, depending on the visualization condition), adding means just exacerbates this bias. Similarly, adding means increases bias against intervention when uncertainty is low in the HOPs and intervals conditions.
+<!-- Since users are biased toward intervention when uncerainty is high (i.e., they act as if intervening has about 7% to 12% high chance of resulting in a desirable outcome than it actually does, depending on the visualization condition), adding means just exacerbates this bias. Similarly, adding means increases bias against intervention when uncertainty is low in the HOPs and intervals conditions. -->
 
-What if we look at the marginal PSE for each visualization condition, adjusting for other predictors?
+<!-- What if we look at the marginal PSE for each visualization condition, adjusting for other predictors? -->
 
-```{r}
-stats_df %>%
-  filter(means == FALSE) %>%
-  group_by(condition, .draw) %>%          # maginalize out other manipulations
-  summarise(pse = weighted.mean(pse)) %>%
-  mutate(pse_p_award = exp(pse) / (1 / (unique(model_df$baseline) + 1 / unique(model_df$award_value)) - 1 + exp(pse)) - unique(model_df$baseline) - 1 / unique(model_df$award_value)) %>%
-  ggplot(aes(x = pse_p_award, y = condition)) +
-  stat_halfeyeh() +
-  labs(subtitle = "Posterior PSE without means per condition") +
-  theme_bw()
-```
+<!-- ```{r} -->
+<!-- stats_df %>% -->
+<!--   filter(means == FALSE) %>% -->
+<!--   group_by(condition, .draw) %>%          # maginalize out other manipulations -->
+<!--   summarise(pse = weighted.mean(pse)) %>% -->
+<!--   mutate(pse_p_award = exp(pse) / (1 / (unique(model_df$baseline) + 1 / unique(model_df$award_value)) - 1 + exp(pse)) - unique(model_df$baseline) - 1 / unique(model_df$award_value)) %>% -->
+<!--   ggplot(aes(x = pse_p_award, y = condition)) + -->
+<!--   stat_halfeyeh() + -->
+<!--   labs(subtitle = "Posterior PSE without means per condition") + -->
+<!--   theme_bw() -->
+<!-- ``` -->
 
-It does look like intervals result in the least bias toward intervening when it is not utility optimal to do so.
+<!-- It does look like intervals result in the least bias toward intervening when it is not utility optimal to do so. -->
 
 <!-- What if we look at the expected utility in each visualization condition? -->
 
