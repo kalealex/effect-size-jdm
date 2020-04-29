@@ -1,7 +1,7 @@
 ---
-title: "Results and Figures"
+title: "Results"
 author: "Alex Kale"
-date: "2/11/2020"
+date: "4/29/2020"
 output: html_document
 ---
 
@@ -47,7 +47,7 @@ model_df <- model_df %>%
 
 ##Probability of Superiority
 
-We load in the model of probability of superiority judgments that we arrived at through a process of model expansion described in our preregistration[https://osf.io/9kpmb]. This is basically a hierachical linear model of probability of superiority judgments where both judgments and the ground truth have been transformed onto a log odds scale. We call this a linear log odds model. See the paper and **experiment/analysis/PSuperiority.Rmd** in the supplemental materials for details.
+We load in the model of probability of superiority judgments that we arrived at through a process of model expansion described in our preregistration[https://osf.io/9kpmb]. This is basically a hierachical linear model of probability of superiority judgments where both judgments and the ground truth have been transformed onto a log odds scale, making this a linear in log odds (LLO) model. See the paper and **experiment/analysis/PSuperiority.Rmd** in the supplemental materials for details.
 
 ```{r}
 # hierarchical linear log odds model
@@ -71,7 +71,7 @@ summary(m.p_sup)
 
 ###Effects of Adding Means
 
-The primary results about probability of superiority that we present in the paper concern the three way interaction between the ground truth probability of superiority, the presence or absence of extrinsic means, and the level of variance shown `lo_ground_truth*means*sd_diff` for each uncertainty visualization format we tested. In order to show this effect, we want to show how the slope of the linear log odds (LLO) model, changes as a function of extrinsic means, variance show, and visualization format. The charts below highlight this effect.
+The primary results about probability of superiority that we present in the paper concern the three way interaction between the ground truth probability of superiority, the presence or absence of extrinsic means, and the level of variance shown `lo_ground_truth*means*sd_diff` for each uncertainty visualization format we tested. In order to show this effect, we want to show how the slope of the linear in log odds (LLO) model, changes as a function of extrinsic means, variance show, and visualization format. The charts below highlight this effect.
 
 ```{r}
 model_df %>%
@@ -604,7 +604,7 @@ It looks like the point of subjective equality is least biased with intervals, w
 
 ####Effect of Visualization Design for Low and High Variance Separately
 
-It seems like the patterns of results for PSE at low vs high variance are different enough that we might want to make different design recommendations depending on the level of uncertainty shown in charts. For this reason, in the paper we present contrasts between visualization designs at low and high variance separately.
+It seems like the patterns of results for PSE at low vs high variance are different enough that we might want to make different design recommendations depending on the level of variance shown in charts. For this reason, in the paper we present contrasts between visualization designs at low and high variance separately.
 
 Let's start by looking at contrasts between visualization designs at low variance.
 
@@ -623,7 +623,7 @@ stats_df %>%
 
 What we can take away from this figure that we didn't get from the chart of interaction effects above is that there are no reliable differences among visualization designs that use intervals and HOPs for uncertainty encodings. This is true for densities and quantile dotplots as well, with the exception of the comparison between quantile dotplots without means and densities with means, two designs with opposite directions of bias. *Densities without means and quantile dotplots with means are the least biased conditions* and are reliably different from designs that use intervals and HOPs to encode uncertainty. 
 
-Just to reiterate, this particularly important comparsions, there is no reliable difference between densities without means and quantile dotplots with means.
+Just to reiterate, this particularly important comparsion, there is no reliable difference between densities without means and quantile dotplots with means.
 
 ```{r}
 stats_df %>%
@@ -910,7 +910,7 @@ wrkr_stats_df <- wrkr_llo_slopes_df %>%
   full_join(wrkr_logistic_stats_df, by = c("worker_id", "condition"))
 ```
 
-Prior work (Khaw et al.) explained bias in PSE in terms of sensitivity to signal as measured by JND. Let's plot these things together to see if we have a similar correspondence in our data.
+Prior work (Khaw et al., cited in paper) explained bias in PSE in terms of sensitivity to signal as measured by JND. Let's plot these things together to see if we have a similar correspondence in our data.
 
 ```{r}
 wrkr_stats_df %>%
