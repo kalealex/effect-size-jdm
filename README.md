@@ -10,7 +10,7 @@ experiment/ - _files pertaining to the planning, analysis, and presentation of f
 - analysis/
     * AnonymizeData.R: a script uses to anonymize worker ids in our data set
     * experiment-anonymous.csv: the full data set that we collected for our main experiment
-    * ExploratoryVisualization.Rmd: code walking through the exploratory visualizations we looked at immediately following data collection, formatted as markdown
+    * ExploratoryVisualization.Rmd: code walking through the exploratory visualizations we looked at immediately following data collection, formatted as markdown (knit file too large to upload to github)
     * InterventionDecisions.html: a markdown document walking through how we built a logistic regression model of intervention decisions
     * InterventionDecisions.Rmd: code used to knit InterventionDecisions.html
     * model-data.csv: the data set that we used for the statistical inferences presented in the paper
