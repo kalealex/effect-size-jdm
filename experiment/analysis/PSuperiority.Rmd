@@ -140,23 +140,12 @@ model_df %>%
   filter(dropped_trials > 0)
 ```
 
-Based on a comparison of the two tables above, we'll drop workers c488db75, ce016e09, f430e2e8, and c337674a to ensure our ability to fit our model and to maintain counterbalancing of block order.
+Based on a comparison of the two tables above, we'll drop workers c488db75, ce016e09, and f430e2e8 to ensure our ability to fit our model.
 
 ```{r}
 # remove workers with missing data, plus one where condition = densities, start_means = FALSE
 model_df <- model_df %>%
-filter(!worker_id %in% c("c488db75", "ce016e09", "f430e2e8", "c337674a"))
-
-# complete_set <- model_df %>%     # if we want to keep only the participants with complete data sets
-#   group_by(start_means, condition, worker_id) %>%
-#   summarise(
-#     n_trials = n(),
-#     dropped_trials = 32 - n_trials
-#   ) %>%
-#   filter(dropped_trials == 0) 
-# complete_set <- complete_set$worker_id
-# model_df <- model_df %>%
-#   filter(worker_id %in% complete_set)
+filter(!worker_id %in% c("c488db75", "ce016e09", "f430e2e8")) # also exclude "c337674a" to counterbalance, but would take a long time to rerun
 
 model_df %>%
   group_by(condition, start_means) %>% # between subject manipulations
@@ -166,30 +155,6 @@ model_df %>%
 ```
 
 Now we have our dataset ready for modeling.
-
-<!-- ```{r} -->
-<!-- # filter to 20 participants per condition for faster model testing -->
-<!-- test_set <- model_df %>% -->
-<!--   group_by(start_means, condition, worker_id) %>% -->
-<!--   summarise() %>% -->
-<!--   top_n(10) -->
-<!-- test_set <- test_set$worker_id -->
-<!-- model_df <- model_df %>% -->
-<!--   filter(worker_id %in% test_set) -->
-
-<!-- model_df %>% -->
-<!--   group_by(condition, start_means) %>% # between subject manipulations -->
-<!--   summarise( -->
-<!--     n_workers = length(unique(worker_id)) -->
-<!--   ) -->
-<!-- ``` -->
-
-<!-- ```{r} -->
-<!-- m <- gamlss(lo_p_sup ~ re(fixed = ~ clo_ground_truth*means*sd_diff*condition,  -->
-<!--                           random = ~ 1 + clo_ground_truth|worker_id),  -->
-<!--             sigma.fo = ~ re(random = ~ 1|worker_id),  -->
-<!--             data = na.omit(model_df)) -->
-<!-- ``` -->
 
 
 ##Distribution of Probability of Superiority Judgments
@@ -1716,7 +1681,7 @@ m.max <- brm(data = model_df, family = "gaussian",
                        prior(lkj(4), class = cor)),
              iter = 12000, warmup = 2000, chains = 2, cores = 2, thin = 2,
              control = list(adapt_delta = 0.99, max_treedepth = 12),
-             file = "model-fits/llo_mdl-min-r_means_sd_trial_block_sigma_gt_trial_means_block")
+             file = "model-fits/llo_mdl-min-r_means_sd_trial_block_sigma_gt_trial_means_block-build_version")
 ```
 
 ```{r}
@@ -1964,25 +1929,25 @@ model_df %>%
   theme(panel.grid = element_blank())
 ```
 
-####Showing Model Predictions Instead of Slopes
+<!-- ####Showing Model Predictions Instead of Slopes -->
 
-Another way to understand predictions from this model is to plot posterior predictions for each condition, instead of just slopes. Let's take a look at predictions per visualization condition in probability units for the average worker.
+<!-- Another way to understand predictions from this model is to plot posterior predictions for each condition, instead of just slopes. Let's take a look at predictions per visualization condition in probability units for the average worker. -->
 
-```{r}
-model_df %>%
-  group_by(lo_ground_truth, means, sd_diff, condition, trial, start_means) %>%
-  add_predicted_draws(m.max, re_formula = NA, n = 500) %>%
-  ggplot(aes(x = plogis(lo_ground_truth), y = plogis(lo_p_sup))) +
-  geom_abline(intercept = 0, slope = 1, size = 1, alpha = .3, color = "red", linetype = "dashed") + # ground truth
-  stat_lineribbon(aes(y = plogis(.prediction)), .width = c(.95), alpha = .25, fill = "black", show.legend = FALSE) +
-  coord_cartesian(xlim = quantile(plogis(model_df$lo_ground_truth), c(0, 1)),
-                  ylim = quantile(plogis(model_df$lo_p_sup), c(0, 1))) +
-  theme_minimal() +
-  # theme(panel.grid.minor = element_blank()) + 
-  facet_grid(condition ~ sd_diff)
-```
+<!-- ```{r} -->
+<!-- model_df %>% -->
+<!--   group_by(lo_ground_truth, means, sd_diff, condition, trial, start_means) %>% -->
+<!--   add_predicted_draws(m.max, re_formula = NA, n = 500) %>% -->
+<!--   ggplot(aes(x = plogis(lo_ground_truth), y = plogis(lo_p_sup))) + -->
+<!--   geom_abline(intercept = 0, slope = 1, size = 1, alpha = .3, color = "red", linetype = "dashed") + # ground truth -->
+<!--   stat_lineribbon(aes(y = plogis(.prediction)), .width = c(.95), alpha = .25, fill = "black", show.legend = FALSE) + -->
+<!--   coord_cartesian(xlim = quantile(plogis(model_df$lo_ground_truth), c(0, 1)), -->
+<!--                   ylim = quantile(plogis(model_df$lo_p_sup), c(0, 1))) + -->
+<!--   theme_minimal() + -->
+<!--   # theme(panel.grid.minor = element_blank()) +  -->
+<!--   facet_grid(condition ~ sd_diff) -->
+<!-- ``` -->
 
-We can see that intervals lead to less biased perceptions, especially when means are added in the second block.
+<!-- We can see that intervals lead to less biased perceptions, especially when means are added in the second block. -->
 
 <!-- Let's also look at a spaghetti plot of average predictions per worker. -->
 
@@ -2004,30 +1969,30 @@ We can see that intervals lead to less biased perceptions, especially when means
 <!--   facet_grid(means_present ~ vis_cond) -->
 <!-- ``` -->
 
-To get a better sense of practical guidance for visualization practioners, let's break down these effects into low, mid, and high ground truth effect size and look at the impact of each uncertainty encoding on error in magnitude estimation when uncertainty is high vs low.
+<!-- To get a better sense of practical guidance for visualization practioners, let's break down these effects into low, mid, and high ground truth effect size and look at the impact of each uncertainty encoding on error in magnitude estimation when uncertainty is high vs low. -->
 
-```{r}
-model_df %>%
-  group_by(lo_ground_truth, means, sd_diff, condition) %>%
-  add_predicted_draws(m.m.llo, re_formula = NA, n = 500) %>%
-  mutate(
-    # bin ground truth
-    effect_size = if_else(ground_truth > 0.5 & ground_truth <= 0.65,
-                          "low",
-                          if_else(ground_truth > 0.65 & ground_truth <= 0.8,
-                                  "mid",
-                                  if_else(ground_truth > 0.8 & ground_truth <= 1,
-                                          "high",
-                                          "exclude"))),
-    effect_size = factor(effect_size, levels = c("low", "mid", "high")),
-    # calculate estimation error
-    est_error = plogis(.prediction) - ground_truth
-  ) %>%
-  filter(effect_size != "exclude") %>%
-  ggplot(aes(x = est_error, y = condition, fill = condition)) +
-  stat_slabh(alpha = 0.35) + 
-  scale_fill_brewer(type = "qual", palette = 2) +
-  theme_minimal() +
-  # theme(panel.grid.minor = element_blank()) +
-  facet_grid(effect_size ~ sd_diff)
-```
+<!-- ```{r} -->
+<!-- model_df %>% -->
+<!--   group_by(lo_ground_truth, means, sd_diff, condition) %>% -->
+<!--   add_predicted_draws(m.m.llo, re_formula = NA, n = 500) %>% -->
+<!--   mutate( -->
+<!--     # bin ground truth -->
+<!--     effect_size = if_else(ground_truth > 0.5 & ground_truth <= 0.65, -->
+<!--                           "low", -->
+<!--                           if_else(ground_truth > 0.65 & ground_truth <= 0.8, -->
+<!--                                   "mid", -->
+<!--                                   if_else(ground_truth > 0.8 & ground_truth <= 1, -->
+<!--                                           "high", -->
+<!--                                           "exclude"))), -->
+<!--     effect_size = factor(effect_size, levels = c("low", "mid", "high")), -->
+<!--     # calculate estimation error -->
+<!--     est_error = plogis(.prediction) - ground_truth -->
+<!--   ) %>% -->
+<!--   filter(effect_size != "exclude") %>% -->
+<!--   ggplot(aes(x = est_error, y = condition, fill = condition)) + -->
+<!--   stat_slabh(alpha = 0.35) +  -->
+<!--   scale_fill_brewer(type = "qual", palette = 2) + -->
+<!--   theme_minimal() + -->
+<!--   # theme(panel.grid.minor = element_blank()) + -->
+<!--   facet_grid(effect_size ~ sd_diff) -->
+<!-- ``` -->

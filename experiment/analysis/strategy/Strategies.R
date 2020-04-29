@@ -17,7 +17,8 @@ df <- full_df %>%
     `Mentioned threshold` = tolower(`Mentioned threshold`),
     `Mentioned area` = tolower(`Mentioned area of marking`),
     `Mentioned frequency` = tolower(`Mentioned frequency of events/markings`),
-    `Mentioned confusion` = tolower(`Mentioned confusion`)
+    `Mentioned confusion` = tolower(`Mentioned confusion`),
+    condition = factor(condition, levels = c("intervals", "HOPs", "densities", "QDPs")) # reorder
   ) %>%
   filter(`Answered question` == "yes")
 
@@ -132,147 +133,147 @@ df %>%
   )
 
 
-## Relative Position
-
-# proportion who mentioned using distance
-df %>% 
-  summarize(
-    n_distance = sum(`Mentioned distance` == "yes"),
-    n_total = n(),
-    proportion_variance = n_distance / n_total
-  )
-
-# proportion who use only distance only strategies
-df %>% 
-  summarize(
-    n_only_distance = sum(`Mentioned distance` == "yes" & !(str_detect(`Open codes`, "variance and gist distance") | str_detect(`Open codes`, "variance and mean difference"))),
-    n_distance = sum(`Mentioned distance` == "yes"),
-    proportion_only_distance = n_only_distance / n_distance
-  )
-
-# proportion who use distance relative to variance strategy
-df %>% 
-  summarize(
-    n_distance_relative = sum(`Mentioned distance` == "yes" & (str_detect(`Open codes`, "variance and gist distance") | str_detect(`Open codes`, "variance and mean difference"))),
-    n_distance = sum(`Mentioned distance` == "yes"),
-    proportion_distance_relative = n_distance_relative / n_distance
-  )
-
-
-## Spread
-
-# proportion who mentioned using variance in any way
-df %>% 
-  summarize(
-    n_variance = sum(`Mentioned variance` == "yes" | `Mentioned variance` == "low" | `Mentioned variance` == "high"),
-    n_total = n(),
-    proportion_variance = n_variance / n_total
-  )
-
-# proportion who use distance relative to variance strategy
-df %>% 
-  summarize(
-    n_distance_relative = sum((`Mentioned variance` == "yes"| `Mentioned variance` == "low" | `Mentioned variance` == "high") & (str_detect(`Open codes`, "variance and gist distance") | str_detect(`Open codes`, "variance and mean difference"))),
-    n_variance = sum(`Mentioned variance` == "yes" | `Mentioned variance` == "low" | `Mentioned variance` == "high"),
-    proportion_distance_relative = n_distance_relative / n_variance
-  )
-
-# proportion who prefer low or high variance
-df %>% 
-  summarize(
-    n_low_high_variance = sum(`Mentioned variance` == "low" | `Mentioned variance` == "high"),
-    n_variance = sum(`Mentioned variance` == "yes" | `Mentioned variance` == "low" | `Mentioned variance` == "high"),
-    proportion_low_high_variance = n_low_high_variance / n_variance
-  )
-
-# proportion who use distribution overlap strategy
-df %>% 
-  summarize(
-    n_overlap = sum((`Mentioned variance` == "yes"| `Mentioned variance` == "low" | `Mentioned variance` == "high") & str_detect(`Open codes`, "distribution overlap")),
-    n_variance = sum(`Mentioned variance` == "yes" | `Mentioned variance` == "low" | `Mentioned variance` == "high"),
-    proportion_overlap = n_overlap / n_variance 
-  )
-
-
-## Area
-
-# proportion who mentioned area
-df %>% 
-  summarize(
-    n_area = sum(`Mentioned area` == "yes"),
-    n_total = n(),
-    proportion_area = n_area / n_total
-  )
-
-# proportion who use cumulative probability strategy
-df %>% 
-  summarize(
-    n_area_cumulative = sum(`Mentioned area` == "yes" & str_detect(`Open codes`, "across threshold")),
-    n_area = sum(`Mentioned area` == "yes"),
-    proportion_area_cumulative = n_area_cumulative / n_area 
-  )
-
-# proportion who judge area overlap
-df %>% 
-  summarize(
-    n_area_overlap = sum(`Mentioned area` == "yes" & str_detect(`Open codes`, "distribution overlap")),
-    n_area = sum(`Mentioned area` == "yes"),
-    proportion_area_overlap = n_area_overlap / n_area 
-  )
-
-
-## Frequency
-
-# proportion who mentioned frequency
-df %>% 
-  summarize(
-    n_frequency = sum(`Mentioned frequency` == "yes"),
-    n_total = n(),
-    proportion_frequency = n_frequency / n_total
-  )
-
-# proportion who used cumulative probability
-df %>% 
-  summarize(
-    n_frequency_cumulative = sum(`Mentioned frequency` == "yes" & str_detect(`Open codes`, "across threshold")),
-    n_frequency = sum(`Mentioned frequency` == "yes"),
-    proportion_frequency_cumulative = n_frequency_cumulative / n_frequency
-  )
-
-# proportion who judge frequency of draws changing order
-df %>% 
-  summarize(
-    n_frequency_order = sum(`Mentioned frequency` == "yes" & str_detect(`Open codes`, "frequency of draws changing order")),
-    n_frequency = sum(`Mentioned frequency` == "yes"),
-    proportion_frequency_order = n_frequency_order / n_frequency
-  )
-
-
-## Reference Lines
-
-# proportion who mentioned threshold
-df %>% 
-  summarize(
-    n_threshold = sum(`Mentioned threshold` == "yes"),
-    n_total = n(),
-    proportion_threshold = n_threshold / n_total
-  )
-
-# proportion who used cumulative probability
-df %>% 
-  summarize(
-    n_cumulative = sum(`Mentioned threshold` == "yes" & str_detect(`Open codes`, "across threshold")),
-    n_threshold = sum(`Mentioned threshold` == "yes"),
-    proportion_cumulative = n_cumulative / n_threshold
-  )
-
-# proportion who mentioned other point thresholds
-df %>% 
-  summarize(
-    n_point_threshold = sum(`Mentioned threshold` == "yes" & str_detect(`Open codes`, "point threshold") & !str_detect(`Open codes`, "across threshold") & !str_detect(strategy_with_means, "100") & !str_detect(strategy_without_means, "100") & !str_detect(strategy_with_means, "threshold") & !str_detect(strategy_without_means, "threshold") & !str_detect(strategy_with_means, "threshhold") & !str_detect(strategy_without_means, "threshhold") & !str_detect(strategy_with_means, "dashed") & !str_detect(strategy_without_means, "dashed")),
-    n_threshold = sum(`Mentioned threshold` == "yes"),
-    proportion_point_threshold = n_point_threshold / n_threshold
-  )
+# ## Relative Position
+# 
+# # proportion who mentioned using distance
+# df %>% 
+#   summarize(
+#     n_distance = sum(`Mentioned distance` == "yes"),
+#     n_total = n(),
+#     proportion_variance = n_distance / n_total
+#   )
+# 
+# # proportion who use only distance only strategies
+# df %>% 
+#   summarize(
+#     n_only_distance = sum(`Mentioned distance` == "yes" & !(str_detect(`Open codes`, "variance and gist distance") | str_detect(`Open codes`, "variance and mean difference"))),
+#     n_distance = sum(`Mentioned distance` == "yes"),
+#     proportion_only_distance = n_only_distance / n_distance
+#   )
+# 
+# # proportion who use distance relative to variance strategy
+# df %>% 
+#   summarize(
+#     n_distance_relative = sum(`Mentioned distance` == "yes" & (str_detect(`Open codes`, "variance and gist distance") | str_detect(`Open codes`, "variance and mean difference"))),
+#     n_distance = sum(`Mentioned distance` == "yes"),
+#     proportion_distance_relative = n_distance_relative / n_distance
+#   )
+# 
+# 
+# ## Spread
+# 
+# # proportion who mentioned using variance in any way
+# df %>% 
+#   summarize(
+#     n_variance = sum(`Mentioned variance` == "yes" | `Mentioned variance` == "low" | `Mentioned variance` == "high"),
+#     n_total = n(),
+#     proportion_variance = n_variance / n_total
+#   )
+# 
+# # proportion who use distance relative to variance strategy
+# df %>% 
+#   summarize(
+#     n_distance_relative = sum((`Mentioned variance` == "yes"| `Mentioned variance` == "low" | `Mentioned variance` == "high") & (str_detect(`Open codes`, "variance and gist distance") | str_detect(`Open codes`, "variance and mean difference"))),
+#     n_variance = sum(`Mentioned variance` == "yes" | `Mentioned variance` == "low" | `Mentioned variance` == "high"),
+#     proportion_distance_relative = n_distance_relative / n_variance
+#   )
+# 
+# # proportion who prefer low or high variance
+# df %>% 
+#   summarize(
+#     n_low_high_variance = sum(`Mentioned variance` == "low" | `Mentioned variance` == "high"),
+#     n_variance = sum(`Mentioned variance` == "yes" | `Mentioned variance` == "low" | `Mentioned variance` == "high"),
+#     proportion_low_high_variance = n_low_high_variance / n_variance
+#   )
+# 
+# # proportion who use distribution overlap strategy
+# df %>% 
+#   summarize(
+#     n_overlap = sum((`Mentioned variance` == "yes"| `Mentioned variance` == "low" | `Mentioned variance` == "high") & str_detect(`Open codes`, "distribution overlap")),
+#     n_variance = sum(`Mentioned variance` == "yes" | `Mentioned variance` == "low" | `Mentioned variance` == "high"),
+#     proportion_overlap = n_overlap / n_variance 
+#   )
+# 
+# 
+# ## Area
+# 
+# # proportion who mentioned area
+# df %>% 
+#   summarize(
+#     n_area = sum(`Mentioned area` == "yes"),
+#     n_total = n(),
+#     proportion_area = n_area / n_total
+#   )
+# 
+# # proportion who use cumulative probability strategy
+# df %>% 
+#   summarize(
+#     n_area_cumulative = sum(`Mentioned area` == "yes" & str_detect(`Open codes`, "across threshold")),
+#     n_area = sum(`Mentioned area` == "yes"),
+#     proportion_area_cumulative = n_area_cumulative / n_area 
+#   )
+# 
+# # proportion who judge area overlap
+# df %>% 
+#   summarize(
+#     n_area_overlap = sum(`Mentioned area` == "yes" & str_detect(`Open codes`, "distribution overlap")),
+#     n_area = sum(`Mentioned area` == "yes"),
+#     proportion_area_overlap = n_area_overlap / n_area 
+#   )
+# 
+# 
+# ## Frequency
+# 
+# # proportion who mentioned frequency
+# df %>% 
+#   summarize(
+#     n_frequency = sum(`Mentioned frequency` == "yes"),
+#     n_total = n(),
+#     proportion_frequency = n_frequency / n_total
+#   )
+# 
+# # proportion who used cumulative probability
+# df %>% 
+#   summarize(
+#     n_frequency_cumulative = sum(`Mentioned frequency` == "yes" & str_detect(`Open codes`, "across threshold")),
+#     n_frequency = sum(`Mentioned frequency` == "yes"),
+#     proportion_frequency_cumulative = n_frequency_cumulative / n_frequency
+#   )
+# 
+# # proportion who judge frequency of draws changing order
+# df %>% 
+#   summarize(
+#     n_frequency_order = sum(`Mentioned frequency` == "yes" & str_detect(`Open codes`, "frequency of draws changing order")),
+#     n_frequency = sum(`Mentioned frequency` == "yes"),
+#     proportion_frequency_order = n_frequency_order / n_frequency
+#   )
+# 
+# 
+# ## Reference Lines
+# 
+# # proportion who mentioned threshold
+# df %>% 
+#   summarize(
+#     n_threshold = sum(`Mentioned threshold` == "yes"),
+#     n_total = n(),
+#     proportion_threshold = n_threshold / n_total
+#   )
+# 
+# # proportion who used cumulative probability
+# df %>% 
+#   summarize(
+#     n_cumulative = sum(`Mentioned threshold` == "yes" & str_detect(`Open codes`, "across threshold")),
+#     n_threshold = sum(`Mentioned threshold` == "yes"),
+#     proportion_cumulative = n_cumulative / n_threshold
+#   )
+# 
+# # proportion who mentioned other point thresholds
+# df %>% 
+#   summarize(
+#     n_point_threshold = sum(`Mentioned threshold` == "yes" & str_detect(`Open codes`, "point threshold") & !str_detect(`Open codes`, "across threshold") & !str_detect(strategy_with_means, "100") & !str_detect(strategy_without_means, "100") & !str_detect(strategy_with_means, "threshold") & !str_detect(strategy_without_means, "threshold") & !str_detect(strategy_with_means, "threshhold") & !str_detect(strategy_without_means, "threshhold") & !str_detect(strategy_with_means, "dashed") & !str_detect(strategy_without_means, "dashed")),
+#     n_threshold = sum(`Mentioned threshold` == "yes"),
+#     proportion_point_threshold = n_point_threshold / n_threshold
+#   )
 # test <- df %>% filter(str_detect(`Mentioned threshold` == "yes" & `Open codes`, "point threshold") & !str_detect(`Open codes`, "across threshold") & !str_detect(strategy_with_means, "100") & !str_detect(strategy_without_means, "100") & !str_detect(strategy_with_means, "threshold") & !str_detect(strategy_without_means, "threshold") & !str_detect(strategy_with_means, "threshhold") & !str_detect(strategy_without_means, "threshhold") & !str_detect(strategy_with_means, "dashed") & !str_detect(strategy_without_means, "dashed"))
 
 
@@ -621,6 +622,53 @@ df %>%
     proportion_switched_area_mean = n_switched_area_mean / n_switched_mean
   )
 
-## Discussion
-
+## Table
+table_per_cond <- df %>%
+  group_by(condition) %>%
+  summarize(
+    n_total = n(),
+    # only distance
+    n_only_distance = sum((str_detect(`Open codes`, "gist distance") | str_detect(`Open codes`, "mean difference")) & !(str_detect(`Open codes`, "variance and gist distance") | str_detect(`Open codes`, "variance and mean difference"))),
+    # proportion_only_distance = n_only_distance / n_total,
+    # distance relative to variance
+    n_distance_variance = sum(str_detect(`Open codes`, "variance and gist distance") | str_detect(`Open codes`, "variance and mean difference")),
+    # proportion_distance_variance = n_distance_variance / n_total,
+    # cumulative probability
+    n_cumulative_p = sum(str_detect(`Open codes`, "across threshold")),
+    # proportion_cumulative_p = n_cumulative_p / n_total,
+    # distribution overlap
+    n_overlap = sum(str_detect(`Open codes`, "distribution overlap")),
+    # proportion_overlap = n_overlap / n_total,
+    # frequency of draws changing order
+    n_draws_changing_order = sum(str_detect(`Open codes`, "frequency of draws changing order")),
+    # proportion_draws_changing_order = n_draws_changing_order / n_total,
+    # switching
+    n_switched = sum(`Changed strategy` == "yes")
+    # proportion_switched = n_switched / n_total
+  )
+table_overall <- df %>%
+  mutate(condition = "Overall") %>%
+  group_by(condition) %>%
+  summarize(
+    n_total = n(),
+    # only distance
+    n_only_distance = sum((str_detect(`Open codes`, "gist distance") | str_detect(`Open codes`, "mean difference")) & !(str_detect(`Open codes`, "variance and gist distance") | str_detect(`Open codes`, "variance and mean difference"))),
+    # proportion_only_distance = n_only_distance / n_total,
+    # distance relative to variance
+    n_distance_variance = sum(str_detect(`Open codes`, "variance and gist distance") | str_detect(`Open codes`, "variance and mean difference")),
+    # proportion_distance_variance = n_distance_variance / n_total,
+    # cumulative probability
+    n_cumulative_p = sum(str_detect(`Open codes`, "across threshold")),
+    # proportion_cumulative_p = n_cumulative_p / n_total,
+    # distribution overlap
+    n_overlap = sum(str_detect(`Open codes`, "distribution overlap")),
+    # proportion_overlap = n_overlap / n_total,
+    # frequency of draws changing order
+    n_draws_changing_order = sum(str_detect(`Open codes`, "frequency of draws changing order")),
+    # proportion_draws_changing_order = n_draws_changing_order / n_total,
+    # switching
+    n_switched = sum(`Changed strategy` == "yes")
+    # proportion_switched = n_switched / n_total
+  )
+table <- rbind(table_per_cond, table_overall)
 

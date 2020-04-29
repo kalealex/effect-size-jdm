@@ -19,6 +19,7 @@ model_df <- model_df %>%
     means = as.factor(means),
     start_means = as.factor(start_means),
     sd_diff = as.factor(sd_diff),
+    condition = factor(condition, levels = c("densities","intervals", "HOPs", "QDPs")), # reorder
     # evidence scale for decision model
     p_diff = p_award_with - (p_award_without + (1 / award_value)),
     evidence = qlogis(p_award_with) - qlogis(p_award_without + (1 / award_value))
@@ -67,7 +68,27 @@ fake_llo_df <- data.frame(
     slope = as.ordered(slope)
   )
 
-# mean slope and intercept in each condition fake LLO model parameters to show a gradient of slops
+# mean slope and intercept in each condition fake LLO model parameters to show a gradient of slopes
+# query slopes
+model_df %>%
+  group_by(means, sd_diff, condition, trial, start_means) %>%
+  data_grid(lo_ground_truth = c(0, 1)) %>%          # get fitted draws (in log odds units) only for ground truth of 0 and 1
+  add_fitted_draws(m.p_sup, re_formula = NA) %>%
+  compare_levels(.value, by = lo_ground_truth) %>%  # calculate the difference between fits at 1 and 0 (i.e., slope)
+  rename(slope = .value) %>%
+  group_by(condition, .draw) %>%                    # group by predictors to keep
+  summarise(slope = mean(slope)) %>%
+  mean_qi()
+# query intercepts
+model_df %>%
+  group_by(means, sd_diff, condition, trial, start_means) %>%
+  data_grid(lo_ground_truth = c(0)) %>%             # get fitted draws (in log odds units) only for ground truth of 0
+  add_fitted_draws(m.p_sup, re_formula = NA) %>%
+  rename(intercept = .value) %>%
+  group_by(condition, .draw) %>%                    # group by predictors to keep
+  summarise(intercept = mean(intercept)) %>% 
+  mean_qi()
+# assign
 vis_fits_df <- data.frame(
   "intercept" = c(0.003426065, -0.009079539, 0.006064548, 0.007080837),
   "slope" = c(0.4338522, 0.3938609, 0.3506741, 0.5656542),
@@ -208,19 +229,6 @@ llo_interaction_high_plt <- llo_slopes_df %>%
 # save
 ggsave(file = "components/llo_slopes-interaction_high.svg", plot = llo_interaction_high_plt, width=2.5, height=1.33)
 
-# # marginal effect of visualization
-# llo_vis_plt <- llo_slopes_df %>%
-#   group_by(condition, .draw) %>%                    # group by predictors to keep
-#   summarise(slope = weighted.mean(slope)) %>%       # marginalize out means present/absent by taking a weighted average
-#   ggplot(aes(x = slope, y = condition, fill = condition)) +
-#   stat_slabh(alpha = 0.35) +
-#   scale_fill_brewer(type = "qual", palette = 2) +
-#   coord_cartesian(xlim = c(0.2, 0.7)) +
-#   theme_minimal() +
-#   theme(legend.position = "none")
-# # save
-# ggsave(file = "components/llo_slopes-vis_conditions.svg", plot = llo_vis_plt, width=2.5, height=1.33)
-
 # marginal effect of means at low variance
 llo_means.low_sd_plt <- llo_slopes_df %>%
   filter(sd_diff == 5) %>%
@@ -247,6 +255,17 @@ llo_means.high_sd_plt <- llo_slopes_df %>%
 # save
 ggsave(file = "components/llo_slopes-means_high-sd.svg", plot = llo_means.high_sd_plt, width=2.5, height=1)
 
+# marginalize across variance
+llo_vis_plt <- llo_slopes_df %>%
+  group_by(condition, means, .draw) %>%             # group by predictors to keep
+  summarise(slope = weighted.mean(slope)) %>%       # marginalize out variance by taking a weighted average
+  ggplot(aes(x = slope, y = condition, group = means, fill = means)) +
+  stat_slabh(alpha = 0.35) +
+  coord_cartesian(xlim = c(0.2, 0.7)) +
+  theme_minimal() +
+  theme(legend.position = "none")
+# save
+ggsave(file = "components/llo_slopes-vis_conditions.svg", plot = llo_vis_plt, width=2.5, height=1.33)
 
 
 ##Results: PSE
@@ -293,19 +312,6 @@ pse_interaction_high_plt <- pse_df %>%
 # save
 ggsave(file = "components/pse-interaction_high.svg", plot = pse_interaction_high_plt, width=2.5, height=1.33)
 
-# # marginal effect of visualization
-# pse_vis_plt <- pse_df %>%
-#   group_by(condition, .draw) %>%          # maginalize out other manipulations
-#   summarise(pse = mean(pse)) %>%
-#   ggplot(aes(x = pse, y = condition, fill = condition)) +
-#   stat_slabh(alpha = 0.35) +
-#   scale_fill_brewer(type = "qual", palette = 2) + 
-#   coord_cartesian(xlim = c(-1, 1)) +
-#   theme_minimal() +
-#   theme(legend.position = "none")
-# # save
-# ggsave(file = "components/pse-vis_conditions.svg", plot = pse_vis_plt, width=2.5, height=1.33)
-
 # marginal effect of means, low variance
 pse_means.low_sd_plt <- pse_df %>%
   filter(sd_diff == 5) %>%
@@ -331,6 +337,18 @@ pse_means.high_sd_plt <- pse_df %>%
   theme(legend.position = "none")
 # save
 ggsave(file = "components/pse-means_high-sd.svg", plot = pse_means.high_sd_plt, width=2.5, height=1)
+
+# marginalize across variance
+pse_vis_plt <- pse_df %>%
+  group_by(condition, means, .draw) %>%          # maginalize out other manipulations
+  summarise(pse = mean(pse)) %>%
+  ggplot(aes(x = pse, y = condition, group = means, fill = means)) +
+  stat_slabh(alpha = 0.35) +
+  coord_cartesian(xlim = c(-1, 1)) +
+  theme_minimal() +
+  theme(legend.position = "none")
+# save
+ggsave(file = "components/pse-vis_conditions.svg", plot = pse_vis_plt, width=2.5, height=1.33)
 
 
 ##Results: JNDs
@@ -366,19 +384,6 @@ jnd_interaction_high_plt <- jnd_df %>%
 # save
 ggsave(file = "components/jnd-interaction_high.svg", plot = jnd_interaction_high_plt, width=2.5, height=1.33)
 
-# # marginal effect of visualization
-# jnd_vis_plt <- jnd_df %>%
-#   group_by(condition, .draw) %>%          # maginalize out other manipulations
-#   summarise(jnd = mean(jnd)) %>%
-#   ggplot(aes(x = jnd, y = condition, fill = condition)) +
-#   stat_slabh(alpha = 0.35) +
-#   scale_fill_brewer(type = "qual", palette = 2) + 
-#   coord_cartesian(xlim = c(0.25, 0.9)) +
-#   theme_minimal() +
-#   theme(legend.position = "none")
-# # save
-# ggsave(file = "components/jnd-vis_conditions.svg", plot = jnd_vis_plt, width=2.5, height=1.33)
-
 # marginal effect of means, low variance
 jnd_means.low_sd_plt <- jnd_df %>%
   filter(sd_diff == 5) %>%
@@ -404,6 +409,18 @@ jnd_means.high_sd_plt <- jnd_df %>%
   theme(legend.position = "none")
 # save
 ggsave(file = "components/jnd-means_high-sd.svg", plot = jnd_means.high_sd_plt, width=2.5, height=1)
+
+# marginalize across variance
+jnd_vis_plt <- jnd_df %>%
+  group_by(condition, means, .draw) %>%          # maginalize out other manipulations
+  summarise(jnd = mean(jnd)) %>%
+  ggplot(aes(x = jnd, y = condition, group = means, fill = means)) +
+  stat_slabh(alpha = 0.35) +
+  coord_cartesian(xlim = c(0.2, 0.9)) +
+  theme_minimal() +
+  theme(legend.position = "none")
+# save
+ggsave(file = "components/jnd-vis_conditions.svg", plot = jnd_vis_plt, width=2.5, height=1.33)
 
 
 ## Decoupling of Estimation and Decisions

@@ -37,6 +37,7 @@ model_df <- model_df %>%
     means = as.factor(means),
     start_means = as.factor(start_means),
     sd_diff = as.factor(sd_diff),
+    condition = factor(condition, levels = c("densities","intervals", "HOPs", "QDPs")), # reorder
     # evidence scale for decision model
     p_diff = p_award_with - (p_award_without + (1 / award_value)),
     evidence = qlogis(p_award_with) - qlogis(p_award_without + (1 / award_value))
@@ -68,7 +69,7 @@ m.p_sup <- brm(data = model_df, family = "gaussian",
 summary(m.p_sup)
 ```
 
-###Interaction Effects
+###Effects of Adding Means
 
 The primary results about probability of superiority that we present in the paper concern the three way interaction between the ground truth probability of superiority, the presence or absence of extrinsic means, and the level of variance shown `lo_ground_truth*means*sd_diff` for each uncertainty visualization format we tested. In order to show this effect, we want to show how the slope of the linear log odds (LLO) model, changes as a function of extrinsic means, variance show, and visualization format. The charts below highlight this effect.
 
@@ -137,9 +138,36 @@ model_df %>%
   theme_minimal()
 ```
 
-It looks like extrinsic means lead to greater underestimation of probability of superiority (lower LLO slopes) when variance is low, regardless of visualization condition. This is the effect we expected to see. Surprisingly, the impact of extrinsic means does not seem to depend on the intinsic salience of the mean in the uncertainty visualization conditions. At high levels of variance, extrinsic means improve slopes for intervals and densities but still reduce slopes for HOPs. *These results suggest that adding extrinsic means is not a good design choice for HOPs or when the distributions visualized on a common axis differ in their variance*.
+It looks like extrinsic means lead to greater underestimation of probability of superiority (lower LLO slopes) when variance is low, regardless of visualization condition. This is the effect we expected to see. Surprisingly, the impact of extrinsic means does not seem to depend on the intinsic salience of the mean in the uncertainty visualization conditions. At high levels of variance, extrinsic means improve slopes for intervals and densities but still reduce slopes for HOPs.
 
-Effect of means on slopes, marginalizing across visualization condition. 
+Effect of means on slopes for each combination of visualization condition and level of variance (in figure). 
+
+```{r}
+model_df %>%
+  group_by(means, sd_diff, condition, trial, start_means) %>%
+  data_grid(lo_ground_truth = c(0, 1)) %>%          # get fitted draws (in log odds units) only for ground truth of 0 and 1
+  add_fitted_draws(m.p_sup, re_formula = NA) %>%
+  compare_levels(.value, by = lo_ground_truth) %>%  # calculate the difference between fits at 1 and 0 (i.e., slope)
+  rename(slope = .value) %>%
+  group_by(means, condition, sd_diff, .draw) %>%               # group by predictors to keep
+  summarise(slope = mean(slope)) %>%                # marginalize out other predictors by taking a weighted average
+  compare_levels(slope, by = means) %>%             # contrast mean present - absent
+  mean_qi()
+```
+
+Effect of adding means on predicted error for each combination of visualization condition and level of variance. This helps us contextualize the impact of adding means. 
+
+```{r}
+model_df %>%
+  data_grid(lo_ground_truth, means, sd_diff, condition, trial, start_means) %>%
+  add_predicted_draws(m.p_sup, re_formula = NA, n = 5000, seed = 1234) %>%
+  mutate(est_error = plogis(.prediction) - plogis(lo_ground_truth)) %>% # calculate estimation error
+  compare_levels(est_error, by = means) %>%                             # contrast mean present - absent
+  group_by(means, condition, sd_diff) %>%                               # group by predictors to keep
+  mean_qi(est_error)
+```
+
+Effect of means on slopes, marginalizing across visualization condition (in figure). 
 
 ```{r}
 model_df %>%
@@ -154,7 +182,7 @@ model_df %>%
   mean_qi()
 ```
 
-Effect of adding means on predicted error, marginalizing across conditions.
+Effect of adding means on predicted error, marginalizing across visualization conditions. This helps us contextualize the impact of adding means.
 
 ```{r}
 model_df %>%
@@ -166,80 +194,9 @@ model_df %>%
   mean_qi(est_error)
 ```
 
-<!-- ```{r} Using fitted draws gives us same mean, but narrower intervals. -->
-<!-- model_df %>% -->
-<!--   data_grid(lo_ground_truth, means, sd_diff, condition, trial, start_means) %>% -->
-<!--   add_fitted_draws(m.p_sup, re_formula = NA, n = 5000, seed = 1234) %>% -->
-<!--   mutate(est_error = plogis(.value) - plogis(lo_ground_truth)) %>% # calculate estimation error -->
-<!--   group_by(means, sd_diff, .draw) %>%                             # group by predictors to keep -->
-<!--   summarise(est_error = mean(est_error)) %>%                      # aggregate -->
-<!--   compare_levels(est_error, by = means) %>%                       # contrast mean present - absent -->
-<!--   mean_qi() -->
-<!-- ``` -->
-
-<!-- Effect of means on HOPs, marginalizing across levels of variance. -->
-
-<!-- ```{r} -->
-<!-- model_df %>% -->
-<!--   filter(condition == "HOPs") %>% -->
-<!--   group_by(means, sd_diff, condition, trial, start_means) %>% -->
-<!--   data_grid(lo_ground_truth = c(0, 1)) %>%         # get fitted draws (in log odds units) only for ground truth of 0 and 1 -->
-<!--   add_fitted_draws(m.p_sup, re_formula = NA) %>% -->
-<!--   compare_levels(.value, by = lo_ground_truth) %>% # calculate the difference between fits at 1 and 0 (i.e., slope) -->
-<!--   rename(slope = .value) %>% -->
-<!--   group_by(means, condition, .draw) %>%            # group by predictors to keep -->
-<!--   summarise(slope = mean(slope)) %>%               # marginalize out other predictors by taking a weighted average -->
-<!--   compare_levels(slope, by = means) %>%            # contrast mean present - absent -->
-<!--   mean_qi() -->
-<!-- ``` -->
-
-<!-- Effect of adding means to HOPs on predicted error, marginalizing across levels of variance. -->
-
-<!-- ```{r} -->
-<!-- model_df %>% -->
-<!--   filter(condition == "HOPs") %>% -->
-<!--   data_grid(lo_ground_truth, means, sd_diff, condition, trial, start_means) %>% -->
-<!--   add_predicted_draws(m.p_sup, re_formula = NA, n = 5000, seed = 1234) %>% -->
-<!--   mutate(est_error = plogis(.prediction) - plogis(lo_ground_truth)) %>% # calculate estimation error -->
-<!--   compare_levels(est_error, by = means) %>%                             # contrast mean present - absent -->
-<!--   group_by(means, condition) %>%                                        # group by predictors to keep -->
-<!--   mean_qi(est_error) -->
-<!-- ``` -->
-
-<!-- The effect of means on HOPs is reliable but is practically negligible, so we don't emphasize it much in the paper. -->
-
-Effect of adding means to intervals, densities, and HOPs at high variance.
-
-```{r}
-model_df %>%
-  filter(condition%in% c("intervals", "densities", "HOPs") & sd_diff == 15) %>%
-  group_by(means, sd_diff, condition, trial, start_means) %>%
-  data_grid(lo_ground_truth = c(0, 1)) %>%         # get fitted draws (in log odds units) only for ground truth of 0 and 1
-  add_fitted_draws(m.p_sup, re_formula = NA) %>%
-  compare_levels(.value, by = lo_ground_truth) %>% # calculate the difference between fits at 1 and 0 (i.e., slope)
-  rename(slope = .value) %>%
-  group_by(means, sd_diff, condition, .draw) %>%   # group by predictors to keep
-  summarise(slope = mean(slope)) %>%               # marginalize out other predictors by taking a weighted average
-  compare_levels(slope, by = means) %>%            # contrast mean present - absent
-  mean_qi()
-```
-
-Effect of adding means to intervals, densities, and HOPs at high variance on predicted error.
-
-```{r}
-model_df %>%
-  data_grid(lo_ground_truth, means, sd_diff, condition, trial, start_means) %>%
-  filter(condition %in% c("intervals", "densities","HOPs") & sd_diff == 15) %>%
-  add_predicted_draws(m.p_sup, re_formula = NA, n = 5000, seed = 1234) %>%
-  mutate(est_error = plogis(.prediction) - plogis(lo_ground_truth)) %>% # calculate estimation error
-  compare_levels(est_error, by = means) %>%                             # contrast mean present - absent
-  group_by(means, sd_diff, condition) %>%                               # group by predictors to keep
-  mean_qi(est_error)
-```
-
 ###Visualization Effects
 
-We preregistered comparisons of LLO slopes in each uncertainty visualization condition, marginalizing across other predictors.
+We preregistered comparisons of LLO slopes in each uncertainty visualization condition, marginalizing across other predictors. However, it occurred to us later that these effects are not that useful for making design recommendatations. They represent uncertainty encodings that cannot be rendered: distributions which both do and do not have means added at the same time. This is a statistical abstraction that represents the effectiveness of uncertainty encodings averaging across other maniputlations. As such we present it here but omit comparisons averaging across the presence/absence of the mean from the paper.
 
 ```{r}
 model_df %>%
@@ -282,7 +239,6 @@ The chart above shows only the contrasts between quantile dotplots and each othe
 Slope estimates per visualization condition.
 
 ```{r}
-#slopes
 model_df %>%
   group_by(means, sd_diff, condition, trial, start_means) %>%
   data_grid(lo_ground_truth = c(0, 1)) %>%          # get fitted draws (in log odds units) only for ground truth of 0 and 1
@@ -290,21 +246,7 @@ model_df %>%
   compare_levels(.value, by = lo_ground_truth) %>%  # calculate the difference between fits at 1 and 0 (i.e., slope)
   rename(slope = .value) %>%
   group_by(condition, .draw) %>%                    # group by predictors to keep
-  summarise(slope = mean(slope)) %>% 
-  mean_qi()
-```
-
-Let's check out the intercepts per condition as well. We will use these values as well as the slopes above to generate a figure explaining the LLO model. We also want to see that these values are not too different from zero (i.e., 50% probability of superiority).
-
-```{r}
-# intercepts
-model_df %>%
-  group_by(means, sd_diff, condition, trial, start_means) %>%
-  data_grid(lo_ground_truth = c(0)) %>%             # get fitted draws (in log odds units) only for ground truth of 0
-  add_fitted_draws(m.p_sup, re_formula = NA) %>%
-  rename(intercept = .value) %>%
-  group_by(condition, .draw) %>%                    # group by predictors to keep
-  summarise(intercept = mean(intercept)) %>% 
+  summarise(slope = mean(slope)) %>%
   mean_qi()
 ```
 
@@ -319,7 +261,97 @@ model_df %>%
   mean_qi(est_error)
 ```
 
-###Posterior Predictions
+###Effect of Visualization Design when Averaging Over Variance
+
+Instead of the marginal effects of visualization conditions shown above, *what we present in the paper are the effects of each visualization design (uncertainty encoding x means)*. This means that we are only marginalizing across levels of variance.
+
+```{r}
+model_df %>%
+  group_by(means, sd_diff, condition, trial, start_means) %>%
+  data_grid(lo_ground_truth = c(0, 1)) %>%          # get fitted draws (in log odds units) only for ground truth of 0 and 1
+  add_fitted_draws(m.p_sup, re_formula = NA) %>%
+  compare_levels(.value, by = lo_ground_truth) %>%  # calculate the difference between fits at 1 and 0 (i.e., slope)
+  rename(slope = .value) %>%
+  group_by(condition, means, .draw) %>%             # group by predictors to keep
+  summarise(slope = mean(slope)) %>%                # marginalize by taking a weighted average
+  ggplot(aes(x = slope, y = condition, group = means, fill = means)) +
+  stat_slabh(alpha = 0.35) +
+  labs(subtitle = "Slopes Per Visualization Design") +
+  theme_minimal() +
+  theme(legend.position = "none")
+```
+
+Let's look at contrasts between visualization designs to get a sense of which differences are reliable.
+
+```{r}
+model_df %>%
+  group_by(means, sd_diff, condition, trial, start_means) %>%
+  data_grid(lo_ground_truth = c(0, 1)) %>%          # get fitted draws (in log odds units) only for ground truth of 0 and 1
+  add_fitted_draws(m.p_sup, re_formula = NA) %>%
+  compare_levels(.value, by = lo_ground_truth) %>%  # calculate the difference between fits at 1 and 0 (i.e., slope)
+  rename(slope = .value) %>%
+  unite("design", c(condition, means)) %>%
+  group_by(design, .draw) %>%                       # group by predictors to keep
+  summarise(slope = mean(slope)) %>%                # marginalize by taking a weighted average
+  compare_levels(slope, by = design) %>%
+  ggplot(aes(x = slope, y = design)) +
+  stat_halfeyeh() +
+  labs(x = "Slope Differences Between Visualization Designs") +
+  theme_minimal()
+```
+
+Quantile dotplots outperform any other condition with or without means added. Densities with and without means are reliably better than intervals without means. HOPs are not reliably different from intervals or densities with or without means added. The effect of adding means is only reliable for HOPs, but we can see below that the predicted error only changes by a negligible 0.08 percentage points in terms of probability of superiority.
+
+Effect of means on slopes, marginalizing across levels of variance (in figure). 
+
+```{r}
+model_df %>%
+  group_by(means, sd_diff, condition, trial, start_means) %>%
+  data_grid(lo_ground_truth = c(0, 1)) %>%          # get fitted draws (in log odds units) only for ground truth of 0 and 1
+  add_fitted_draws(m.p_sup, re_formula = NA) %>%
+  compare_levels(.value, by = lo_ground_truth) %>%  # calculate the difference between fits at 1 and 0 (i.e., slope)
+  rename(slope = .value) %>%
+  group_by(means, condition, .draw) %>%             # group by predictors to keep
+  summarise(slope = mean(slope)) %>%                # marginalize by taking a weighted average
+  compare_levels(slope, by = means) %>%             # contrast mean present - absent
+  mean_qi()
+```
+
+Predicted error with and without means, marginalizing across levels of variance. This helps us give a sense of visualization effectiveness.
+
+```{r}
+model_df %>%
+  data_grid(lo_ground_truth, means, sd_diff, condition, trial, start_means) %>%
+  add_predicted_draws(m.p_sup, re_formula = NA, n = 5000, seed = 1234) %>%
+  mutate(est_error = plogis(.prediction) - plogis(lo_ground_truth)) %>% # calculate estimation error
+  group_by(means, condition) %>%                                        # group by predictors to keep
+  mean_qi(est_error)
+```
+
+###Effect of High vs Low Variance
+
+Let's look at the marginal effect of high vs low varaince on LLO slopes. This is an exploratory comparison that we do not present in the paper.
+
+```{r}
+model_df %>%
+  group_by(means, sd_diff, condition, trial, start_means) %>%
+  data_grid(lo_ground_truth = c(0, 1)) %>%          # get fitted draws (in log odds units) only for ground truth of 0 and 1
+  add_fitted_draws(m.p_sup, re_formula = NA) %>%
+  compare_levels(.value, by = lo_ground_truth) %>%  # calculate the difference between fits at 1 and 0 (i.e., slope)
+  rename(slope = .value) %>%
+  group_by(sd_diff, .draw) %>%                      # group by predictors to keep
+  summarise(slope = mean(slope)) %>%                # marginalize by taking a weighted average
+  compare_levels(slope, by = sd_diff) %>%
+  ggplot(aes(x = slope, y = "Effect of Variance")) +
+  stat_halfeyeh() +
+  labs(subtitle = "Difference in LLO Slopes (High - Low Variance)") +
+  theme_minimal() +
+  theme(legend.position = "none")
+```
+
+It looks like LLO slopes are larger at high than at low variance. One potential reason for this is that high variance stimuli use white space more effiencently, making the task easier especially for users relying on distance as a proxy for effect size.
+
+###Visualizing Posterior Predictions
 
 Let's look at predicted magnitude estimates to try to help with the interpretation of LLO slope as a metric.
 
@@ -333,7 +365,7 @@ model_df %>%
   facet_grid(condition ~ sd_diff)
 ```
 
-I find it hard to see the slope differences on this chart. The noise in posterior predictions just swamps the signal we are able to measure as slopes in the linear log odds model. 
+I find it hard to see the slope differences on this chart. The noise in posterior predictions swamps the signal we are able to measure using LLO slopes as a metric. This is we are referring to when we say that LLO slopes give us greater statistical power than simpler metrics like accuracy.
 
 We can do a little better at showing the effect of interest by removing uncertainty in the prediction, but this seems a little antithetical to the whole point of the paper. 
 
@@ -366,7 +398,7 @@ model_df %>%
   facet_grid(condition ~ sd_diff)
 ```
 
-It may be best to just describe posterior predictions in term of marginal predicted average error for each of the comparisons that we care about.
+In the paper, we decided to describe posterior predictions in term of marginal predicted average error for selected comparisons. We do this to contextualize LLO slopes in terms of average error, a more familiar but less precise metric for the kind of bias we measure.
 
 
 ##Intervention Decisions
@@ -423,11 +455,11 @@ stats_df <- slopes_df %>%
 
 ###Points of Subjective Equality (PSE)
 
-PSE describe a chart user's bias toward or against intervening compared to utility optimal decision criterion on the evidence scale (i.e., a proxy for effect size). 
+PSE describe a chart user's bias toward or against intervening compared to utility optimal decision criterion on the evidence scale (a proxy for effect size which is described in the paper). 
 
-####Interaction Effects
+####Effects of Adding Means
 
-Let's also take a look at the interaction effect of extinsic means at difference levels of uncertainty on PSE.
+Let's take a look at the interaction effects on PSE of adding means at difference levels of variance.
 
 ```{r}
 stats_df %>%
@@ -454,6 +486,12 @@ stats_df %>%
   facet_grid(sd_diff ~ .)
 ```
 
+In terms of the direction of effect, extrinsic means seem to consistently bias PSE toward intervention at high variance and away from intervention at low variance. This has the impact of exacerbating biases in decisions compared to when means are absent (with the exception of quantile dotplots at low variance). However, these effect of adding the mean only appear to be reliable for quantile dotplots at low variance and for intervals and maybe densities at high variance. We suspect that more data would shrink the uncertainty in these estimates revealing this to be persistent trend.
+
+Quantile dotplots are slightly different than other charts in that they are the only uncertainty encoding that consistently biases users toward intervention, regardless of the level of variance. This means that the positive impact on PSE induced by adding means at low variance is debiasing for quantile doplots, which is the only case where we can say that adding means is reliably helpful for decision-making.
+
+Effect of means on PSE for each combination of visualization condition and level of variance (in figure). 
+
 ```{r}
 pse_tbl <- stats_df %>%
   group_by(means, sd_diff, condition, .draw) %>%          # maginalize out other manipulations
@@ -468,15 +506,10 @@ pse_p_tbl <- stats_df %>%
 pse_tbl %>% full_join(pse_p_tbl, by = c("means", "sd_diff", "condition"))
 ```
 
-In terms of the direction of effect, extrinsic means seem to consistently bias PSE toward intervention at high variance and away from intervention at low variance. This has the impact of exacerbating biases in decisions compared to when means are absent (with the exception of quantile dotplots at low variance). However, this effect only appears to be reliable for intervals and maybe densities at high variance. We suspect that more data would shrink the uncertainty in these estimates revealing this to be persistent trend.
-
-Quantile dotplots are slightly different than other charts in that they are the only uncertainty encoding that consistently biases users toward intervention, regardless of the level of uncertainty. This means that the positive impact on PSE induced by adding extrinsic means at low uncertainty is debiasing for quantile doplots, which is the only case where we can say that adding means is reliably helpful for decision-making.
-
-To illustrate the unique impact of means on quantile dotplots, let's compare PSE for quantile dotplots at low variance with and without means.
+PSE with and without means added for each combination of visualization condition and level of variance. These numbers help us explain the nuanced differences in PSE between visualization designs in the paper.
 
 ```{r}
 stats_df %>%
-  filter(sd_diff == 5 & condition =="QDPs") %>%
   group_by(means, sd_diff, condition, .draw) %>%          # maginalize out other manipulations
   summarise(
     pse = mean(pse),
@@ -485,35 +518,7 @@ stats_df %>%
   mean_qi()
 ```
 
-Now, let's look at constrasts for the impact of the level of variance per condition.
-
-```{r}
-stats_df %>%
-  group_by(sd_diff, condition, .draw) %>%          # maginalize out other manipulations (including means present/absent)
-  summarise(pse = mean(jnd)) %>%
-  compare_levels(pse, by = sd_diff) %>%
-  ggplot(aes(x = pse, y = condition)) +
-  stat_halfeyeh() +
-  labs(x = "Difference in PSE (Variance high - low)") +
-  theme_minimal()
-```
-
-People seem to intervene more than they should when uncertainty is high in all visualization conditions.
-
-####The Overall Effect of Adding Extrinsic Means
-
-Let's examine the effect of means at low vs high variance, marginalizing across visualization conditions.
-
-```{r}
-stats_df %>%
-  group_by(means, sd_diff, .draw) %>%          # maginalize out other manipulations
-  summarise(pse = mean(pse)) %>%
-  compare_levels(pse, by = means) %>%
-  ggplot(aes(x = pse, y = sd_diff)) +
-  stat_halfeyeh() +
-  labs(subtitle = "Difference in PSE (Means present - absent)") +
-  theme_minimal()
-```
+Effect of means on PSE, marginalizing across visualization condition (in figure). 
 
 ```{r}
 pse_tbl <- stats_df %>%
@@ -529,13 +534,10 @@ pse_p_tbl <- stats_df %>%
 pse_tbl %>% full_join(pse_p_tbl, by = c("means", "sd_diff"))
 ```
 
-It looks like the effect of means is reliable if we marginalize across visualization conditions, which lends credence to the argument that this effect is robust.
-
-Let's compare the differences in PSE with means added (table above) to PSE without means.
+PSE with and without means, marginalizing across visualization conditions. These numbers help us explain the aggregate effect of adding means on decision quality at each level of variance.
 
 ```{r}
 stats_df %>%
-  filter(!as.logical(means)) %>%
   group_by(means, sd_diff, .draw) %>%          # maginalize out other manipulations
   summarise(
     pse = mean(pse),
@@ -544,90 +546,24 @@ stats_df %>%
   mean_qi()
 ```
 
-####Looking at High vs Low Uncertainty Separately
-
-It seems like the patterns of results for PSE at low vs high variance are different enough that we might want to make different design recommendations depending on the level of uncertainty shown in charts. 
-
-Let's start by looking at contrasts between visualization conditions at low variance. Since means seem to bias users against intervention at low variance (if they have a reliable effect) with the exception of quantile dotplot users, we'll look specifically at the effectiveness of visualization conditions **without means**.
+Let's visualize the effect of means on PSE, marginalizing across visualization conditions, since this is particularly important and isn't shown clearly above.
 
 ```{r}
 stats_df %>%
-  group_by(means, sd_diff, condition, .draw) %>%          # maginalize out other manipulations
+  group_by(means, sd_diff, .draw) %>%          # maginalize out other manipulations
   summarise(pse = mean(pse)) %>%
-  filter(sd_diff == 5 & !as.logical(means)) %>%
-  compare_levels(pse, by = condition) %>%
-  ggplot(aes(x = pse, y = condition)) +
+  compare_levels(pse, by = means) %>%
+  ggplot(aes(x = pse, y = sd_diff)) +
   stat_halfeyeh() +
-  labs(subtitle = "Differences in PSE Between Visualization Conditions at Low Variance without Means") +
+  labs(subtitle = "Difference in PSE (Means present - absent)") +
   theme_minimal()
 ```
 
-Densities without means are the best bet at low variance. They are reliably closer to an unbiased PSE at low variance than intervals, HOPs, and maybe quantile dotplots, suggesting that densities may be preferred when decision aids show distributions with different levels of uncertainty on a common axis. 
-
-Note that in the chart above the contrasts between quantile dotplots and invervals or HOPs, respectively, are reliable because the direction of bias is different for quantile dotplots than for invervals or HOPs.
-
-To clarify, _densities without means_ are no better than _quantile dotplots with means_ in this respect.
-
-```{r}
-stats_df %>%
-  group_by(means, sd_diff, condition, .draw) %>%          # maginalize out other manipulations
-  summarise(pse = mean(pse)) %>%
-  filter(sd_diff == 5) %>%
-  unite(vis_cond, condition, means) %>%
-  filter(vis_cond %in% c("densities_FALSE", "QDPs_TRUE")) %>%
-  compare_levels(pse, by = vis_cond) %>%
-  ggplot(aes(x = pse, y = vis_cond)) +
-  stat_halfeyeh() +
-  labs(subtitle = "Differences in PSE Densities and QDPs at Low Variance") +
-  theme_minimal()
-```
-
-PSE for each visualization condition at low variance without means.
-
-```{r}
-stats_df %>%
-  filter(sd_diff == 5 & !as.logical(means)) %>%
-  group_by(means, sd_diff, condition, .draw) %>%          # maginalize out other manipulations
-  summarise(
-    pse = mean(pse),
-    pse_p_award = mean(pse_p_award)
-  ) %>%
-  mean_qi()
-```
-
-Now, we'll consider contrasts between visualization conditions without means at high variance.
-
-```{r}
-stats_df %>%
-  group_by(means, sd_diff, condition, .draw) %>%          # maginalize out other manipulations
-  summarise(pse = mean(pse)) %>%
-  filter(sd_diff == 15 & !as.logical(means)) %>%
-  compare_levels(pse, by = condition) %>%
-  ggplot(aes(x = pse, y = condition)) +
-  stat_halfeyeh() +
-  labs(subtitle = "Differences in PSE Between Visualization Conditions at High Variance without Means") +
-  theme_minimal()
-```
-
-When we compare visualization conditions without means, looking for the least biased distributional encoding at high variance, intervals are less biased than HOPs and maybe quantile dotplots, but are not reliably less biased than densities. 
-
-PSE for each visualization condition at high variance without means.
-
-```{r}
-stats_df %>%
-  filter(sd_diff == 15 & !as.logical(means)) %>%
-  group_by(means, sd_diff, condition, .draw) %>%          # maginalize out other manipulations
-  summarise(
-    pse = mean(pse),
-    pse_p_award = mean(pse_p_award)
-  ) %>%
-  mean_qi()
-```
-
+It looks like the effect of means is reliable if we marginalize across visualization conditions, which lends credence to the argument that this effect is robust.
 
 ####Visualization Effects
 
-We preregistered comparisons between estimates of PSE per visualization, marginalizing across other manipulations. However, it occurs to us in hindsight that this marginalization corresponds to a visualization designers cannot render, a chart both with and without means. Therefore, we downplay these results compared to the more nuanced interaction effects.
+We preregistered comparisons between estimates of PSE per visualization, marginalizing across other manipulations. However, it occurs to us in hindsight that this marginalization corresponds to a visualization designers cannot render, a chart both with and without means at the same time. Therefore, we omit these comparisons from the paper and present them only in supplemental materials.
 
 ```{r}
 stats_df %>%
@@ -666,13 +602,85 @@ stats_df %>%
 
 It looks like the point of subjective equality is least biased with intervals, with increasing bias toward intervening (i.e., negative PSE) with HOPs, densities, and quantile dotplots, respectively. Only pairwise differences of intervals minus densities and intervals minus quantile dotplots are reliable.
 
+####Effect of Visualization Design for Low and High Variance Separately
+
+It seems like the patterns of results for PSE at low vs high variance are different enough that we might want to make different design recommendations depending on the level of uncertainty shown in charts. For this reason, in the paper we present contrasts between visualization designs at low and high variance separately.
+
+Let's start by looking at contrasts between visualization designs at low variance.
+
+```{r}
+stats_df %>%
+  filter(sd_diff == 5) %>%
+  unite(design, c("condition", "means")) %>%
+  group_by(design, .draw) %>%                   # group by predictors to keep
+  summarise(pse = mean(pse)) %>%                # marginalize by taking a weighted average
+  compare_levels(pse, by = design) %>%
+  ggplot(aes(x = pse, y = design)) +
+  stat_halfeyeh() +
+  labs(subtitle = "Differences in PSE Between Visualization Designs at Low Variance") +
+  theme_minimal()
+```
+
+What we can take away from this figure that we didn't get from the chart of interaction effects above is that there are no reliable differences among visualization designs that use intervals and HOPs for uncertainty encodings. This is true for densities and quantile dotplots as well, with the exception of the comparison between quantile dotplots without means and densities with means, two designs with opposite directions of bias. *Densities without means and quantile dotplots with means are the least biased conditions* and are reliably different from designs that use intervals and HOPs to encode uncertainty. 
+
+Just to reiterate, this particularly important comparsions, there is no reliable difference between densities without means and quantile dotplots with means.
+
+```{r}
+stats_df %>%
+  group_by(means, sd_diff, condition, .draw) %>%          # maginalize out other manipulations
+  summarise(pse = mean(pse)) %>%
+  filter(sd_diff == 5) %>%
+  unite(vis_cond, condition, means) %>%
+  filter(vis_cond %in% c("densities_FALSE", "QDPs_TRUE")) %>%
+  compare_levels(pse, by = vis_cond) %>%
+  ggplot(aes(x = pse, y = vis_cond)) +
+  stat_halfeyeh() +
+  labs(subtitle = "Differences in PSE Densities and QDPs at Low Variance") +
+  theme_minimal()
+```
+
+Now, we'll consider contrasts between visualization designs high variance.
+
+```{r}
+stats_df %>%
+  filter(sd_diff == 15) %>%
+  unite(design, c("condition", "means")) %>%
+  group_by(design, .draw) %>%                   # group by predictors to keep
+  summarise(pse = mean(pse)) %>%                # marginalize by taking a weighted average
+  compare_levels(pse, by = design) %>%
+  ggplot(aes(x = pse, y = design)) +
+  stat_halfeyeh() +
+  labs(subtitle = "Differences in PSE Between Visualization Designs at High Variance") +
+  theme_minimal()
+```
+
+When we look for the least biased distributional encoding at high variance, intervals without means stand out. However, they are not reliably less biased than intervals without means.
+
+####Effect of High vs Low Variance
+
+Now, let's look at constrasts for the impact of the level of variance. This is an exploratory comparison.
+
+```{r}
+stats_df %>%
+  group_by(sd_diff, .draw) %>%          # maginalize out other manipulations (including means present/absent)
+  summarise(pse = mean(jnd)) %>%
+  compare_levels(pse, by = sd_diff) %>%
+  ggplot(aes(x = pse, y = "Effect of Variance")) +
+  stat_halfeyeh() +
+  labs(x = "Difference in PSE (High - Low Variance)") +
+  theme_minimal()
+```
+
+People seem to intervene more than they should when uncertainty is high. It may be that users err on the side of caution in decision-making when the span of distributions is larger compared to the width of the axis. This was not really our primary research question, but it is an interesting result that future work should probably investigate further.
+
+
 ###Just-Noticeable Differences (JNDs)
 
 JNDs describe a chart user's sensitivity to effect size information (i.e., evidence) for the purpose of making decisions. 
 
-####Interaction Effects
+####Effects of Adding Means
 
-Since we are interested in the way that extinsic means impact the perception of effect size at difference levels of variance, we also look at how this effect manifests in JNDs.
+Since we are interested in the way that extinsic means impact the perception of effect size at difference levels of variance, we look at how this effect manifests in JNDs.
 
 ```{r}
 stats_df %>%
@@ -699,58 +707,43 @@ stats_df %>%
   facet_grid(sd_diff ~ .)
 ```
 
-Extrinsic means seem to improve sensitivity for intervals at high variance
+Adding means seem to improve sensitivity for intervals at high variance. All other effects are not reliable.
+
+Effect of means on JNDs for each combination of visualization condition and level of variance (in figure). 
 
 ```{r}
 jnd_tbl <- stats_df %>%
-  filter(condition == "intervals" & sd_diff == 15) %>%
-  group_by(means, sd_diff, condition, .draw) %>%
+  group_by(means, sd_diff, condition, .draw) %>%          # maginalize out other manipulations
   summarise(jnd = mean(jnd)) %>%
   compare_levels(jnd, by = means) %>%
   mean_qi()
 jnd_p_tbl <- stats_df %>%
-  filter(condition == "intervals" & sd_diff == 15) %>%
-  group_by(means, sd_diff, condition, .draw) %>%
+  group_by(means, sd_diff, condition, .draw) %>%          # maginalize out other manipulations
   summarise(jnd_p_award = mean(jnd_p_award)) %>%
   compare_levels(jnd_p_award, by = means) %>%
   mean_qi()
 jnd_tbl %>% full_join(jnd_p_tbl, by = c("means", "sd_diff", "condition"))
 ```
 
-Now, let's look at constrasts for the impact of the level of variance.
-
-```{r}
-stats_df %>%
-  group_by(sd_diff, .draw) %>%          # maginalize out other manipulations (including means present/absent and vis condition)
-  summarise(jnd = mean(jnd)) %>%
-  compare_levels(jnd, by = sd_diff) %>%
-  ggplot(aes(x = jnd, y = "effect of variance")) +
-  stat_halfeyeh() +
-  labs(x = "JND Difference (Variance high - low)") +
-  theme_minimal()
-```
-
-Let's quantify the marginal impact of the level of variance on JNDs.
+Effect of means on JNDs, marginalizing across visualization condition. The effect of adding means is not reliable at either low or high variance in the aggregate (omitted from figure for space).
 
 ```{r}
 jnd_tbl <- stats_df %>%
-  group_by(sd_diff, .draw) %>%          # maginalize out other manipulations (including condition and means present/absent)
+  group_by(means, sd_diff, .draw) %>%
   summarise(jnd = mean(jnd)) %>%
-  compare_levels(jnd, by = sd_diff) %>%
+  compare_levels(jnd, by = means) %>%
   mean_qi()
 jnd_p_tbl <- stats_df %>%
-  group_by(sd_diff, .draw) %>%          # maginalize out other manipulations (including condition and means present/absent)
+  group_by(means, sd_diff, .draw) %>%
   summarise(jnd_p_award = mean(jnd_p_award)) %>%
-  compare_levels(jnd_p_award, by = sd_diff) %>%
+  compare_levels(jnd_p_award, by = means) %>%
   mean_qi()
-jnd_tbl %>% full_join(jnd_p_tbl, by = c("sd_diff"))
+jnd_tbl %>% full_join(jnd_p_tbl, by = c("means", "sd_diff"))
 ```
-
-Users seem to be consistently more sensitive to evidence (smaller JNDs) when uncertainty is high. This might be because charts in the high uncertainty condition use more of the space on a chart to convey effect size compared to the low uncertainty charts which have a lot of white space such that smaller visual differences convey the same effect size. 
 
 ####Visualization Effects
 
-We preregistered comparisons of JNDs per visualization, marginalizing across other manipulations.
+We preregistered comparisons of JNDs per visualization, marginalizing across other manipulations. However, it occurs to us in hindsight that this marginalization corresponds to a visualization designers cannot render, a chart both with and without means at the same time. Therefore, we omit these comparisons from the paper and present them only in supplemental materials.
 
 ```{r}
 stats_df %>%
@@ -788,6 +781,81 @@ stats_df %>%
 ```
 
 It looks like users are most sensitive to evidence (i.e., JNDs are smaller) in the quantile dotplots condition and are least sensitive with HOPs. Only the difference between quantile dotplots and other conditions is reliable.
+
+####Effect of Visualization Design when Averaging Over Variance
+
+In the paper, we look at the JNDs for different visualization designs when we average over variance to give a sense of overall effectiveness on this metric.
+
+```{r}
+stats_df %>%
+  group_by(condition, means, .draw) %>%          # maginalize out other manipulations
+  summarise(jnd = mean(jnd)) %>%
+  ggplot(aes(x = jnd, y = condition, group = means, fill = means)) +
+  stat_slabh(alpha = 0.35) +
+  theme_minimal() +
+  theme(legend.position = "none")
+```
+
+Let's look at contrasts between each of these designs.
+
+```{r}
+stats_df %>%
+  unite(design, c("condition", "means")) %>%
+  group_by(design, .draw) %>%                   # group by predictors to keep
+  summarise(jnd = mean(jnd)) %>%                # marginalize by taking a weighted average
+  compare_levels(jnd, by = design) %>%
+  ggplot(aes(x = jnd, y = design)) +
+  stat_halfeyeh() +
+  labs(subtitle = "Differences in JND Between Visualization Designs, Averaging Over Variance") +
+  theme_minimal()
+```
+
+We can see that quantile dotplots with or without means have reliably smaller JNDs than other conditions, with the exception of the contrast between quantile dotplots without means and densities with or without means. These are the only reliably differences between designs.
+
+Effect of means on JNDs for each visualization condition, marginalizing over variance (in figure). 
+
+```{r}
+jnd_tbl <- stats_df %>%
+  group_by(condition, means, .draw) %>%          # maginalize out other manipulations
+  summarise(jnd = mean(jnd)) %>%
+  compare_levels(jnd, by = means) %>%
+  mean_qi()
+jnd_p_tbl <- stats_df %>%
+  group_by(condition, means, .draw) %>%          # maginalize out other manipulations
+  summarise(jnd_p_award = mean(jnd_p_award)) %>%
+  compare_levels(jnd_p_award, by = means) %>%
+  mean_qi()
+jnd_tbl %>% full_join(jnd_p_tbl, by = c("condition", "means"))
+```
+
+JNDs with and without means, marginalizing over variance. These numbers help us to contextualize the overall effect of visualization designs on JNDs.
+
+```{r}
+stats_df %>%
+  group_by(condition, means, .draw) %>%          # maginalize out other manipulations
+  summarise(
+    jnd = mean(jnd),
+    jnd_p_award = mean(jnd_p_award)
+  ) %>%
+  mean_qi()
+```
+
+####Effect of High vs Low Variance
+
+Now, let's look at constrasts for the impact of the level of variance. This is an exploratory comparison.
+
+```{r}
+stats_df %>%
+  group_by(sd_diff, .draw) %>%          # maginalize out other manipulations (including means present/absent and vis condition)
+  summarise(jnd = mean(jnd)) %>%
+  compare_levels(jnd, by = sd_diff) %>%
+  ggplot(aes(x = jnd, y = "effect of variance")) +
+  stat_halfeyeh() +
+  labs(x = "JND Difference (Variance high - low)") +
+  theme_minimal()
+```
+
+Users seem to be consistently more sensitive to evidence (smaller JNDs) when uncertainty is high. This might be because charts in the high uncertainty condition use more of the space on a chart to convey effect size compared to the low uncertainty charts which have a lot of white space such that smaller visual differences convey the same effect size. 
 
 
 ##Does Perceptual Accuracy Lead to Better Decision-Making?
