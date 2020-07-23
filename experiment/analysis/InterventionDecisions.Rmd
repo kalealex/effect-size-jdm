@@ -22,7 +22,7 @@ In this document, we build a logistic regression model of intervention decisions
 
 ##Load and Prepare Data
 
-We load worker responses from our pilot and do some preprocessing.
+We load worker responses from our experiment and do some preprocessing.
 
 ```{r}
 # read in data 

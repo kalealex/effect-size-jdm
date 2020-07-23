@@ -1,0 +1,197 @@
+---
+title: "Overall Performance for Included vs Excluded Participants"
+author: "Alex Kale"
+date: "7/22/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(RColorBrewer)
+```
+
+This document provides a summary of overall performance on both the estimation and decision tasks in our study. It also compares these metrics for included vs excluded participants.
+
+##Load and Prepare Data
+
+We load worker responses from our experiment and do some preprocessing.
+
+```{r}
+# read in data 
+full_df <- read_csv("experiment-anonymous.csv")
+
+# preprocessing
+responses_df <- full_df %>%
+  rename( # rename to convert away from camel case
+    worker_id = workerId,
+    ground_truth = groundTruth,
+    sd_diff = sdDiff,
+    p_award_with = pAwardWith,
+    p_award_without = pAwardWithout,
+    account_value = accountValue,
+    p_superiority = pSup,
+    start_time = startTime,
+    resp_time = respTime,
+    trial_dur = trialDur,
+    trial_idx = trialIdx
+  ) %>%
+  # remove practice and mock trials from responses dataframe, leave in full version
+  filter(trial_idx != "practice", trial_idx != "mock") %>% 
+  # mutate rows where intervene == -1 for some reason
+  mutate(
+    intervene = if_else(intervene == -1,
+                        # repair
+                        if_else((payoff == (award_value - 1) | payoff == -1),
+                                1, # payed for intervention
+                                0), # didn't pay for intervention
+                        # don't repair
+                        as.numeric(intervene) # hack to avoid type error
+                        )
+  ) #%>%
+  # # set up factors for modeling
+  # mutate(
+  #   # add a variable to note whether the chart they viewed showed means
+  #   means = as.factor((start_means & as.numeric(trial) <= (n_trials / 2)) | (!start_means & as.numeric(trial) > (n_trials / 2))),
+  #   start_means = as.factor(start_means),
+  #   sd_diff = as.factor(sd_diff),
+  #   trial_number = as.numeric(trial)
+  # )
+
+head(responses_df)
+```
+
+Now, lets apply our exclusion criteria, adding a row to our dataframe that we can use to split our sample into subsets of included and excluded participants.
+
+```{r}
+# determine exclusions
+exclude_df <- responses_df %>% 
+  # attention check trials where ground truth = c(0.5, 0.999)
+  mutate(failed_check = (ground_truth == 0.5 & intervene != 0) | (ground_truth == 0.999 & intervene != 1)) %>%
+  group_by(worker_id) %>%
+  summarise(
+    failed_attention_checks = sum(failed_check),
+    unique_p_sup = length(unique(p_superiority)),
+    # exclude if they failed either attention check, used fewer than three levels of the response scale, or were one of four participants with too many missing responses to fit our models
+    exclude = failed_attention_checks > 0 | unique_p_sup < 3 | unique(worker_id) %in% c("c488db75", "ce016e09", "f430e2e8", "c337674a")
+  ) %>% 
+  dplyr::select(worker_id, exclude)
+
+# apply exclusion criteria and remove attention check trials from dataset
+responses_df <- responses_df %>% 
+  left_join(exclude_df, by = "worker_id") %>%
+  filter(ground_truth > 0.5 & ground_truth < 0.999)
+
+# how participants excluded vs not?
+responses_df %>%
+  group_by(exclude) %>%
+  summarise(
+    n_workers = length(unique(worker_id))
+  )
+```
+
+Now we have our dataset ready.
+
+##Summary Statistics for Overall Performance
+
+To summarize performance on probability of superiority judgments, we'll look at absolute error.
+
+```{r}
+# add error and absolute error to df
+responses_df <- responses_df %>%
+  mutate(abs_err_p_sup = abs(p_superiority - ground_truth * 100))
+```
+
+In order to see how people are doing on the decision task, we will benchmark their performance against the utility optimal decision rule on our task
+
+```{r}
+# determine whether or not intervention is utility optimal on each trial
+responses_df <- responses_df %>%
+  mutate(
+    should_intervene = (p_award_with - p_award_without) > 1 / award_value, # decision rule
+    correct = intervene == should_intervene
+  )
+```
+
+##Analysis of Overall Performance
+
+Reviewers of our paper asked about overall performance for included vs excluded participants.
+
+###Estimation Task
+
+Let's start by showing absolute error in probability of superiority estimates per condition for included vs excluded participants.
+
+```{r}
+responses_df %>%
+  group_by(condition, exclude) %>%
+  summarise(avg_abs_err_p_sup = mean(abs_err_p_sup)) %>%
+  ggplot(aes(x = condition, y = avg_abs_err_p_sup, fill = exclude)) +
+    geom_bar(stat = "identity", position = position_dodge()) +
+    scale_fill_brewer(type = "qual", palette = 1) +
+    theme_bw() +
+    labs(title = "Average Absolute Error in Probability of Superiority Estimates",
+        x = "Visualization Condition",
+        y = "Average Absolute Error (out of 100)"
+    )
+```
+
+Let's also look at this summary statistic for included vs excluded participants regardless of condition.
+
+```{r}
+# collapsing across conditions
+responses_df %>%
+  group_by(exclude) %>%
+  summarise(avg_abs_err_p_sup = mean(abs_err_p_sup))
+```
+
+We can see that average absolute error for included participants is about 17%, about 8% lower than for excluded participants. This suggests both that the probability of superiority judgment was difficult for participants and that our exclusion criteria successfully selected against participants with an especially poor understanding of the task.
+
+To get a more granular understanding of performance, let's look at the average probability of superiority estimate vs ground truth for included vs excluded participants in each condition.
+
+```{r}
+responses_df %>%
+  group_by(condition, exclude, ground_truth) %>%
+  summarise(avg_p_sup = mean(p_superiority)) %>%
+  ggplot(aes(x = ground_truth * 100, y = avg_p_sup, color = exclude)) +
+    geom_line() +
+    geom_abline(aes(intercept = 0, slope = 1), color = "red", linetype ="longdash") +
+    scale_color_brewer(type = "qual", palette = 1) +
+    theme_bw() +
+    labs(title = "Average Estimate vs Ground Truth Probability of Superiority",
+        x = "Ground Truth Probability of Superiority",
+        y = "Average Estimate"
+    ) +
+    coord_cartesian(ylim = c(50, 100)) +
+    facet_grid(condition ~ .)
+```
+
+The red dashed line depicts perfect performance. We can see that excluded participants in all conditions were less sensitive to the ground truth than included participants. This suggests that adding excluded participants to our analysis would have resulted in an exaggeration of users' tendency to underestimate effect size, which would have severly limited our statistical power to detect differences in performance between visualization designs.
+
+###Decision Task
+
+Now, let's look at overall performance on our decision task in terms of the proportion of "correct" or utility optimal decisions.
+
+```{r}
+responses_df %>%
+  group_by(condition, exclude) %>%
+  summarise(proportion_correct = sum(correct) / n()) %>%
+  ggplot(aes(x = condition, y = proportion_correct, fill = exclude)) +
+    geom_bar(stat = "identity", position = position_dodge()) +
+    scale_fill_brewer(type = "qual", palette = 1) +
+    theme_bw() +
+    labs(title = "Proportion of Utility Optimal Decisions",
+        x = "Visualization Condition",
+        y = "Proportion Correct"
+    )
+```
+
+Let's also look at this summary statistic for included vs excluded participants regardless of condition.
+
+```{r}
+# collapsing across conditions
+responses_df %>%
+  group_by(exclude) %>%
+  summarise(proportion_correct = sum(correct) / n())
+```
+
+We can see that included participants seem to perform much better on the decision task (70% correct) than excluded participants (53% correct). We expect the decision task to be very difficult for the 1/4th of trials that were close to the utility-optimal decision threshold of 74% probability of superiority. In light of the way we sampled the ground truth, making the utility-optimal decision on 70% of trials is surprisingly good overall performance. This suggests that the participants included in our analysis did seem to understand the decision task.

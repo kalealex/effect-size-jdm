@@ -256,7 +256,7 @@ responses_df %>%
     theme_bw() +
     labs(title = "Average Absolute Error Relative to Ground Truth",
         x = "Visualization Condition",
-        y = "Average Absolute Error (in years out of 100)"
+        y = "Average Absolute Error (out of 100)"
     ) +
   facet_grid(means ~ .)
 ```
