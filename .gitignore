@@ -9,6 +9,7 @@ model-fits/
 *.ai
 *.svg
 *.png
-figures/components/
+experiment/figures/components/
 paper/
 experiment/analysis/ExploratoryVisualization.html
+presentation/
