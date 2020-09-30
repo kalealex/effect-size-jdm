@@ -38,9 +38,9 @@ The interface we used to run the experiment is a custom web application hosted o
 
 The url for the experiment landing page is https://effect-size-jdm.herokuapp.com/0_landing?workerId=[unique_string]&assignmentId=test&cond=[condition]
 
-In order to access the interface, you'll need to choose a unique string to fill in the 'workerId' url parameter. If you choose the same string as somebody else, you will be redirected to a page that tells you so.
+In order to access the interface, you'll need to choose a unique string to fill in the 'workerId' url parameter (e.g., `workerId=alex`). If you choose the same string as somebody else, you will be redirected to a page that tells you so.
 
-You'll also need to choose which condition you'd like to see. Type one of the following options to fill in the 'cond' url parameter. These will allow you to do the experiment with 95% containment intervals, hypothetical outcome plots, quantile dotplots, or probability densities, respectively.
+You'll also need to choose which condition you'd like to see. Type one of the following options to fill in the 'cond' url parameter (e.g., `cond=QDPs`). These will allow you to do the experiment with 95% containment intervals, hypothetical outcome plots, quantile dotplots, or probability densities, respectively.
 
 - intervals
 - HOPs
