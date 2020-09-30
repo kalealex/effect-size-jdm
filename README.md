@@ -1,10 +1,10 @@
 # Judgments and Decisions from Visualizations of Effect Size
 
-This repository contains supplemental materials for the IEEE VIS 2020 submission, _Visual Reasoning Strategies and Satisficing: How Uncertainty Visualization Design Impacts Judgments of Effect Size_.
+This repository contains supplemental materials for the IEEE VIS 2020 paper, _Visual Reasoning Strategies for Effect Size Judgments and Decisions_.
 
 ## Contents
 
-Contents include study planning and analysis scripts, drafts of the paper, as well as code used to generate the figures and statistics presented in the paper. Many of the generated files such as images and model fit objects have been intentionally left out of the repo due to file size. The interfaces used to run the experiment are located in private subrepositories in order to protect database credentials. Please contact the first author for more information about the experimental interface.
+Contents include study planning and analysis scripts, drafts of the paper, as well as code used to generate the figures and statistics presented in the paper. Many of the generated files such as images and model fit objects have been intentionally left out of the repo due to file size. The interface code used to run the experiment is located in a private subrepository in order to protect database credentials.
 
 experiment/ - _files pertaining to the planning, analysis, and presentation of findings from the main experiment_
 - analysis/
@@ -31,3 +31,18 @@ interface/ - _code for the experimental interface_
 - heuristics-experiment-interface/ - _private subrepository containing code to run the interface for an early pilot_
 
 pilot-studies/ - _files pertaining to the planning and analysis of five pilot studies (separate table of contents TK)_ 
+
+## Interface
+
+The interface we used to run the experiment is a custom web application hosted on Heroku. Please follow these instructions to check it out for yourself.
+
+The url for the experiment landing page is https://effect-size-jdm.herokuapp.com/0_landing?workerId=*unique_string*&assignmentId=test&cond=*condition*
+
+In order to access the interface, you'll need to choose a unique string to fill in the 'workerId' url parameter. If you choose the same string as somebody else, you will be redirected to a page that tells you so.
+
+You'll also need to choose which condition you'd like to see. Type one of the following options to fill in the 'cond' url parameter. These will allow you to do the experiment with 95% containment intervals, hypothetical outcome plots, quantile dotplots, or probability densities, respectively.
+
+- intervals
+- HOPs
+- QDPs
+- densities
