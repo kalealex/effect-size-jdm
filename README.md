@@ -36,7 +36,7 @@ pilot-studies/ - _files pertaining to the planning and analysis of five pilot st
 
 The interface we used to run the experiment is a custom web application hosted on Heroku. Please follow these instructions to check it out for yourself.
 
-The url for the experiment landing page is https://effect-size-jdm.herokuapp.com/0_landing?workerId=*unique_string*&assignmentId=test&cond=*condition*
+The url for the experiment landing page is https://effect-size-jdm.herokuapp.com/0_landing?workerId=[unique_string]&assignmentId=test&cond=[condition]
 
 In order to access the interface, you'll need to choose a unique string to fill in the 'workerId' url parameter. If you choose the same string as somebody else, you will be redirected to a page that tells you so.
 
